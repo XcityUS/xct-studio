@@ -26,6 +26,7 @@ import {
     type VideoResolution
 } from '@/lib/seedance';
 import { captureVideoPoster } from '@/lib/thumbnail';
+import { XCITY_SSO_ENABLED, fetchXcityUserKey, xcityLoginHref } from '@/lib/xcity-sso';
 import { useLiveQuery } from 'dexie-react-hooks';
 import * as React from 'react';
 import type { VideoJob, VideoMetadata } from '@/types/video';
@@ -84,6 +85,43 @@ export default function HomePage() {
     const [apiMode, setApiMode] = React.useState<ApiMode>(initialApiMode);
     const [clientApiKey, setClientApiKey] = React.useState<string | null>(() => getStoredApiKey());
     const [isApiKeyDialogOpen, setIsApiKeyDialogOpen] = React.useState(false);
+
+    // Xcity unified-key SSO: pull the signed-in user's TokenHub key from
+    // xcity.ai and switch to direct-gateway (frontend) calls on their own
+    // plan/budget. See lib/xcity-sso.ts.
+    const [ssoStatus, setSsoStatus] = React.useState<'checking' | 'ok' | 'unauthenticated' | 'error'>(
+        XCITY_SSO_ENABLED ? 'checking' : 'ok'
+    );
+    const [ssoError, setSsoError] = React.useState<string | null>(null);
+
+    const attemptXcitySso = React.useCallback(async () => {
+        setSsoStatus('checking');
+        setSsoError(null);
+        const result = await fetchXcityUserKey();
+        if (result.status === 'ok') {
+            setClientApiKey(result.key);
+            setApiMode('frontend');
+            setSsoStatus('ok');
+            return;
+        }
+        setSsoStatus(result.status === 'unauthenticated' ? 'unauthenticated' : 'error');
+        if (result.status === 'error') {
+            setSsoError(result.message);
+        }
+    }, []);
+
+    React.useEffect(() => {
+        if (XCITY_SSO_ENABLED) {
+            void attemptXitySsoSafe();
+        }
+        async function attemptXitySsoSafe() {
+            try {
+                await attemptXcitySso();
+            } catch {
+                setSsoStatus('error');
+            }
+        }
+    }, [attemptXcitySso]);
 
     // Job tracking
     const [activeJobs, setActiveJobs] = React.useState<Map<string, VideoJob>>(new Map());
@@ -325,6 +363,9 @@ export default function HomePage() {
         }
 
         setClientApiKey(trimmedKey);
+        // A user-supplied TokenHub key always talks to the gateway directly.
+        setApiMode('frontend');
+        setSsoStatus('ok');
         setError(null);
     };
 
@@ -1001,6 +1042,44 @@ export default function HomePage() {
                             isBlocked={isApiKeyGateBlocked}
                             onConfigure={handleOpenApiKeyDialog}
                             className='flex-1'>
+                            {XCITY_SSO_ENABLED && ssoStatus !== 'ok' ? (
+                                <div className='flex h-full min-h-[600px] w-full flex-col items-center justify-center gap-4 rounded-lg border border-white/10 bg-black p-8 text-center'>
+                                    {ssoStatus === 'checking' ? (
+                                        <>
+                                            <p className='text-lg font-medium text-white'>Connecting your Xcity account…</p>
+                                            <p className='text-sm text-white/50'>Fetching your TokenHub key from xcity.ai</p>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <p className='text-lg font-medium text-white'>Sign in with Xcity</p>
+                                            <p className='max-w-sm text-sm text-white/60'>
+                                                Video generation runs on your own Xcity plan. Sign in at xcity.ai and
+                                                come back — your TokenHub key is picked up automatically.
+                                            </p>
+                                            {ssoStatus === 'error' && ssoError && (
+                                                <p className='max-w-sm text-xs text-red-300/80'>({ssoError})</p>
+                                            )}
+                                            <div className='flex flex-wrap items-center justify-center gap-3'>
+                                                <Button asChild className='bg-white text-black hover:bg-white/90'>
+                                                    <a href={xcityLoginHref()}>Sign in at xcity.ai</a>
+                                                </Button>
+                                                <Button
+                                                    variant='secondary'
+                                                    onClick={() => void attemptXcitySso()}
+                                                    className='bg-white/10 text-white hover:bg-white/20'>
+                                                    Retry
+                                                </Button>
+                                                <Button
+                                                    variant='ghost'
+                                                    onClick={handleOpenApiKeyDialog}
+                                                    className='text-white/60 hover:bg-white/10 hover:text-white'>
+                                                    Use an API key instead
+                                                </Button>
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                            ) : (
                             <CreationForm
                                 onSubmit={handleCreateVideo}
                                 isLoading={isSubmitting}
@@ -1019,6 +1098,7 @@ export default function HomePage() {
                                 inputReferenceUrl={createInputReferenceUrl}
                                 setInputReferenceUrl={setCreateInputReferenceUrl}
                             />
+                            )}
                         </ApiKeyGate>
                     </div>
                     <div className='flex min-h-[600px] flex-col lg:col-span-1'>
