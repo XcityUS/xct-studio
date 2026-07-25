@@ -1,8 +1,6 @@
 'use client';
 
-import type { VideoModel, VideoSeconds, VideoSize } from 'openai/resources/videos';
 import { CreationForm, type CreationFormData } from '@/components/creation-form';
-import { RemixForm, type RemixFormData } from '@/components/remix-form';
 import { VideoHistoryPanel } from '@/components/video-history-panel';
 import { VideoOutput } from '@/components/video-output';
 import { PasswordDialog } from '@/components/password-dialog';
@@ -17,19 +15,20 @@ import { db, type VideoRecord } from '@/lib/db';
 import { VideoService, type ApiMode } from '@/lib/video-service';
 import { verifyFrontendApiKey } from '@/lib/openai-client';
 import { InvalidApiKeyError } from '@/lib/errors';
+import {
+    DEFAULT_MODEL,
+    DEFAULT_RATIO,
+    DEFAULT_RESOLUTION,
+    DEFAULT_SECONDS,
+    formatSize,
+    type VideoModel,
+    type VideoRatio,
+    type VideoResolution
+} from '@/lib/seedance';
+import { captureVideoPoster } from '@/lib/thumbnail';
 import { useLiveQuery } from 'dexie-react-hooks';
 import * as React from 'react';
 import type { VideoJob, VideoMetadata } from '@/types/video';
-
-const VIDEO_SECONDS_VALUES = ['4', '8', '12'] as const;
-
-const toVideoSeconds = (value: number | string): VideoSeconds => {
-    const normalized = value.toString();
-    if ((VIDEO_SECONDS_VALUES as readonly string[]).includes(normalized)) {
-        return normalized as VideoSeconds;
-    }
-    throw new Error(`Unsupported video seconds value: ${value}`);
-};
 
 const explicitModeClient = process.env.NEXT_PUBLIC_FILE_STORAGE_MODE;
 const vercelEnvClient = process.env.NEXT_PUBLIC_VERCEL_ENV;
@@ -71,7 +70,6 @@ console.log(
 );
 
 export default function HomePage() {
-    const [mode, setMode] = React.useState<'create' | 'remix'>('create');
     const [isPasswordRequiredByBackend, setIsPasswordRequiredByBackend] = React.useState<boolean | null>(
         isFrontendModeEnabled ? false : null
     );
@@ -117,15 +115,13 @@ export default function HomePage() {
     const [isInitialLoad, setIsInitialLoad] = React.useState(true);
 
     // Creation form state
-    const [createModel, setCreateModel] = React.useState<VideoModel>('sora-2');
+    const [createModel, setCreateModel] = React.useState<VideoModel>(DEFAULT_MODEL);
     const [createPrompt, setCreatePrompt] = React.useState('');
-    const [createSize, setCreateSize] = React.useState<VideoSize>('720x1280');
-    const [createSeconds, setCreateSeconds] = React.useState<VideoSeconds>('4');
-    const [createInputReference, setCreateInputReference] = React.useState<File | null>(null);
-
-    // Remix form state
-    const [remixSourceVideoId, setRemixSourceVideoId] = React.useState('');
-    const [remixPrompt, setRemixPrompt] = React.useState('');
+    const [createRatio, setCreateRatio] = React.useState<VideoRatio>(DEFAULT_RATIO);
+    const [createResolution, setCreateResolution] = React.useState<VideoResolution>(DEFAULT_RESOLUTION);
+    const [createSeconds, setCreateSeconds] = React.useState<number>(DEFAULT_SECONDS);
+    const [createAudio, setCreateAudio] = React.useState(true);
+    const [createInputReferenceUrl, setCreateInputReferenceUrl] = React.useState('');
 
     const allDbVideos = useLiveQuery<VideoRecord[] | undefined>(() => db.videos.toArray(), []);
 
@@ -409,30 +405,12 @@ export default function HomePage() {
                 return URL.createObjectURL(record.thumbnail);
             }
 
-            // Frontend mode only uses IndexedDB - if not found, thumbnail hasn't been downloaded yet
-            if (apiMode === 'frontend') {
-                return undefined;
-            }
-
-            // Backend mode: use API endpoints
-            // Don't attempt API call if we haven't determined password requirement yet
-            if (isPasswordRequiredByBackend === null) {
-                return undefined;
-            }
-
-            // Don't attempt API call if password is required but not provided
-            if (isPasswordRequiredByBackend && !clientPasswordHash) {
-                return undefined;
-            }
-
-            // Build URL with password hash as query param if needed
-            const url = `/api/videos/${id}/content?variant=thumbnail`;
-            if (clientPasswordHash) {
-                return `${url}&password-hash=${encodeURIComponent(clientPasswordHash)}`;
-            }
-            return url;
+            // Thumbnails are captured client-side from the downloaded blob and
+            // stored in IndexedDB — the TokenHub gateway has no thumbnail
+            // variant. Not found = poster not captured (yet).
+            return undefined;
         },
-        [allDbVideos, history, isPasswordRequiredByBackend, clientPasswordHash, apiMode]
+        [allDbVideos, history]
     );
 
     // Single polling interval for all active jobs
@@ -606,7 +584,7 @@ export default function HomePage() {
                         status: 'in_progress', // Will be updated by polling
                         model: item.model,
                         progress: item.progress || 0,
-                        seconds: toVideoSeconds(item.seconds),
+                        seconds: String(item.seconds),
                         size: item.size,
                         prompt: item.prompt,
                         remix_of: item.remix_of
@@ -629,45 +607,12 @@ export default function HomePage() {
 
         try {
             // Download video content
-            const blob = await videoService.downloadContent(job.id, 'video');
+            const blob = await videoService.downloadContent(job.id);
             const filename = `${job.id}.mp4`;
 
-            // Download thumbnail proactively
-            let thumbnailBlob: Blob | undefined;
-            try {
-                console.log(`Downloading thumbnail for video ${job.id}...`);
-                thumbnailBlob = await videoService.downloadContent(job.id, 'thumbnail');
-                console.log(`Downloaded thumbnail for video ${job.id}`);
-            } catch (err: unknown) {
-                if (err instanceof InvalidApiKeyError) {
-                    handleInvalidApiKey();
-                    return;
-                }
-                if (typeof err === 'object' && err !== null && 'status' in err && (err as { status?: number }).status === 404) {
-                    console.warn(`Thumbnail not available yet for ${job.id}, skipping`);
-                } else {
-                    console.error(`Error downloading thumbnail for ${job.id}:`, err);
-                }
-            }
-
-            // Download spritesheet proactively (for future timeline scrubbing)
-            try {
-                console.log(`Downloading spritesheet for video ${job.id}...`);
-                await videoService.downloadContent(job.id, 'spritesheet');
-                console.log(`Downloaded spritesheet for video ${job.id}`);
-                // Spritesheet is saved to filesystem by the API endpoint in backend mode
-                // We're not storing it in IndexedDB for now since it's mainly for future features
-            } catch (err: unknown) {
-                if (err instanceof InvalidApiKeyError) {
-                    handleInvalidApiKey();
-                    return;
-                }
-                if (typeof err === 'object' && err !== null && 'status' in err && (err as { status?: number }).status === 404) {
-                    console.warn(`Spritesheet not available yet for ${job.id}, skipping`);
-                } else {
-                    console.error(`Error downloading spritesheet for ${job.id}:`, err);
-                }
-            }
+            // The gateway serves only the raw MP4 — capture a poster frame
+            // client-side for the history thumbnails.
+            const thumbnailBlob = await captureVideoPoster(blob);
 
             // Store in IndexedDB if needed
             if (effectiveStorageModeClient === 'indexeddb') {
@@ -735,6 +680,7 @@ export default function HomePage() {
         }
 
         // Create a temporary job to show immediate feedback
+        const displaySize = formatSize(formData.ratio, formData.resolution);
         const tempId = `temp_${Date.now()}`;
         const tempJob: VideoJob = {
             id: tempId,
@@ -743,8 +689,8 @@ export default function HomePage() {
             status: 'queued',
             model: formData.model,
             progress: 0,
-            seconds: formData.seconds,
-            size: formData.size,
+            seconds: String(formData.seconds),
+            size: displaySize,
             prompt: formData.prompt
         };
 
@@ -755,39 +701,34 @@ export default function HomePage() {
         try {
             console.log('Creating video job...');
 
-            const result = await videoService.createVideo({
-                model: formData.model,
-                prompt: formData.prompt,
-                size: formData.size,
-                seconds: formData.seconds,
-                input_reference: formData.input_reference
-            });
+            const result = await videoService.createVideo(formData);
 
             console.log('Video job created:', result);
+
+            // Normalize gateway-shaped fields (size "16x9", seconds "5") to
+            // the display values the form produced.
+            const job: VideoJob = {
+                ...result,
+                prompt: formData.prompt,
+                size: displaySize,
+                seconds: String(formData.seconds)
+            };
 
             // Remove temporary job and add real job
             setActiveJobs((prev) => {
                 const newJobs = new Map(prev);
                 newJobs.delete(tempId);
-                const job: VideoJob = {
-                    ...result,
-                    prompt: formData.prompt // Store the prompt with the job
-                };
                 newJobs.set(job.id, job);
                 return newJobs;
             });
 
-            const job: VideoJob = {
-                ...result,
-                prompt: formData.prompt
-            };
             setCurrentJobId(job.id);
 
             // Calculate cost immediately
             const costDetails = calculateVideoCost({
-                model: job.model,
-                size: job.size,
-                seconds: parseInt(job.seconds)
+                model: formData.model,
+                resolution: formData.resolution,
+                seconds: formData.seconds
             });
 
             // Add to history immediately with queued status
@@ -799,7 +740,7 @@ export default function HomePage() {
                 durationMs: 0, // Will be updated when complete
                 model: job.model,
                 size: job.size,
-                seconds: parseInt(job.seconds),
+                seconds: formData.seconds,
                 prompt: formData.prompt,
                 mode: 'create',
                 costDetails,
@@ -838,128 +779,6 @@ export default function HomePage() {
         }
     };
 
-    const handleRemixVideo = async (formData: RemixFormData) => {
-        setError(null);
-        setIsSubmitting(true);
-
-        // Backend mode: check password
-        if (apiMode === 'backend' && isPasswordRequiredByBackend && !clientPasswordHash) {
-            setError('Password is required. Please configure the password by clicking the lock icon.');
-            setPasswordDialogContext('initial');
-            setIsPasswordDialogOpen(true);
-            setIsSubmitting(false);
-            return;
-        }
-
-        // Frontend mode: check API key (shouldn't reach here with gate, but defensive)
-        if (apiMode === 'frontend' && !clientApiKey) {
-            setError('OpenAI API key is required for frontend mode.');
-            setIsSubmitting(false);
-            return;
-        }
-
-        // Create a temporary job to show immediate feedback
-        const tempId = `temp_${Date.now()}`;
-        const tempJob: VideoJob = {
-            id: tempId,
-            object: 'video',
-            created_at: Date.now() / 1000,
-            status: 'queued',
-            model: 'sora-2', // We'll update this with actual model from API
-            progress: 0,
-            seconds: '4', // Will be updated with actual value
-            size: '720x1280', // Will be updated with actual value
-            prompt: formData.prompt,
-            remix_of: formData.source_video_id
-        };
-
-        // Show temporary job immediately
-        setActiveJobs((prev) => new Map(prev).set(tempId, tempJob));
-        setCurrentJobId(tempId);
-
-        try {
-            console.log(`Creating remix for video: ${formData.source_video_id}`);
-
-            const result = await videoService.remixVideo(formData.source_video_id, formData.prompt);
-
-            console.log('Remix job created:', result);
-
-            // Remove temporary job and add real job
-            setActiveJobs((prev) => {
-                const newJobs = new Map(prev);
-                newJobs.delete(tempId);
-                const job: VideoJob = {
-                    ...result,
-                    prompt: formData.prompt, // Store the remix prompt with the job
-                    remix_of: formData.source_video_id // Preserve the source video reference
-                };
-                newJobs.set(job.id, job);
-                return newJobs;
-            });
-
-            const job: VideoJob = {
-                ...result,
-                prompt: formData.prompt,
-                remix_of: formData.source_video_id
-            };
-            setCurrentJobId(job.id);
-
-            // Calculate cost immediately
-            const costDetails = calculateVideoCost({
-                model: job.model,
-                size: job.size,
-                seconds: parseInt(job.seconds)
-            });
-
-            // Add to history immediately with queued status
-            const newHistoryEntry: VideoMetadata = {
-                id: job.id,
-                timestamp: Date.now(),
-                filename: `${job.id}.mp4`,
-                storageModeUsed: effectiveStorageModeClient,
-                durationMs: 0, // Will be updated when complete
-                model: job.model,
-                size: job.size,
-                seconds: parseInt(job.seconds),
-                prompt: formData.prompt,
-                mode: 'remix',
-                costDetails,
-                remix_of: formData.source_video_id,
-                status: 'processing',
-                progress: 0
-            };
-
-            setHistory((prev) => [newHistoryEntry, ...prev]);
-
-            // Save active job IDs
-            setActiveJobs((prev) => {
-                const newJobs = new Map(prev).set(job.id, job);
-                saveActiveJobIds(newJobs);
-                return newJobs;
-            });
-            console.log(`Remix ${job.id} added to history with queued status`);
-
-            setIsSubmitting(false);
-        } catch (err: unknown) {
-            console.error('Error creating remix:', err);
-            if (err instanceof InvalidApiKeyError) {
-                handleInvalidApiKey('The provided OpenAI API key was rejected. Please enter a valid key.');
-            } else {
-                const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred.';
-                setError(errorMessage);
-            }
-
-            // Remove temporary job on error
-            setActiveJobs((prev) => {
-                const newJobs = new Map(prev);
-                newJobs.delete(tempId);
-                return newJobs;
-            });
-            setCurrentJobId(null);
-            setIsSubmitting(false);
-        }
-    };
-
     const handleHistorySelect = (item: VideoMetadata) => {
         console.log(`Selecting video from history: ${item.id}`);
         setCurrentJobId(item.id);
@@ -977,7 +796,7 @@ export default function HomePage() {
             status: item.status === 'failed' ? 'failed' : 'completed',
             model: item.model,
             progress: item.status === 'failed' ? (item.progress || 0) : 100,
-            seconds: toVideoSeconds(item.seconds),
+            seconds: String(item.seconds),
             size: item.size,
             prompt: item.prompt,
             ...(item.error && { error: { message: item.error } }),
@@ -1089,12 +908,6 @@ export default function HomePage() {
         setItemToForceDelete(null);
     };
 
-    const handleSendToRemix = (videoId: string) => {
-        console.log(`Sending video to remix: ${videoId}`);
-        setRemixSourceVideoId(videoId);
-        setMode('remix');
-    };
-
     const handleDownloadVideo = async (videoId: string) => {
         console.log(`Downloading video: ${videoId}`);
         try {
@@ -1119,20 +932,6 @@ export default function HomePage() {
     const currentJob = currentJobId ? activeJobs.get(currentJobId) : null;
     const currentVideoSrc = currentJobId ? getVideoSrc(currentJobId) : null;
     const currentThumbnailSrc = currentJobId ? getThumbnailSrc(currentJobId) : null;
-
-    const completedVideos = history
-        .filter((item) => {
-            // Check if we have the video available
-            const job = activeJobs.get(item.id);
-            return !job || job.status === 'completed';
-        })
-        .map((item) => ({
-            id: item.id,
-            prompt: item.prompt,
-            model: item.model,
-            size: item.size,
-            seconds: item.seconds
-        }));
 
     // Determine if API key gate should block
     const isApiKeyGateBlocked = isFrontendModeEnabled && apiMode === 'frontend' && !clientApiKey;
@@ -1202,37 +1001,24 @@ export default function HomePage() {
                             isBlocked={isApiKeyGateBlocked}
                             onConfigure={handleOpenApiKeyDialog}
                             className='flex-1'>
-                            {mode === 'create' ? (
-                                <CreationForm
-                                    onSubmit={handleCreateVideo}
-                                    isLoading={isSubmitting}
-                                    currentMode={mode}
-                                    onModeChange={setMode}
-                                    model={createModel}
-                                    setModel={setCreateModel}
-                                    prompt={createPrompt}
-                                    setPrompt={setCreatePrompt}
-                                    size={createSize}
-                                    setSize={setCreateSize}
-                                    seconds={createSeconds}
-                                    setSeconds={setCreateSeconds}
-                                    inputReference={createInputReference}
-                                    setInputReference={setCreateInputReference}
-                                />
-                            ) : (
-                                <RemixForm
-                                    onSubmit={handleRemixVideo}
-                                    isLoading={isSubmitting}
-                                    currentMode={mode}
-                                    onModeChange={setMode}
-                                    sourceVideoId={remixSourceVideoId}
-                                    setSourceVideoId={setRemixSourceVideoId}
-                                    remixPrompt={remixPrompt}
-                                    setRemixPrompt={setRemixPrompt}
-                                    completedVideos={completedVideos}
-                                    getVideoSrc={getVideoSrc}
-                                />
-                            )}
+                            <CreationForm
+                                onSubmit={handleCreateVideo}
+                                isLoading={isSubmitting}
+                                model={createModel}
+                                setModel={setCreateModel}
+                                prompt={createPrompt}
+                                setPrompt={setCreatePrompt}
+                                ratio={createRatio}
+                                setRatio={setCreateRatio}
+                                resolution={createResolution}
+                                setResolution={setCreateResolution}
+                                seconds={createSeconds}
+                                setSeconds={setCreateSeconds}
+                                generateAudio={createAudio}
+                                setGenerateAudio={setCreateAudio}
+                                inputReferenceUrl={createInputReferenceUrl}
+                                setInputReferenceUrl={setCreateInputReferenceUrl}
+                            />
                         </ApiKeyGate>
                     </div>
                     <div className='flex min-h-[600px] flex-col lg:col-span-1'>
@@ -1247,7 +1033,6 @@ export default function HomePage() {
                             videoSrc={currentVideoSrc}
                             thumbnailSrc={currentThumbnailSrc}
                             isLoading={currentJob ? currentJob.status === 'queued' || currentJob.status === 'in_progress' : false}
-                            onSendToRemix={handleSendToRemix}
                             onDownload={handleDownloadVideo}
                         />
                     </div>

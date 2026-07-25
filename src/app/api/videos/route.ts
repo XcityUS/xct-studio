@@ -2,10 +2,14 @@ import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-    baseURL: process.env.OPENAI_API_BASE_URL
-});
+// Lazy: constructing the client at module scope throws at build time
+// (page-data collection) when OPENAI_API_KEY is absent from the build env.
+function getOpenAI(): OpenAI {
+    return new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY,
+        baseURL: process.env.OPENAI_API_BASE_URL
+    });
+}
 
 function sha256(data: string): string {
     return crypto.createHash('sha256').update(data).digest('hex');
@@ -20,64 +24,63 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-        const formData = await request.formData();
+        const body = await request.json();
 
         // Password authentication
         if (process.env.APP_PASSWORD) {
-            const clientPasswordHash = formData.get('passwordHash') as string | null;
+            const clientPasswordHash = body.passwordHash as string | undefined;
             if (!clientPasswordHash) {
-                console.error('Missing password hash.');
                 return NextResponse.json({ error: 'Unauthorized: Missing password hash.' }, { status: 401 });
             }
             const serverPasswordHash = sha256(process.env.APP_PASSWORD);
             if (clientPasswordHash !== serverPasswordHash) {
-                console.error('Invalid password hash.');
                 return NextResponse.json({ error: 'Unauthorized: Invalid password.' }, { status: 401 });
             }
         }
 
-        const model = (formData.get('model') as 'sora-2' | 'sora-2-pro') || 'sora-2';
-        const prompt = formData.get('prompt') as string | null;
-        const size = (formData.get('size') as string) || '1280x720';
-        const secondsStr = (formData.get('seconds') as string) || '4';
-        const input_reference = formData.get('input_reference') as File | null;
-
-        console.log(`Creating video: model=${model}, size=${size}, seconds=${secondsStr}`);
+        const { model, prompt, seconds, ratio, resolution, generate_audio, input_reference } = body;
 
         if (!prompt) {
             return NextResponse.json({ error: 'Missing required parameter: prompt' }, { status: 400 });
         }
 
-        console.log('Calling OpenAI videos.create with params:', {
-            model,
-            prompt,
-            size,
-            seconds: secondsStr,
-            input_reference: input_reference ? input_reference.name : undefined
-        });
+        console.log(
+            `Creating video: model=${model}, ratio=${ratio}, resolution=${resolution}, seconds=${seconds}, audio=${generate_audio}`
+        );
 
-        // Create video job
-        const createParams = {
-            model,
-            prompt,
-            size,
-            seconds: secondsStr,
-            ...(input_reference && { input_reference })
+        // Plain JSON POST — ratio/resolution/generate_audio are BytePlus
+        // provider params the TokenHub gateway passes through verbatim;
+        // input_reference is a public image URL (image-to-video).
+        const video = (await getOpenAI().post('/videos', {
+            body: {
+                model,
+                prompt,
+                seconds,
+                ratio,
+                resolution,
+                generate_audio,
+                ...(input_reference ? { input_reference } : {})
+            }
+        })) as {
+            id: string;
+            status: string;
+            progress?: number;
+            model: string;
+            size?: string;
+            seconds?: string;
+            created_at: number;
+            object: string;
         };
-
-        // @ts-expect-error - SDK types may be strict, API handles validation
-        const video = await openai.videos.create(createParams);
 
         console.log('Video job created:', video.id, 'status:', video.status);
 
-        // Return job metadata
         return NextResponse.json({
             id: video.id,
             status: video.status,
             progress: video.progress ?? 0,
-            model: video.model,
-            size: video.size,
-            seconds: video.seconds,
+            model: video.model ?? model,
+            size: video.size ?? `${ratio} · ${resolution}`,
+            seconds: video.seconds ?? String(seconds),
             created_at: video.created_at,
             object: video.object
         });
@@ -105,51 +108,8 @@ export async function POST(request: NextRequest) {
     }
 }
 
-export async function GET(request: NextRequest) {
-    console.log('Received GET request to /api/videos');
-
-    if (!process.env.OPENAI_API_KEY) {
-        console.error('OPENAI_API_KEY is not set.');
-        return NextResponse.json({ error: 'Server configuration error: API key not found.' }, { status: 500 });
-    }
-
-    try {
-        // Password authentication for listing
-        const authHeader = request.headers.get('x-password-hash');
-        if (process.env.APP_PASSWORD) {
-            if (!authHeader) {
-                return NextResponse.json({ error: 'Unauthorized: Missing password hash.' }, { status: 401 });
-            }
-            const serverPasswordHash = sha256(process.env.APP_PASSWORD);
-            if (authHeader !== serverPasswordHash) {
-                return NextResponse.json({ error: 'Unauthorized: Invalid password.' }, { status: 401 });
-            }
-        }
-
-        const searchParams = request.nextUrl.searchParams;
-        const limit = parseInt(searchParams.get('limit') || '20', 10);
-        const after = searchParams.get('after') || undefined;
-        const order = (searchParams.get('order') as 'asc' | 'desc') || 'desc';
-
-        console.log(`Listing videos: limit=${limit}, after=${after}, order=${order}`);
-
-        const videos = await openai.videos.list({
-            limit,
-            after,
-            order
-        });
-
-        return NextResponse.json(videos);
-    } catch (error: unknown) {
-        console.error('Error in /api/videos GET:', error);
-
-        let errorMessage = 'An unexpected error occurred.';
-        const status = 500;
-
-        if (error instanceof Error) {
-            errorMessage = error.message;
-        }
-
-        return NextResponse.json({ error: errorMessage }, { status });
-    }
+export async function GET() {
+    // The TokenHub gateway does not support listing video jobs (history is
+    // kept client-side in IndexedDB) — keep the route honest instead of 500ing.
+    return NextResponse.json({ error: 'Video listing is not supported by the gateway.' }, { status: 501 });
 }

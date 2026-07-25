@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-    title: 'Sora 2 Playground',
-    description: "Generate and edit videos using OpenAI's Sora 2 model.",
+    title: 'Xcity Video Studio',
+    description: "Generate videos with ByteDance Seedance via Xcity TokenHub.",
 };
 
 export default function RootLayout({

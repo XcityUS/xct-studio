@@ -1,15 +1,20 @@
-import type { VideoModel, VideoSeconds, VideoSize } from 'openai/resources/videos';
+import type { VideoModel, VideoRatio, VideoResolution } from '@/lib/seedance';
 import { CostDetails } from '@/lib/cost-utils';
 
+/**
+ * Normalized video job as returned by the TokenHub gateway's OpenAI-style
+ * /v1/videos API. `model`, `size` and `seconds` stay loose strings: the
+ * gateway echoes provider-shaped values (e.g. size "16x9", seconds "5").
+ */
 export type VideoJob = {
     id: string;
     object: 'video';
     created_at: number;
     status: 'queued' | 'in_progress' | 'completed' | 'failed';
-    model: VideoModel;
+    model: string;
     progress: number; // 0-100
-    seconds: VideoSeconds;
-    size: VideoSize;
+    seconds: string;
+    size: string;
     prompt?: string;
     error?: {
         message: string;
@@ -24,8 +29,8 @@ export type VideoMetadata = {
     filename: string;
     storageModeUsed?: 'fs' | 'indexeddb';
     durationMs: number;
-    model: VideoModel;
-    size: VideoSize;
+    model: string;
+    size: string;
     seconds: number;
     prompt: string;
     mode: 'create' | 'remix';
@@ -39,7 +44,10 @@ export type VideoMetadata = {
 export type VideoJobCreate = {
     model: VideoModel;
     prompt: string;
-    size: VideoSize;
-    seconds: VideoSeconds;
-    input_reference?: File;
+    ratio: VideoRatio;
+    resolution: VideoResolution;
+    seconds: number;
+    generate_audio: boolean;
+    /** Public image URL for image-to-video (the gateway forwards it to Ark). */
+    input_reference_url?: string;
 };

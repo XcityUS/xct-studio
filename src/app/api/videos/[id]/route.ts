@@ -4,10 +4,14 @@ import path from 'path';
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-    baseURL: process.env.OPENAI_API_BASE_URL
-});
+// Lazy: constructing the client at module scope throws at build time
+// (page-data collection) when OPENAI_API_KEY is absent from the build env.
+function getOpenAI(): OpenAI {
+    return new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY,
+        baseURL: process.env.OPENAI_API_BASE_URL
+    });
+}
 
 const outputDir = path.resolve(process.cwd(), 'generated-videos');
 
@@ -40,7 +44,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         console.log(`Retrieving video status for: ${id}`);
 
         // Retrieve video job status
-        const video = await openai.videos.retrieve(id);
+        const video = await getOpenAI().videos.retrieve(id);
 
         console.log(`Video ${id} status: ${video.status}, progress: ${video.progress}`);
 
@@ -98,7 +102,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
         console.log(`Deleting video: ${id}`);
 
         // Delete video from OpenAI
-        const result = await openai.videos.delete(id);
+        const result = await getOpenAI().videos.delete(id);
 
         console.log(`Video ${id} deleted successfully from OpenAI`);
 

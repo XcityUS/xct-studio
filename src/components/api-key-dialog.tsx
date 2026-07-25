@@ -57,9 +57,9 @@ export function ApiKeyDialog({ isOpen, onOpenChange, onSave }: ApiKeyDialogProps
         <Dialog open={isOpen} onOpenChange={handleDialogClose}>
             <DialogContent className='border-white/20 bg-black text-white sm:max-w-[425px]'>
                 <DialogHeader>
-                    <DialogTitle className='text-white'>Configure OpenAI API Key</DialogTitle>
+                    <DialogTitle className='text-white'>Configure Xcity API Key</DialogTitle>
                     <DialogDescription className='text-white/60'>
-                        Enter your OpenAI API key to use the playground in frontend mode. The key is stored only in this browser and never sent to our servers.
+                        Enter your Xcity TokenHub API key (from xcity.ai → Dashboard → Keys). The key is stored only in this browser and never sent to our servers.
                     </DialogDescription>
                 </DialogHeader>
                 <div className='grid gap-4 py-4'>

@@ -4,10 +4,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import path from 'path';
 
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-    baseURL: process.env.OPENAI_API_BASE_URL
-});
+// Lazy: constructing the client at module scope throws at build time
+// (page-data collection) when OPENAI_API_KEY is absent from the build env.
+function getOpenAI(): OpenAI {
+    return new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY,
+        baseURL: process.env.OPENAI_API_BASE_URL
+    });
+}
 
 const outputDir = path.resolve(process.cwd(), 'generated-videos');
 
@@ -113,7 +117,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
                 // File doesn't exist, download from OpenAI
                 if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') {
                     console.log(`File not found, downloading ${variant} content for video: ${id}`);
-                    const content = await openai.videos.downloadContent(id, { variant });
+                    const content = await getOpenAI().videos.downloadContent(id, { variant });
                     buffer = Buffer.from(await content.arrayBuffer());
                     await fs.writeFile(filepath, buffer);
                     console.log(`Saved ${variant} to: ${filepath}`);
@@ -124,7 +128,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         } else {
             // IndexedDB mode: download from OpenAI (client checks IndexedDB before calling this API)
             console.log(`Downloading ${variant} content for video: ${id}`);
-            const content = await openai.videos.downloadContent(id, { variant });
+            const content = await getOpenAI().videos.downloadContent(id, { variant });
             buffer = Buffer.from(await content.arrayBuffer());
         }
 

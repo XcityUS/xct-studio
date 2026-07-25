@@ -127,11 +127,11 @@ export function VideoHistoryPanel({
                                     </DialogDescription>
                                 </DialogHeader>
                                 <div className='space-y-1 pt-1 text-xs text-neutral-400'>
-                                    <p>Pricing for Sora 2:</p>
+                                    <p>Seedance pricing (per second, 720p / 1080p):</p>
                                     <ul className='list-disc pl-4'>
-                                        <li>sora-2 (720p): $0.10/sec</li>
-                                        <li>sora-2-pro (720p): $0.30/sec</li>
-                                        <li>sora-2-pro (1080p): $0.50/sec</li>
+                                        <li>Seedance 1.5 Pro: $0.052 / $0.117</li>
+                                        <li>Seedance 2.0: $0.151 / $0.374</li>
+                                        <li>Seedance 2.0 Fast: $0.121 / —</li>
                                     </ul>
                                 </div>
                                 <div className='space-y-2 py-4 text-sm text-neutral-300'>

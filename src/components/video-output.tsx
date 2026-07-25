@@ -161,7 +161,7 @@ export function VideoOutput({
                             <Loader2 className='mb-4 h-12 w-12 animate-spin text-white/60' />
                             <p className='text-lg text-white/80'>
                                 {job.id.startsWith('temp_')
-                                    ? 'Sending request to OpenAI...'
+                                    ? 'Sending request to Xcity TokenHub...'
                                     : job.status === 'queued'
                                         ? 'Your video is queued...'
                                         : 'Generating your video...'}
