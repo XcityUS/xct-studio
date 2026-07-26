@@ -891,6 +891,23 @@ export default function HomePage() {
         };
 
         setActiveJobs((prev) => new Map(prev).set(item.id, jobForDisplay));
+
+        // Resolve a playback source on demand. A locally archived blob wins;
+        // otherwise ask the gateway for the job's current output_url. Doing
+        // this per selection (rather than trusting whatever the poll cached)
+        // also handles the CDN link expiring — signed Ark URLs last 24h.
+        if (item.status !== 'failed' && !videoSrcCache.has(item.id) && !allDbVideos?.some((v) => v.id === item.id)) {
+            void (async () => {
+                try {
+                    const fresh = await videoService.retrieveVideo(item.id);
+                    if (fresh.output_url) {
+                        setVideoSrcCache((prev) => new Map(prev).set(item.id, fresh.output_url as string));
+                    }
+                } catch (err) {
+                    console.warn(`Could not resolve a source for ${item.id}:`, err);
+                }
+            })();
+        }
     };
 
     const handleClearHistory = async () => {
