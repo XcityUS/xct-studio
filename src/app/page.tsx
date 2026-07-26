@@ -646,9 +646,16 @@ export default function HomePage() {
     const downloadAndStoreVideo = async (job: VideoJob) => {
         console.log(`Downloading video for job: ${job.id}`);
 
+        // Prefer the provider's CDN link: playback starts immediately and no
+        // bytes are proxied through the gateway. Registered before the blob
+        // fetch so the video is watchable even if archiving fails.
+        if (job.output_url) {
+            setVideoSrcCache((prev) => new Map(prev).set(job.id, job.output_url as string));
+        }
+
         try {
-            // Download video content
-            const blob = await videoService.downloadContent(job.id);
+            // Archive a local copy so history survives the CDN link expiring.
+            const blob = await videoService.downloadContent(job.id, job.output_url);
             const filename = `${job.id}.mp4`;
 
             // The gateway serves only the raw MP4 — capture a poster frame
@@ -695,8 +702,24 @@ export default function HomePage() {
                 handleInvalidApiKey();
                 return;
             }
-            console.error(`Error downloading video ${job.id}:`, err);
-            setError(err instanceof Error ? err.message : 'Failed to download video');
+            console.error(`Error archiving video ${job.id}:`, err);
+            if (job.output_url) {
+                // Playable from the CDN link — archiving is best-effort, so
+                // mark it done rather than showing the user a failure.
+                setHistory((prev) =>
+                    prev.map((item) =>
+                        item.id === job.id
+                            ? {
+                                  ...item,
+                                  durationMs: Date.now() - job.created_at * 1000,
+                                  status: 'completed' as const
+                              }
+                            : item
+                    )
+                );
+            } else {
+                setError(err instanceof Error ? err.message : 'Failed to download video');
+            }
         }
     };
 

@@ -144,11 +144,25 @@ export class VideoService {
     }
 
     /**
-     * Downloads the finished MP4. The gateway only serves the `video`
-     * variant (no thumbnails/spritesheets — previews are generated
-     * client-side from the blob).
+     * Downloads the finished MP4. Prefers the provider's direct CDN link when
+     * the completed job exposes one — the gateway's /content route proxies the
+     * whole file and is unreliable. Falls back to /content otherwise. Only the
+     * `video` variant exists (no thumbnails/spritesheets — previews are
+     * generated client-side from the blob).
      */
-    async downloadContent(videoId: string): Promise<Blob> {
+    async downloadContent(videoId: string, outputUrl?: string): Promise<Blob> {
+        if (outputUrl) {
+            // Plain cross-origin GET: no auth header, so the CDN's CORS policy
+            // is the only gate. If it blocks us the video still plays via the
+            // <video> element (media loads are not CORS-gated) — the caller
+            // treats this archive step as best-effort.
+            const direct = await fetch(outputUrl);
+            if (direct.ok) {
+                return await direct.blob();
+            }
+            console.warn(`Direct CDN download failed (${direct.status}), falling back to gateway`);
+        }
+
         if (this.config.mode === 'frontend') {
             if (!this.config.clientApiKey) {
                 throw new Error('API key is required for frontend mode');

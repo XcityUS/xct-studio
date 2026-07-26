@@ -15,6 +15,12 @@ export type VideoJob = {
     progress: number; // 0-100
     seconds: string;
     size: string;
+    /**
+     * Direct CDN link to the finished asset. Preferred over the gateway's
+     * /content route, which proxies the whole file (and is currently broken
+     * for BytePlus). Present once the job completes.
+     */
+    output_url?: string;
     prompt?: string;
     error?: {
         message: string;
