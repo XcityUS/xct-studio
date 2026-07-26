@@ -25,6 +25,7 @@ import {
     type VideoRatio,
     type VideoResolution
 } from '@/lib/seedance';
+import { MEDIA_ARCHIVE_ENABLED, archiveVideo } from '@/lib/media-archive';
 import { captureVideoPoster } from '@/lib/thumbnail';
 import { XCITY_SSO_ENABLED, fetchXcityUserKey, getLastKnownKey, rememberKey, xcityLoginHref } from '@/lib/xcity-sso';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -649,10 +650,24 @@ export default function HomePage() {
         console.log(`Downloading video for job: ${job.id}`);
 
         // Prefer the provider's CDN link: playback starts immediately and no
-        // bytes are proxied through the gateway. Registered before the blob
-        // fetch so the video is watchable even if archiving fails.
+        // bytes are proxied through the gateway. Registered before anything
+        // else so the video is watchable even if the steps below fail.
         if (job.output_url) {
             setVideoSrcCache((prev) => new Map(prev).set(job.id, job.output_url as string));
+        }
+
+        // Copy into our own bucket. The provider link expires in 24h, so this
+        // is what makes the video still playable tomorrow. Best-effort: on
+        // failure we simply keep the provider URL.
+        const archiveKey = clientApiKey ?? getLastKnownKey();
+        if (job.output_url && archiveKey && MEDIA_ARCHIVE_ENABLED) {
+            const archived = await archiveVideo(job.id, job.output_url, archiveKey);
+            if (archived) {
+                setVideoSrcCache((prev) => new Map(prev).set(job.id, archived.url));
+                setHistory((prev) =>
+                    prev.map((item) => (item.id === job.id ? { ...item, storedUrl: archived.url } : item))
+                );
+            }
         }
 
         try {
@@ -896,6 +911,12 @@ export default function HomePage() {
         // otherwise ask the gateway for the job's current output_url. Doing
         // this per selection (rather than trusting whatever the poll cached)
         // also handles the CDN link expiring — signed Ark URLs last 24h.
+        // A permanent copy beats everything: it never expires and is CORS-enabled.
+        if (item.storedUrl && !videoSrcCache.has(item.id)) {
+            setVideoSrcCache((prev) => new Map(prev).set(item.id, item.storedUrl as string));
+            return;
+        }
+
         if (item.status !== 'failed' && !videoSrcCache.has(item.id) && !allDbVideos?.some((v) => v.id === item.id)) {
             void (async () => {
                 try {

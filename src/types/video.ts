@@ -40,6 +40,8 @@ export type VideoMetadata = {
     seconds: number;
     prompt: string;
     mode: 'create' | 'remix';
+    /** Permanent R2 URL once archived — outlives the provider's 24h CDN link. */
+    storedUrl?: string;
     costDetails: CostDetails | null;
     remix_of?: string;
     status?: 'processing' | 'completed' | 'failed';

@@ -1,0 +1,20 @@
+name = "xcity-media"
+main = "index.js"
+compatibility_date = "2026-07-26"
+
+# Generated videos live here permanently. Ark's own CDN links expire after
+# 24h, so anything the studio should still play tomorrow gets copied in.
+[[r2_buckets]]
+binding = "XCITY_MEDIA"
+bucket_name = "xcity-media"
+
+[vars]
+# Callers authenticate with their TokenHub virtual key; the worker verifies it
+# against the gateway before accepting an upload, so this endpoint cannot be
+# used as free storage by anonymous callers.
+LITELLM_BASE_URL = "https://tokenhub.xcity.one"
+# Comma-separated exact origins allowed to call /archive from a browser.
+ALLOWED_ORIGINS = "https://studio.xcity.ai,https://chat.xcity.ai,https://xcity.ai"
+# Refuse to copy anything larger than this (bytes). 12s of 1080p Seedance is
+# well under 100 MB; the cap is a runaway guard, not a product limit.
+MAX_BYTES = "209715200"

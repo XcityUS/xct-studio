@@ -303,3 +303,29 @@ Contributions are welcome! Issues and feature requests, not as much welcome but 
 ## 📄 License
 
 MIT
+
+## Media archive (Cloudflare R2)
+
+Ark's signed CDN links expire after 24h and send no CORS headers, so a video
+referenced only by its provider URL stops playing tomorrow. `media-worker/`
+copies each finished video into R2 once and serves it from our own origin with
+CORS and range support.
+
+Deploy (needs a Cloudflare account with R2 enabled):
+
+```bash
+cd media-worker
+npx wrangler r2 bucket create xcity-media
+npx wrangler deploy
+```
+
+Then point the studio at it — without this variable the studio simply keeps
+using the provider URL, so archiving is opt-in:
+
+```
+NEXT_PUBLIC_MEDIA_WORKER_URL=https://xcity-media.<subdomain>.workers.dev
+```
+
+Uploads are authenticated with the caller's TokenHub key (verified against the
+gateway) and namespaced per user, so the endpoint is not open storage. Only
+`*.volces.com` sources are accepted, so it cannot be used as a general proxy.
