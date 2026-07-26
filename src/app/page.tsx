@@ -671,7 +671,15 @@ export default function HomePage() {
         // Copy into our own bucket. The provider link expires in 24h, so this
         // is what makes the video still playable tomorrow. Best-effort: on
         // failure we simply keep the provider URL.
-        const archiveKey = clientApiKey ?? getLastKnownKey();
+        // Same closure problem as submit: this runs from the polling effect,
+        // which captured state from an earlier render. Resolve the key now.
+        let archiveKey = clientApiKey ?? getLastKnownKey();
+        if (!archiveKey && XCITY_SSO_ENABLED) {
+            const refreshed = await fetchXcityUserKey();
+            if (refreshed.status === 'ok') {
+                archiveKey = refreshed.key;
+            }
+        }
         if (sourceUrl && archiveKey) {
             const archived = await archiveVideo(job.id, sourceUrl, archiveKey);
             if (archived) {
