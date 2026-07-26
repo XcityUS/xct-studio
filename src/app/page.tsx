@@ -673,7 +673,7 @@ export default function HomePage() {
         // failure we simply keep the provider URL.
         const archiveKey = clientApiKey ?? getLastKnownKey();
         if (sourceUrl && archiveKey) {
-            const archived = await archiveVideo(job.id, job.output_url, archiveKey);
+            const archived = await archiveVideo(job.id, sourceUrl, archiveKey);
             if (archived) {
                 setVideoSrcCache((prev) => new Map(prev).set(job.id, archived.url));
                 setHistory((prev) =>
