@@ -25,7 +25,7 @@ import {
     type VideoRatio,
     type VideoResolution
 } from '@/lib/seedance';
-import { archiveVideo } from '@/lib/media-archive';
+import { archiveVideo, mediaArchiveEnabled } from '@/lib/media-archive';
 import { captureVideoPoster } from '@/lib/thumbnail';
 import { XCITY_SSO_ENABLED, fetchXcityUserKey, getLastKnownKey, rememberKey, xcityLoginHref } from '@/lib/xcity-sso';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -165,6 +165,7 @@ export default function HomePage() {
 
     const allDbVideos = useLiveQuery<VideoRecord[] | undefined>(() => db.videos.toArray(), []);
 
+
     // Load history from localStorage
     React.useEffect(() => {
         try {
@@ -300,6 +301,53 @@ export default function HomePage() {
             baseURL: process.env.NEXT_PUBLIC_OPENAI_API_BASE_URL
         });
     }, [apiMode, clientApiKey, clientPasswordHash]);
+
+    // Archive reconciliation.
+    //
+    // Doing this in the completion callback proved unreliable — that code runs
+    // inside the polling closure, so whether it sees a key (or the CDN link,
+    // which Ark attaches a beat after the job flips to completed) depends on
+    // render timing. Reconciling from history instead is deterministic: any
+    // completed video without a permanent URL gets one, retried on every mount
+    // until it sticks. It also back-fills videos generated before archiving
+    // existed. Runs one at a time to avoid a burst of large uploads.
+    const archivingRef = React.useRef(false);
+    React.useEffect(() => {
+        if (isInitialLoad || archivingRef.current) return;
+        const pending = history.find((item) => item.status === 'completed' && !item.storedUrl);
+        if (!pending) return;
+
+        archivingRef.current = true;
+        void (async () => {
+            try {
+                if (!(await mediaArchiveEnabled())) return;
+
+                let key = clientApiKey ?? getLastKnownKey();
+                if (!key && XCITY_SSO_ENABLED) {
+                    const refreshed = await fetchXcityUserKey();
+                    if (refreshed.status === 'ok') key = refreshed.key;
+                }
+                if (!key) return;
+
+                // Ark's link expires, so always read the job's current one.
+                const job = await videoService.retrieveVideo(pending.id);
+                if (!job.output_url) return;
+
+                const archived = await archiveVideo(pending.id, job.output_url, key);
+                if (!archived) return;
+
+                setVideoSrcCache((prev) => new Map(prev).set(pending.id, archived.url));
+                setHistory((prev) =>
+                    prev.map((item) => (item.id === pending.id ? { ...item, storedUrl: archived.url } : item))
+                );
+                console.log(`[media-archive] stored ${pending.id} (${archived.bytes ?? '?'} bytes)`);
+            } catch (err) {
+                console.warn(`[media-archive] ${pending.id} skipped:`, err);
+            } finally {
+                archivingRef.current = false;
+            }
+        })();
+    }, [history, isInitialLoad, clientApiKey, videoService]);
 
     // Cleanup polling interval on unmount
     React.useEffect(() => {
