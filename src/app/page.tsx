@@ -649,18 +649,30 @@ export default function HomePage() {
     const downloadAndStoreVideo = async (job: VideoJob) => {
         console.log(`Downloading video for job: ${job.id}`);
 
+        // Ark attaches the CDN link a moment after the job first reports
+        // completed, so the status update that triggered this can arrive
+        // without one. Ask again rather than giving up on the video.
+        let sourceUrl = job.output_url;
+        if (!sourceUrl) {
+            try {
+                sourceUrl = (await videoService.retrieveVideo(job.id)).output_url;
+            } catch (err) {
+                console.warn(`Could not re-read output_url for ${job.id}:`, err);
+            }
+        }
+
         // Prefer the provider's CDN link: playback starts immediately and no
         // bytes are proxied through the gateway. Registered before anything
         // else so the video is watchable even if the steps below fail.
-        if (job.output_url) {
-            setVideoSrcCache((prev) => new Map(prev).set(job.id, job.output_url as string));
+        if (sourceUrl) {
+            setVideoSrcCache((prev) => new Map(prev).set(job.id, sourceUrl as string));
         }
 
         // Copy into our own bucket. The provider link expires in 24h, so this
         // is what makes the video still playable tomorrow. Best-effort: on
         // failure we simply keep the provider URL.
         const archiveKey = clientApiKey ?? getLastKnownKey();
-        if (job.output_url && archiveKey) {
+        if (sourceUrl && archiveKey) {
             const archived = await archiveVideo(job.id, job.output_url, archiveKey);
             if (archived) {
                 setVideoSrcCache((prev) => new Map(prev).set(job.id, archived.url));
