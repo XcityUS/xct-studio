@@ -100,8 +100,11 @@ export class VideoService {
 
             const openai = createFrontendOpenAI(this.config.clientApiKey, this.config.baseURL);
             try {
-                const video = await openai.videos.retrieve(videoId);
-                return video as unknown as VideoJob;
+                // Raw GET, not the typed videos.retrieve helper: the SDK models
+                // only OpenAI's documented fields and drops `output_url`, the
+                // provider's direct CDN link we play from.
+                const video = await openai.get(`/videos/${encodeURIComponent(videoId)}`);
+                return video as VideoJob;
             } catch (error) {
                 this.handleFrontendError(error);
             }
