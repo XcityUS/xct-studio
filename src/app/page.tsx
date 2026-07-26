@@ -26,7 +26,7 @@ import {
     type VideoResolution
 } from '@/lib/seedance';
 import { captureVideoPoster } from '@/lib/thumbnail';
-import { XCITY_SSO_ENABLED, fetchXcityUserKey, xcityLoginHref } from '@/lib/xcity-sso';
+import { XCITY_SSO_ENABLED, fetchXcityUserKey, getLastKnownKey, rememberKey, xcityLoginHref } from '@/lib/xcity-sso';
 import { useLiveQuery } from 'dexie-react-hooks';
 import * as React from 'react';
 import type { VideoJob, VideoMetadata } from '@/types/video';
@@ -99,6 +99,7 @@ export default function HomePage() {
         setSsoError(null);
         const result = await fetchXcityUserKey();
         if (result.status === 'ok') {
+            rememberKey(result.key);
             setClientApiKey(result.key);
             setApiMode('frontend');
             setSsoStatus('ok');
@@ -362,6 +363,7 @@ export default function HomePage() {
             throw new Error('Failed to persist API key. Please ensure storage is available.');
         }
 
+        rememberKey(trimmedKey);
         setClientApiKey(trimmedKey);
         // A user-supplied TokenHub key always talks to the gateway directly.
         setApiMode('frontend');
@@ -736,12 +738,33 @@ export default function HomePage() {
             return;
         }
 
-        // Frontend mode: check API key (shouldn't reach here with gate, but defensive)
-        if (apiMode === 'frontend' && !clientApiKey) {
-            setError('OpenAI API key is required for frontend mode.');
+        // Resolve the key at submit time rather than trusting the render this
+        // handler was bound in: an SSO key that lands after the form rendered
+        // is invisible to that closure, and SSO keys rotate. Falls back to the
+        // module-level copy, then to a fresh fetch.
+        let activeKey = clientApiKey ?? getLastKnownKey();
+        if (apiMode === 'frontend' && !activeKey && XCITY_SSO_ENABLED) {
+            const refreshed = await fetchXcityUserKey();
+            if (refreshed.status === 'ok') {
+                activeKey = refreshed.key;
+                setClientApiKey(refreshed.key);
+            }
+        }
+        if (apiMode === 'frontend' && !activeKey) {
+            setError('Could not read your Xcity API key. Sign in at xcity.ai and retry.');
+            setSsoStatus('unauthenticated');
             setIsSubmitting(false);
             return;
         }
+        const submitService =
+            apiMode === 'frontend' && activeKey !== clientApiKey
+                ? new VideoService({
+                      mode: apiMode,
+                      clientApiKey: activeKey,
+                      clientPasswordHash,
+                      baseURL: process.env.NEXT_PUBLIC_OPENAI_API_BASE_URL
+                  })
+                : videoService;
 
         // Create a temporary job to show immediate feedback
         const displaySize = formatSize(formData.ratio, formData.resolution);
@@ -765,7 +788,7 @@ export default function HomePage() {
         try {
             console.log('Creating video job...');
 
-            const result = await videoService.createVideo(formData);
+            const result = await submitService.createVideo(formData);
 
             console.log('Video job created:', result);
 
