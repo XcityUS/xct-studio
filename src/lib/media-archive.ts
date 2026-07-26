@@ -3,17 +3,33 @@
  * worker, see media-worker/).
  *
  * Ark's own CDN links expire after 24h and carry no CORS headers, so a video
- * that is only referenced by its provider URL becomes unplayable tomorrow and
+ * referenced only by its provider URL becomes unplayable tomorrow and
  * unreadable to JS today. Archiving copies it once into our bucket and returns
  * a stable, CORS-enabled URL we can store in history.
  *
- * Disabled (and skipped silently) when NEXT_PUBLIC_MEDIA_WORKER_URL is unset —
- * playback then falls back to the provider URL, exactly as before.
+ * The worker URL is read at runtime from /api/config rather than a
+ * NEXT_PUBLIC_ constant: those are inlined at build time and come out empty
+ * whenever the build environment lacks the variable (which is exactly what
+ * happened on Railway). No worker configured = archiving is skipped and
+ * playback falls back to the provider URL.
  */
 
-const WORKER_URL = (process.env.NEXT_PUBLIC_MEDIA_WORKER_URL || '').replace(/\/+$/, '');
+let workerUrlPromise: Promise<string> | null = null;
 
-export const MEDIA_ARCHIVE_ENABLED = WORKER_URL.length > 0;
+function loadWorkerUrl(): Promise<string> {
+    if (!workerUrlPromise) {
+        workerUrlPromise = fetch('/api/config')
+            .then((res) => (res.ok ? res.json() : { mediaWorkerUrl: '' }))
+            .then((cfg: { mediaWorkerUrl?: string }) => (cfg.mediaWorkerUrl || '').replace(/\/+$/, ''))
+            .catch(() => '');
+    }
+    return workerUrlPromise;
+}
+
+/** Resolves once the runtime config says a media worker is configured. */
+export async function mediaArchiveEnabled(): Promise<boolean> {
+    return (await loadWorkerUrl()).length > 0;
+}
 
 export interface ArchivedMedia {
     url: string;
@@ -31,10 +47,11 @@ export async function archiveVideo(
     sourceUrl: string,
     apiKey: string
 ): Promise<ArchivedMedia | null> {
-    if (!MEDIA_ARCHIVE_ENABLED) return null;
+    const workerUrl = await loadWorkerUrl();
+    if (!workerUrl) return null;
 
     try {
-        const res = await fetch(`${WORKER_URL}/archive`, {
+        const res = await fetch(`${workerUrl}/archive`, {
             method: 'POST',
             headers: {
                 Authorization: `Bearer ${apiKey}`,

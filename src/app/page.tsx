@@ -25,7 +25,7 @@ import {
     type VideoRatio,
     type VideoResolution
 } from '@/lib/seedance';
-import { MEDIA_ARCHIVE_ENABLED, archiveVideo } from '@/lib/media-archive';
+import { archiveVideo } from '@/lib/media-archive';
 import { captureVideoPoster } from '@/lib/thumbnail';
 import { XCITY_SSO_ENABLED, fetchXcityUserKey, getLastKnownKey, rememberKey, xcityLoginHref } from '@/lib/xcity-sso';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -660,7 +660,7 @@ export default function HomePage() {
         // is what makes the video still playable tomorrow. Best-effort: on
         // failure we simply keep the provider URL.
         const archiveKey = clientApiKey ?? getLastKnownKey();
-        if (job.output_url && archiveKey && MEDIA_ARCHIVE_ENABLED) {
+        if (job.output_url && archiveKey) {
             const archived = await archiveVideo(job.id, job.output_url, archiveKey);
             if (archived) {
                 setVideoSrcCache((prev) => new Map(prev).set(job.id, archived.url));
