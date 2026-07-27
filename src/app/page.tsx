@@ -1130,7 +1130,7 @@ export default function HomePage() {
     const isApiKeyGateBlocked = isFrontendModeEnabled && apiMode === 'frontend' && !clientApiKey;
 
     return (
-        <main className='flex min-h-screen flex-col items-center bg-black p-4 text-white md:p-8 lg:p-12'>
+        <main className='flex flex-col items-center bg-black p-4 text-white md:p-8 lg:p-12'>
             {!isFrontendModeEnabled && (
                 <PasswordDialog
                     isOpen={isPasswordDialogOpen}

@@ -1,4 +1,6 @@
 import './globals.css';
+import { SiteFooter } from '@/components/site-footer';
+import { SiteHeader } from '@/components/site-header';
 import { ThemeProvider } from '@/components/theme-provider';
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
@@ -27,7 +29,11 @@ export default function RootLayout({
         <html lang='en' suppressHydrationWarning>
             <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
                 <ThemeProvider attribute='class' defaultTheme='dark' enableSystem={false} disableTransitionOnChange>
-                    {children}
+                    <div className='flex min-h-screen flex-col bg-black'>
+                        <SiteHeader />
+                        <div className='flex-1'>{children}</div>
+                        <SiteFooter />
+                    </div>
                 </ThemeProvider>
             </body>
         </html>
