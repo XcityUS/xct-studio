@@ -45,3 +45,9 @@ generated-videos/
 
 # temporary api routes backup during frontend build
 .api-routes-backup/
+
+# wrangler dev artifacts
+media-worker/.wrangler/
+
+# local Claude Code session config
+.claude/

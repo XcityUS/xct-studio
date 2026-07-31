@@ -42,6 +42,11 @@ export type VideoMetadata = {
     mode: 'create' | 'remix';
     /** Permanent R2 URL once archived — outlives the provider's 24h CDN link. */
     storedUrl?: string;
+    /**
+     * Exact submission parameters, kept for reuse/regenerate. Items created
+     * before this field existed fall back to parsing `size`/`model`.
+     */
+    createParams?: VideoJobCreate;
     costDetails: CostDetails | null;
     remix_of?: string;
     status?: 'processing' | 'completed' | 'failed';
@@ -58,4 +63,6 @@ export type VideoJobCreate = {
     generate_audio: boolean;
     /** Public image URL for image-to-video (the gateway forwards it to Ark). */
     input_reference_url?: string;
+    /** Lock the camera in place (BytePlus provider param, passed through). */
+    camera_fixed?: boolean;
 };

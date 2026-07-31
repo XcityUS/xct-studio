@@ -3,8 +3,8 @@
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ReferenceImageInput } from '@/components/reference-image-input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
 import { Textarea } from '@/components/ui/textarea';
@@ -21,8 +21,10 @@ import {
     type VideoRatio,
     type VideoResolution
 } from '@/lib/seedance';
+import { PromptInspirationDialog } from '@/components/prompt-inspiration';
+import { applyPromptTemplate } from '@/lib/prompt-templates';
 import type { VideoJobCreate } from '@/types/video';
-import { Loader2, Sparkles } from 'lucide-react';
+import { Lightbulb, Loader2, Sparkles, Undo2, Wand2 } from 'lucide-react';
 import * as React from 'react';
 
 export type CreationFormData = VideoJobCreate;
@@ -42,8 +44,14 @@ type CreationFormProps = {
     setSeconds: React.Dispatch<React.SetStateAction<number>>;
     generateAudio: boolean;
     setGenerateAudio: React.Dispatch<React.SetStateAction<boolean>>;
+    cameraFixed: boolean;
+    setCameraFixed: React.Dispatch<React.SetStateAction<boolean>>;
     inputReferenceUrl: string;
     setInputReferenceUrl: React.Dispatch<React.SetStateAction<string>>;
+    /** Uploads a local image, resolving to its public URL. Absent = URL-only mode. */
+    onUploadImage?: (file: File) => Promise<string>;
+    /** Rewrites the prompt via the gateway's chat API. Absent = button hidden. */
+    onOptimizePrompt?: (prompt: string) => Promise<string>;
 };
 
 const RATIO_LABELS: Record<VideoRatio, string> = {
@@ -69,12 +77,45 @@ export function CreationForm({
     setSeconds,
     generateAudio,
     setGenerateAudio,
+    cameraFixed,
+    setCameraFixed,
     inputReferenceUrl,
-    setInputReferenceUrl
+    setInputReferenceUrl,
+    onUploadImage,
+    onOptimizePrompt
 }: CreationFormProps) {
     const { min: minSeconds, max: maxSeconds } = secondsRange(model);
     const modelDef = getSeedanceModel(model);
     const estimatedCost = calculateVideoCost({ model, resolution, seconds });
+
+    const [isInspirationOpen, setIsInspirationOpen] = React.useState(false);
+    const [isOptimizing, setIsOptimizing] = React.useState(false);
+    const [optimizeError, setOptimizeError] = React.useState<string | null>(null);
+    // The prompt as it was before the last AI rewrite, so Undo can restore it.
+    const [promptBeforeOptimize, setPromptBeforeOptimize] = React.useState<string | null>(null);
+
+    const handleOptimize = async () => {
+        if (!onOptimizePrompt || !prompt.trim() || isOptimizing) return;
+        setIsOptimizing(true);
+        setOptimizeError(null);
+        try {
+            const original = prompt;
+            const optimized = await onOptimizePrompt(original);
+            setPromptBeforeOptimize(original);
+            setPrompt(optimized);
+        } catch (err) {
+            setOptimizeError(err instanceof Error ? err.message : 'Prompt optimization failed.');
+        } finally {
+            setIsOptimizing(false);
+        }
+    };
+
+    const handleUndoOptimize = () => {
+        if (promptBeforeOptimize !== null) {
+            setPrompt(promptBeforeOptimize);
+            setPromptBeforeOptimize(null);
+        }
+    };
 
     const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
@@ -84,7 +125,8 @@ export function CreationForm({
             ratio,
             resolution,
             seconds,
-            generate_audio: generateAudio
+            generate_audio: generateAudio,
+            camera_fixed: cameraFixed
         };
         const referenceUrl = inputReferenceUrl.trim();
         if (referenceUrl) {
@@ -108,9 +150,44 @@ export function CreationForm({
             <form onSubmit={handleSubmit} className='flex h-full flex-1 flex-col overflow-hidden'>
                 <CardContent className='flex-1 space-y-5 overflow-y-auto p-4 lg:overflow-visible'>
                     <div className='space-y-1.5'>
-                        <Label htmlFor='prompt' className='text-white'>
-                            Prompt
-                        </Label>
+                        <div className='flex items-center justify-between'>
+                            <Label htmlFor='prompt' className='text-white'>
+                                Prompt
+                            </Label>
+                            <div className='flex items-center gap-1'>
+                                {promptBeforeOptimize !== null && (
+                                    <button
+                                        type='button'
+                                        onClick={handleUndoOptimize}
+                                        className='flex items-center gap-1 rounded-md px-2 py-1 text-xs text-white/50 transition-colors hover:bg-white/10 hover:text-white'>
+                                        <Undo2 className='h-3 w-3' />
+                                        Undo
+                                    </button>
+                                )}
+                                <button
+                                    type='button'
+                                    onClick={() => setIsInspirationOpen(true)}
+                                    disabled={isLoading}
+                                    className='flex items-center gap-1 rounded-md px-2 py-1 text-xs text-white/60 transition-colors hover:bg-white/10 hover:text-white'>
+                                    <Lightbulb className='h-3 w-3' />
+                                    Inspiration
+                                </button>
+                                {onOptimizePrompt && (
+                                    <button
+                                        type='button'
+                                        onClick={() => void handleOptimize()}
+                                        disabled={isLoading || isOptimizing || !prompt.trim()}
+                                        className='flex items-center gap-1 rounded-md px-2 py-1 text-xs text-white/60 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-40'>
+                                        {isOptimizing ? (
+                                            <Loader2 className='h-3 w-3 animate-spin' />
+                                        ) : (
+                                            <Wand2 className='h-3 w-3' />
+                                        )}
+                                        {isOptimizing ? 'Optimizing…' : 'AI Optimize'}
+                                    </button>
+                                )}
+                            </div>
+                        </div>
                         <Textarea
                             id='prompt'
                             placeholder='e.g., Wide shot of a child flying a red kite in a grassy park, golden hour sunlight, camera slowly pans upward.'
@@ -120,10 +197,23 @@ export function CreationForm({
                             disabled={isLoading}
                             className='min-h-[100px] resize-none rounded-md border border-white/20 bg-black text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
                         />
+                        {optimizeError && <p className='text-xs text-red-400'>{optimizeError}</p>}
                         <p className='text-xs text-white/40'>
                             Describe: shot type, subject, action, setting, and lighting for best results.
                         </p>
                     </div>
+
+                    <PromptInspirationDialog
+                        isOpen={isInspirationOpen}
+                        onOpenChange={setIsInspirationOpen}
+                        onPick={(template) => {
+                            setPrompt((current) => applyPromptTemplate(current, template));
+                            setPromptBeforeOptimize(null);
+                            if (template.mode === 'replace') {
+                                setIsInspirationOpen(false);
+                            }
+                        }}
+                    />
 
                     <div className='space-y-2'>
                         <Label htmlFor='model-select' className='text-white'>
@@ -230,37 +320,41 @@ export function CreationForm({
                         </p>
                     </div>
 
-                    <div className='flex items-center space-x-2'>
-                        <Checkbox
-                            id='generate-audio'
-                            checked={generateAudio}
-                            onCheckedChange={(checked) => setGenerateAudio(checked === true)}
-                            disabled={isLoading}
-                            className='border-white/40 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black'
-                        />
-                        <Label htmlFor='generate-audio' className='cursor-pointer text-white/80'>
-                            Generate synchronized audio
-                        </Label>
+                    <div className='flex flex-wrap items-center gap-x-6 gap-y-2'>
+                        <div className='flex items-center space-x-2'>
+                            <Checkbox
+                                id='generate-audio'
+                                checked={generateAudio}
+                                onCheckedChange={(checked) => setGenerateAudio(checked === true)}
+                                disabled={isLoading}
+                                className='border-white/40 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black'
+                            />
+                            <Label htmlFor='generate-audio' className='cursor-pointer text-white/80'>
+                                Generate synchronized audio
+                            </Label>
+                        </div>
+                        <div className='flex items-center space-x-2'>
+                            <Checkbox
+                                id='camera-fixed'
+                                checked={cameraFixed}
+                                onCheckedChange={(checked) => setCameraFixed(checked === true)}
+                                disabled={isLoading}
+                                className='border-white/40 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black'
+                            />
+                            <Label htmlFor='camera-fixed' className='cursor-pointer text-white/80'>
+                                Fixed camera
+                            </Label>
+                        </div>
                     </div>
 
-                    <div className='space-y-2'>
-                        <Label htmlFor='input-reference-url' className='text-white'>
-                            Reference Image URL (Optional)
-                        </Label>
-                        <Input
-                            id='input-reference-url'
-                            type='url'
-                            placeholder='https://…/image.png'
-                            value={inputReferenceUrl}
-                            onChange={(e) => setInputReferenceUrl(e.target.value)}
-                            disabled={isLoading}
-                            className='rounded-md border border-white/20 bg-black text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
-                        />
-                        <p className='text-xs text-white/40'>
-                            Public image URL to animate (image-to-video). The video starts from this frame, guided by
-                            your prompt.
-                        </p>
-                    </div>
+                    <ReferenceImageInput
+                        value={inputReferenceUrl}
+                        onChange={setInputReferenceUrl}
+                        onUpload={onUploadImage}
+                        disabled={isLoading}
+                        label='Reference Image (Optional)'
+                        hint='Image-to-video: the clip starts from this frame, guided by your prompt.'
+                    />
                 </CardContent>
                 <CardFooter className='flex items-center gap-3 border-t border-white/10 p-4'>
                     <Button

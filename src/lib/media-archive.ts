@@ -71,3 +71,45 @@ export async function archiveVideo(
         return null;
     }
 }
+
+const UPLOADABLE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+
+/**
+ * Uploads a local reference image to R2 and returns its public URL — the
+ * gateway's image-to-video takes a URL, not bytes. Unlike archiving this is a
+ * user-initiated action, so failures throw with a message worth showing.
+ */
+export async function uploadReferenceImage(file: File, apiKey: string): Promise<string> {
+    const workerUrl = await loadWorkerUrl();
+    if (!workerUrl) {
+        throw new Error('Image uploads are not configured on this deployment. Paste a public image URL instead.');
+    }
+    if (!UPLOADABLE_TYPES.has(file.type)) {
+        throw new Error('Unsupported image type. Use PNG, JPEG, or WebP.');
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+        throw new Error('Image is too large (max 10 MB).');
+    }
+
+    const res = await fetch(`${workerUrl}/upload`, {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': file.type
+        },
+        body: file
+    });
+    if (!res.ok) {
+        const detail = await res
+            .json()
+            .then((d: { error?: string }) => d.error)
+            .catch(() => undefined);
+        throw new Error(detail || `Image upload failed (${res.status})`);
+    }
+    const data = (await res.json()) as { url?: string };
+    if (!data.url) {
+        throw new Error('Image upload returned no URL.');
+    }
+    return data.url;
+}

@@ -7,7 +7,8 @@
  * our own origin, with CORS and range support.
  *
  *   POST /archive  { video_id, source_url }   -> { url, key, bytes, cached }
- *   GET  /media/<key>                         -> the video (public, immutable)
+ *   POST /upload   <raw image bytes>          -> { url, key, bytes, cached }
+ *   GET  /media/<key>                         -> the file (public, immutable)
  *
  * Uploads are authenticated with the caller's TokenHub virtual key, verified
  * against the gateway — this is not open storage. Objects are namespaced per
@@ -59,7 +60,8 @@ async function resolveOwner(bearer, env) {
 }
 
 async function sha256Hex(value) {
-    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+    const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value;
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
     return Array.from(new Uint8Array(digest))
         .map((b) => b.toString(16).padStart(2, '0'))
         .join('')
@@ -69,6 +71,66 @@ async function sha256Hex(value) {
 /** Video ids are gateway-issued base64; keep only what is safe in a path. */
 function safeVideoId(id) {
     return String(id).replace(/[^A-Za-z0-9._-]/g, '').slice(0, 120);
+}
+
+/** Image types Ark accepts as an image-to-video reference frame. */
+const UPLOAD_TYPES = {
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/webp': 'webp'
+};
+
+/**
+ * POST /upload — store a reference image and hand back a public URL.
+ *
+ * The gateway's image-to-video takes a *URL*, not bytes, so users picking a
+ * local file need somewhere public to put it first. Content-addressed
+ * (sha256), so re-uploading the same image is free and idempotent.
+ */
+async function handleUpload(request, env, cors) {
+    const auth = request.headers.get('authorization') || '';
+    const bearer = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+    if (!bearer) {
+        return json({ error: 'missing bearer token' }, 401, cors);
+    }
+
+    const contentType = (request.headers.get('content-type') || '').split(';')[0].trim();
+    const ext = UPLOAD_TYPES[contentType];
+    if (!ext) {
+        return json({ error: `unsupported content-type (want one of: ${Object.keys(UPLOAD_TYPES).join(', ')})` }, 415, cors);
+    }
+
+    const body = await request.arrayBuffer();
+    const maxUpload = Number(env.MAX_UPLOAD_BYTES || 0) || 10485760; // 10 MB
+    if (body.byteLength === 0) {
+        return json({ error: 'empty body' }, 400, cors);
+    }
+    if (body.byteLength > maxUpload) {
+        return json({ error: `image is ${body.byteLength} bytes, over the ${maxUpload} limit` }, 413, cors);
+    }
+
+    const owner = await resolveOwner(bearer, env);
+    if (!owner) {
+        return json({ error: 'invalid or unauthorized key' }, 403, cors);
+    }
+
+    const hash = await sha256Hex(body);
+    const key = `${owner}/refs/${hash}.${ext}`;
+    const publicUrl = `${new URL(request.url).origin}/media/${key}`;
+
+    const existing = await env.XCITY_MEDIA.head(key);
+    if (existing) {
+        return json({ url: publicUrl, key, bytes: existing.size, cached: true }, 200, cors);
+    }
+
+    await env.XCITY_MEDIA.put(key, body, {
+        httpMetadata: {
+            contentType,
+            cacheControl: 'public, max-age=31536000, immutable',
+        },
+    });
+
+    return json({ url: publicUrl, key, bytes: body.byteLength, cached: false }, 200, cors);
 }
 
 async function handleArchive(request, env, cors) {
@@ -184,6 +246,10 @@ export default {
 
         if (url.pathname === '/archive' && request.method === 'POST') {
             return handleArchive(request, env, cors);
+        }
+
+        if (url.pathname === '/upload' && request.method === 'POST') {
+            return handleUpload(request, env, cors);
         }
 
         if (url.pathname.startsWith('/media/')) {

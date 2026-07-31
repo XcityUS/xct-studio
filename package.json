@@ -1,12 +1,10 @@
 {
-  "name": "sora-2-playground",
-  "version": "1.1.0",
+  "name": "xct-studio",
+  "version": "2.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
-    "prebuild": "node scripts/check-build-mode.js",
     "build": "next build",
-    "build:frontend": "node scripts/build-frontend.js",
     "start": "next start",
     "lint": "next lint",
     "format": "prettier --write \"src/**/*.{ts,tsx}\""

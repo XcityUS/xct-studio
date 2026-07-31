@@ -1,0 +1,196 @@
+'use client';
+
+import { InvalidApiKeyError } from '@/lib/errors';
+import type { VideoService } from '@/lib/video-service';
+import type { VideoJob } from '@/types/video';
+import * as React from 'react';
+
+const POLL_INTERVAL_MS = 10_000;
+/** Kept under the historical name so in-flight jobs survive the refactor. */
+const ACTIVE_JOBS_STORAGE_KEY = 'activeVideoJobs';
+
+interface VideoJobCallbacks {
+    /** Progress/status tick for a still-running job. */
+    onProgress: (job: VideoJob) => void;
+    /** Job finished; already removed from the active set when this fires. */
+    onCompleted: (job: VideoJob) => void;
+    /** Job failed; already removed from the active set when this fires. */
+    onFailed: (job: VideoJob) => void;
+    onInvalidKey: () => void;
+}
+
+function persistActiveJobIds(jobs: Map<string, VideoJob>) {
+    const activeIds = Array.from(jobs.keys()).filter((id) => !id.startsWith('temp_'));
+    localStorage.setItem(ACTIVE_JOBS_STORAGE_KEY, JSON.stringify(activeIds));
+}
+
+export function readPersistedActiveJobIds(): string[] {
+    try {
+        const ids = JSON.parse(localStorage.getItem(ACTIVE_JOBS_STORAGE_KEY) || '[]');
+        return Array.isArray(ids) ? ids : [];
+    } catch {
+        return [];
+    }
+}
+
+/**
+ * Owns the set of in-flight jobs and the single polling interval that watches
+ * them. `temp_`-prefixed ids are optimistic placeholders shown before the
+ * gateway assigns a real id — they are never polled or persisted.
+ *
+ * The poll loop reads everything through refs (jobs, service, callbacks), so
+ * it always sees current state without the interval being torn down and
+ * recreated on every render — the old inline version needed an
+ * eslint-disable'd dependency list to avoid exactly that.
+ */
+export function useVideoJobs(service: VideoService, callbacks: VideoJobCallbacks) {
+    const [activeJobs, setActiveJobs] = React.useState<Map<string, VideoJob>>(new Map());
+    const activeJobsRef = React.useRef(activeJobs);
+    const serviceRef = React.useRef(service);
+    const callbacksRef = React.useRef(callbacks);
+    const intervalRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+
+    React.useEffect(() => {
+        activeJobsRef.current = activeJobs;
+    }, [activeJobs]);
+    React.useEffect(() => {
+        serviceRef.current = service;
+    }, [service]);
+    React.useEffect(() => {
+        callbacksRef.current = callbacks;
+    }, [callbacks]);
+
+    /** Stable key over non-temp ids — the polling effect's only dependency. */
+    const activeJobIdsKey = React.useMemo(() => {
+        return Array.from(activeJobs.keys())
+            .filter((id) => !id.startsWith('temp_'))
+            .join('|');
+    }, [activeJobs]);
+
+    const addJob = React.useCallback((job: VideoJob) => {
+        setActiveJobs((prev) => {
+            const next = new Map(prev).set(job.id, job);
+            if (!job.id.startsWith('temp_')) persistActiveJobIds(next);
+            return next;
+        });
+    }, []);
+
+    /** Swap the optimistic temp entry for the gateway-assigned job. */
+    const replaceJob = React.useCallback((tempId: string, job: VideoJob) => {
+        setActiveJobs((prev) => {
+            const next = new Map(prev);
+            next.delete(tempId);
+            next.set(job.id, job);
+            persistActiveJobIds(next);
+            return next;
+        });
+    }, []);
+
+    const removeJob = React.useCallback((id: string) => {
+        setActiveJobs((prev) => {
+            if (!prev.has(id)) return prev;
+            const next = new Map(prev);
+            next.delete(id);
+            persistActiveJobIds(next);
+            return next;
+        });
+    }, []);
+
+    /** Bulk-restore jobs rebuilt from history on page load. */
+    const restoreJobs = React.useCallback((jobs: VideoJob[]) => {
+        if (!jobs.length) return;
+        setActiveJobs((prev) => {
+            const next = new Map(prev);
+            for (const job of jobs) next.set(job.id, job);
+            return next;
+        });
+    }, []);
+
+    const clearJobs = React.useCallback(() => {
+        setActiveJobs(new Map());
+        persistActiveJobIds(new Map());
+    }, []);
+
+    const pollAllJobs = React.useCallback(async () => {
+        const currentRealJobs = Array.from(activeJobsRef.current.entries()).filter(
+            ([id, job]) => !id.startsWith('temp_') && job.status !== 'completed' && job.status !== 'failed'
+        );
+
+        for (const [jobId, knownJob] of currentRealJobs) {
+            try {
+                const update = await serviceRef.current.retrieveVideo(jobId);
+                // The gateway echoes provider-shaped values; keep the richer
+                // display fields we set at submit time.
+                const merged: VideoJob = {
+                    ...update,
+                    prompt: knownJob.prompt || update.prompt,
+                    size: knownJob.size || update.size,
+                    seconds: knownJob.seconds || update.seconds,
+                    remix_of: knownJob.remix_of || update.remix_of
+                };
+
+                if (merged.status === 'completed' || merged.status === 'failed') {
+                    // Remove from the active set FIRST so a slow callback (the
+                    // completion path downloads the video) can't race the next
+                    // poll tick into handling the same job twice.
+                    setActiveJobs((prev) => {
+                        const next = new Map(prev);
+                        next.delete(jobId);
+                        persistActiveJobIds(next);
+                        return next;
+                    });
+                    if (merged.status === 'completed') {
+                        callbacksRef.current.onCompleted(merged);
+                    } else {
+                        callbacksRef.current.onFailed(merged);
+                    }
+                } else {
+                    setActiveJobs((prev) => {
+                        if (!prev.has(jobId)) return prev;
+                        const next = new Map(prev);
+                        next.set(jobId, merged);
+                        return next;
+                    });
+                    callbacksRef.current.onProgress(merged);
+                }
+            } catch (err) {
+                if (err instanceof InvalidApiKeyError) {
+                    clearJobs();
+                    callbacksRef.current.onInvalidKey();
+                    return;
+                }
+                console.error(`Error polling job ${jobId}:`, err);
+                // Keep polling the other jobs.
+            }
+        }
+    }, [clearJobs]);
+
+    React.useEffect(() => {
+        const hasActiveJobs = activeJobIdsKey.length > 0;
+
+        if (!hasActiveJobs) {
+            if (intervalRef.current) {
+                clearInterval(intervalRef.current);
+                intervalRef.current = null;
+            }
+            return;
+        }
+
+        if (!intervalRef.current) {
+            void pollAllJobs();
+            intervalRef.current = setInterval(() => void pollAllJobs(), POLL_INTERVAL_MS);
+        }
+    }, [activeJobIdsKey, pollAllJobs]);
+
+    // Stop polling on unmount.
+    React.useEffect(() => {
+        return () => {
+            if (intervalRef.current) {
+                clearInterval(intervalRef.current);
+                intervalRef.current = null;
+            }
+        };
+    }, []);
+
+    return { activeJobs, addJob, replaceJob, removeJob, restoreJobs, clearJobs };
+}

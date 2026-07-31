@@ -94,6 +94,18 @@ export function formatSize(ratio: VideoRatio, resolution: VideoResolution): stri
     return `${ratio} · ${resolution}`;
 }
 
+/**
+ * Inverse of formatSize, for history items predating stored createParams.
+ * Returns null when the string is not in display shape (e.g. the gateway's
+ * raw "16x9").
+ */
+export function parseSize(size: string): { ratio: VideoRatio; resolution: VideoResolution } | null {
+    const [ratioPart, resolutionPart] = size.split('·').map((s) => s.trim());
+    const ratio = RATIOS.find((r) => r === ratioPart);
+    const resolution = RESOLUTIONS.find((r) => r === resolutionPart);
+    return ratio && resolution ? { ratio, resolution } : null;
+}
+
 /** Duration bounds of a specific model; falls back to the widest range. */
 export function secondsRange(modelId: string): { min: number; max: number } {
     const model = getSeedanceModel(modelId);

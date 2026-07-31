@@ -17,10 +17,10 @@ import { cn } from '@/lib/utils';
 import {
     DollarSign,
     Sparkles as SparklesIcon,
-    HardDrive,
-    Database,
     Trash2,
     RefreshCw,
+    RotateCcw,
+    PencilLine,
     Loader2
 } from 'lucide-react';
 import * as React from 'react';
@@ -33,7 +33,20 @@ type VideoHistoryPanelProps = {
     getVideoSrc: (id: string) => string | undefined;
     getThumbnailSrc?: (id: string) => string | undefined;
     onDeleteItem?: (item: VideoMetadata) => void;
+    /** 做同款 — fill the create form with this item's parameters. */
+    onReuseItem?: (item: VideoMetadata) => void;
+    /** 重新生成 — resubmit this item's parameters as a new job. */
+    onRegenerateItem?: (item: VideoMetadata) => void;
 };
+
+type StatusFilter = 'all' | 'completed' | 'processing' | 'failed';
+
+const STATUS_FILTERS: Array<{ id: StatusFilter; label: string }> = [
+    { id: 'all', label: 'All' },
+    { id: 'completed', label: 'Completed' },
+    { id: 'processing', label: 'Processing' },
+    { id: 'failed', label: 'Failed' }
+];
 
 export function VideoHistoryPanel({
     history,
@@ -42,10 +55,27 @@ export function VideoHistoryPanel({
     onClearHistory,
     getVideoSrc,
     getThumbnailSrc,
-    onDeleteItem
+    onDeleteItem,
+    onReuseItem,
+    onRegenerateItem
 }: VideoHistoryPanelProps) {
     const [openCostDialogId, setOpenCostDialogId] = React.useState<string | null>(null);
     const [isTotalCostDialogOpen, setIsTotalCostDialogOpen] = React.useState(false);
+    const [statusFilter, setStatusFilter] = React.useState<StatusFilter>('all');
+    const [modelFilter, setModelFilter] = React.useState<string>('all');
+
+    /** Models actually present in history, for the filter row. */
+    const modelsInHistory = React.useMemo(() => {
+        return Array.from(new Set(history.map((item) => item.model)));
+    }, [history]);
+
+    const filteredHistory = React.useMemo(() => {
+        return history.filter((item) => {
+            if (statusFilter !== 'all' && (item.status ?? 'completed') !== statusFilter) return false;
+            if (modelFilter !== 'all' && item.model !== modelFilter) return false;
+            return true;
+        });
+    }, [history, statusFilter, modelFilter]);
 
     const { totalCost, totalVideos, successfulVideos } = React.useMemo(() => {
         let cost = 0;
@@ -178,11 +208,62 @@ export function VideoHistoryPanel({
                         <p>Generated videos will appear here.</p>
                     </div>
                 ) : (
+                    <>
+                    <div className='mb-4 flex flex-wrap items-center gap-2'>
+                        {STATUS_FILTERS.map((f) => (
+                            <button
+                                key={f.id}
+                                type='button'
+                                onClick={() => setStatusFilter(f.id)}
+                                className={cn(
+                                    'rounded-full px-2.5 py-1 text-xs transition-colors',
+                                    statusFilter === f.id
+                                        ? 'bg-white text-black'
+                                        : 'bg-white/10 text-white/60 hover:bg-white/20 hover:text-white'
+                                )}>
+                                {f.label}
+                            </button>
+                        ))}
+                        {modelsInHistory.length > 1 && (
+                            <>
+                                <span className='mx-1 h-4 w-px bg-white/15' />
+                                <button
+                                    type='button'
+                                    onClick={() => setModelFilter('all')}
+                                    className={cn(
+                                        'rounded-full px-2.5 py-1 text-xs transition-colors',
+                                        modelFilter === 'all'
+                                            ? 'bg-white text-black'
+                                            : 'bg-white/10 text-white/60 hover:bg-white/20 hover:text-white'
+                                    )}>
+                                    All models
+                                </button>
+                                {modelsInHistory.map((m) => (
+                                    <button
+                                        key={m}
+                                        type='button'
+                                        onClick={() => setModelFilter(m)}
+                                        className={cn(
+                                            'rounded-full px-2.5 py-1 text-xs transition-colors',
+                                            modelFilter === m
+                                                ? 'bg-white text-black'
+                                                : 'bg-white/10 text-white/60 hover:bg-white/20 hover:text-white'
+                                        )}>
+                                        {m}
+                                    </button>
+                                ))}
+                            </>
+                        )}
+                    </div>
+                    {filteredHistory.length === 0 ? (
+                        <div className='flex h-40 items-center justify-center text-white/40'>
+                            <p>No videos match the current filter.</p>
+                        </div>
+                    ) : (
                     <div className='grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5'>
-                        {[...history].map((item) => {
+                        {filteredHistory.map((item) => {
                             const thumbnailUrl = getThumbnailSrc ? getThumbnailSrc(item.id) : undefined;
                             const videoUrl = getVideoSrc(item.id);
-                            const originalStorageMode = item.storageModeUsed || 'fs';
                             const job = activeJobs?.get(item.id);
                             const isProcessing = item.status === 'processing' || (job && (job.status === 'queued' || job.status === 'in_progress'));
                             const isFailed = item.status === 'failed' || (job && job.status === 'failed');
@@ -239,14 +320,6 @@ export function VideoHistoryPanel({
                                                 {item.mode === 'remix' ? 'Remix' : 'Create'}
                                             </div>
                                             <div className='pointer-events-none absolute bottom-1 left-1 z-10 flex items-center gap-1'>
-                                                <div className='flex items-center gap-1 rounded-full border border-white/10 bg-neutral-900/80 px-1 py-0.5 text-[11px] text-white/70'>
-                                                    {originalStorageMode === 'fs' ? (
-                                                        <HardDrive size={12} className='text-neutral-400' />
-                                                    ) : (
-                                                        <Database size={12} className='text-blue-400' />
-                                                    )}
-                                                    <span>{originalStorageMode === 'fs' ? 'file' : 'db'}</span>
-                                                </div>
                                                 <div className='flex items-center gap-1 rounded-full border border-white/10 bg-neutral-900/80 px-1 py-0.5 text-[11px] text-white/70'>
                                                     <span>{item.seconds}s</span>
                                                 </div>
@@ -316,7 +389,7 @@ export function VideoHistoryPanel({
                                                     e.stopPropagation();
                                                     const message = item.status === 'failed'
                                                         ? 'Are you sure you want to delete this failed request from your history?'
-                                                        : 'Are you sure you want to delete this video? This will delete it from both your local storage AND OpenAI servers permanently.';
+                                                        : 'Delete this video from your history? This removes it from your browser storage. Archived cloud copies are not affected.';
                                                     if (confirm(message)) {
                                                         onDeleteItem(item);
                                                     }
@@ -335,11 +408,37 @@ export function VideoHistoryPanel({
                                             <span>{item.model}</span>
                                             <span>{item.size}</span>
                                         </div>
+                                        {(onReuseItem || onRegenerateItem) && !isProcessing && (
+                                            <div className='mt-1.5 flex items-center gap-1'>
+                                                {onReuseItem && (
+                                                    <button
+                                                        type='button'
+                                                        onClick={() => onReuseItem(item)}
+                                                        title='Fill the create form with these settings'
+                                                        className='flex flex-1 items-center justify-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white'>
+                                                        <PencilLine size={11} />
+                                                        Reuse
+                                                    </button>
+                                                )}
+                                                {onRegenerateItem && item.status !== 'failed' && (
+                                                    <button
+                                                        type='button'
+                                                        onClick={() => onRegenerateItem(item)}
+                                                        title='Generate again with the same settings (new cost)'
+                                                        className='flex flex-1 items-center justify-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white'>
+                                                        <RotateCcw size={11} />
+                                                        Regenerate
+                                                    </button>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             );
                         })}
                     </div>
+                    )}
+                    </>
                 )}
             </CardContent>
         </Card>
