@@ -9,6 +9,10 @@
  *
  * Enabled per deployment with NEXT_PUBLIC_XCITY_SSO=true (requires the
  * xcity.ai CORS allowlist to include this origin).
+ *
+ * Key lifetime is handled by useXcityKey (src/hooks/use-xcity-key.ts), which
+ * keeps an always-current ref so submit/poll/archive paths never act on a key
+ * captured by a stale render.
  */
 
 export const XCITY_SSO_ENABLED = process.env.NEXT_PUBLIC_XCITY_SSO === 'true';
@@ -20,22 +24,6 @@ export const XCITY_LOGIN_URL = process.env.NEXT_PUBLIC_XCITY_LOGIN_URL || 'https
 export function xcityLoginHref(): string {
     if (typeof window === 'undefined') return XCITY_LOGIN_URL;
     return `${XCITY_LOGIN_URL}?return=${encodeURIComponent(window.location.href)}`;
-}
-
-/**
- * Last key handed out by the SSO fetch. React state is the source of truth for
- * rendering, but submit handlers capture state from the render they were bound
- * in — so a key that arrives after the form rendered is invisible to them. This
- * module-level copy is the escape hatch those handlers read.
- */
-let lastKnownKey: string | null = null;
-
-export function getLastKnownKey(): string | null {
-    return lastKnownKey;
-}
-
-export function rememberKey(key: string | null): void {
-    lastKnownKey = key;
 }
 
 export type XcityKeyFetch =
@@ -56,7 +44,6 @@ export async function fetchXcityUserKey(): Promise<XcityKeyFetch> {
         if (!data.key) {
             return { status: 'error', message: 'key endpoint returned no key' };
         }
-        rememberKey(data.key);
         return { status: 'ok', key: data.key, plan: data.plan };
     } catch (err) {
         // Same-site fetch failing usually means CORS not yet allowing this

@@ -41,6 +41,8 @@ type CreationFormProps = {
     setSeconds: React.Dispatch<React.SetStateAction<number>>;
     generateAudio: boolean;
     setGenerateAudio: React.Dispatch<React.SetStateAction<boolean>>;
+    cameraFixed: boolean;
+    setCameraFixed: React.Dispatch<React.SetStateAction<boolean>>;
     inputReferenceUrl: string;
     setInputReferenceUrl: React.Dispatch<React.SetStateAction<string>>;
 };
@@ -68,6 +70,8 @@ export function CreationForm({
     setSeconds,
     generateAudio,
     setGenerateAudio,
+    cameraFixed,
+    setCameraFixed,
     inputReferenceUrl,
     setInputReferenceUrl
 }: CreationFormProps) {
@@ -81,7 +85,8 @@ export function CreationForm({
             ratio,
             resolution,
             seconds,
-            generate_audio: generateAudio
+            generate_audio: generateAudio,
+            camera_fixed: cameraFixed
         };
         const referenceUrl = inputReferenceUrl.trim();
         if (referenceUrl) {
@@ -223,17 +228,31 @@ export function CreationForm({
                         </p>
                     </div>
 
-                    <div className='flex items-center space-x-2'>
-                        <Checkbox
-                            id='generate-audio'
-                            checked={generateAudio}
-                            onCheckedChange={(checked) => setGenerateAudio(checked === true)}
-                            disabled={isLoading}
-                            className='border-white/40 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black'
-                        />
-                        <Label htmlFor='generate-audio' className='cursor-pointer text-white/80'>
-                            Generate synchronized audio
-                        </Label>
+                    <div className='flex flex-wrap items-center gap-x-6 gap-y-2'>
+                        <div className='flex items-center space-x-2'>
+                            <Checkbox
+                                id='generate-audio'
+                                checked={generateAudio}
+                                onCheckedChange={(checked) => setGenerateAudio(checked === true)}
+                                disabled={isLoading}
+                                className='border-white/40 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black'
+                            />
+                            <Label htmlFor='generate-audio' className='cursor-pointer text-white/80'>
+                                Generate synchronized audio
+                            </Label>
+                        </div>
+                        <div className='flex items-center space-x-2'>
+                            <Checkbox
+                                id='camera-fixed'
+                                checked={cameraFixed}
+                                onCheckedChange={(checked) => setCameraFixed(checked === true)}
+                                disabled={isLoading}
+                                className='border-white/40 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black'
+                            />
+                            <Label htmlFor='camera-fixed' className='cursor-pointer text-white/80'>
+                                Fixed camera
+                            </Label>
+                        </div>
                     </div>
 
                     <div className='space-y-2'>

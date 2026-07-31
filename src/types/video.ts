@@ -58,4 +58,6 @@ export type VideoJobCreate = {
     generate_audio: boolean;
     /** Public image URL for image-to-video (the gateway forwards it to Ark). */
     input_reference_url?: string;
+    /** Lock the camera in place (BytePlus provider param, passed through). */
+    camera_fixed?: boolean;
 };

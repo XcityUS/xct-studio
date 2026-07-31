@@ -3,19 +3,17 @@ import { InvalidApiKeyError } from './errors';
 import { clampSeconds } from './seedance';
 import type { VideoJob, VideoJobCreate } from '@/types/video';
 
-export type ApiMode = 'backend' | 'frontend';
-
-interface ServiceConfig {
-    mode: ApiMode;
-    clientApiKey?: string | null;
-    clientPasswordHash?: string | null;
-    baseURL?: string;
-}
+/**
+ * Direct client for the TokenHub gateway's OpenAI-style /v1/videos API.
+ * Every call runs in the browser with the user's own key (SSO-fetched or
+ * pasted) — there is no server-side proxy or shared key.
+ */
 
 /**
  * JSON body for the gateway's POST /v1/videos. `ratio` / `resolution` /
- * `generate_audio` are BytePlus provider params the gateway passes through
- * verbatim; `input_reference` is a public image URL (image-to-video).
+ * `generate_audio` / `camera_fixed` are BytePlus provider params the gateway
+ * passes through verbatim; `input_reference` is a public image URL
+ * (image-to-video).
  */
 function buildCreateBody(params: VideoJobCreate): Record<string, unknown> {
     const body: Record<string, unknown> = {
@@ -29,17 +27,35 @@ function buildCreateBody(params: VideoJobCreate): Record<string, unknown> {
     if (params.input_reference_url) {
         body.input_reference = params.input_reference_url;
     }
+    if (params.camera_fixed !== undefined) {
+        body.camera_fixed = params.camera_fixed;
+    }
     return body;
 }
 
 export class VideoService {
-    private config: ServiceConfig;
+    private getApiKey: () => string | null;
+    private baseURL?: string;
 
-    constructor(config: ServiceConfig) {
-        this.config = config;
+    /**
+     * Takes a key *getter*, not a key: SSO keys arrive async and rotate, and
+     * closures (submit handlers, polling callbacks) must never act on a key
+     * captured by a stale render. The getter reads the always-current ref.
+     */
+    constructor(config: { getApiKey: () => string | null; baseURL?: string }) {
+        this.getApiKey = config.getApiKey;
+        this.baseURL = config.baseURL;
     }
 
-    private handleFrontendError(error: unknown): never {
+    private client() {
+        const key = this.getApiKey();
+        if (!key) {
+            throw new InvalidApiKeyError('No Xcity API key available. Sign in at xcity.ai or set a key.');
+        }
+        return createFrontendOpenAI(key, this.baseURL);
+    }
+
+    private handleError(error: unknown): never {
         if (error && typeof error === 'object') {
             const status = (error as { status?: number }).status;
             const code = (error as { code?: string }).code;
@@ -56,102 +72,42 @@ export class VideoService {
     }
 
     async createVideo(params: VideoJobCreate): Promise<VideoJob> {
-        if (this.config.mode === 'frontend') {
-            if (!this.config.clientApiKey) {
-                throw new Error('API key is required for frontend mode');
-            }
-
-            const openai = createFrontendOpenAI(this.config.clientApiKey, this.config.baseURL);
-
-            try {
-                // client.post keeps the request plain JSON — the typed
-                // videos.create helper switches to multipart when
-                // input_reference is present, which the gateway (URL-based
-                // image-to-video) does not speak.
-                const video = await openai.post('/videos', { body: buildCreateBody(params) });
-                return video as VideoJob;
-            } catch (error) {
-                this.handleFrontendError(error);
-            }
-        } else {
-            const response = await fetch('/api/videos', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    ...buildCreateBody(params),
-                    passwordHash: this.config.clientPasswordHash ?? undefined
-                })
-            });
-
-            if (!response.ok) {
-                const result = await response.json();
-                throw new Error(result.error || `API request failed with status ${response.status}`);
-            }
-
-            return await response.json();
+        try {
+            // client.post keeps the request plain JSON — the typed
+            // videos.create helper switches to multipart when input_reference
+            // is present, which the gateway (URL-based image-to-video) does
+            // not speak.
+            const video = await this.client().post('/videos', { body: buildCreateBody(params) });
+            return video as VideoJob;
+        } catch (error) {
+            this.handleError(error);
         }
     }
 
     async retrieveVideo(videoId: string): Promise<VideoJob> {
-        if (this.config.mode === 'frontend') {
-            if (!this.config.clientApiKey) {
-                throw new Error('API key is required for frontend mode');
-            }
-
-            const openai = createFrontendOpenAI(this.config.clientApiKey, this.config.baseURL);
-            try {
-                // Raw GET, not the typed videos.retrieve helper: the SDK models
-                // only OpenAI's documented fields and drops `output_url`, the
-                // provider's direct CDN link we play from.
-                const video = await openai.get(`/videos/${encodeURIComponent(videoId)}`);
-                return video as VideoJob;
-            } catch (error) {
-                this.handleFrontendError(error);
-            }
-        } else {
-            const response = await fetch(`/api/videos/${videoId}`, {
-                headers: this.config.clientPasswordHash ? { 'x-password-hash': this.config.clientPasswordHash } : {}
-            });
-
-            if (!response.ok) {
-                throw new Error(`Failed to fetch job status: ${response.statusText}`);
-            }
-
-            return await response.json();
+        try {
+            // Raw GET, not the typed videos.retrieve helper: the SDK models
+            // only OpenAI's documented fields and drops `output_url`, the
+            // provider's direct CDN link we play from.
+            const video = await this.client().get(`/videos/${encodeURIComponent(videoId)}`);
+            return video as VideoJob;
+        } catch (error) {
+            this.handleError(error);
         }
     }
 
     async deleteVideo(videoId: string): Promise<void> {
-        if (this.config.mode === 'frontend') {
-            if (!this.config.clientApiKey) {
-                throw new Error('API key is required for frontend mode');
-            }
-
-            const openai = createFrontendOpenAI(this.config.clientApiKey, this.config.baseURL);
-            try {
-                await openai.videos.delete(videoId);
-            } catch (error) {
-                this.handleFrontendError(error);
-            }
-        } else {
-            const response = await fetch(`/api/videos/${videoId}`, {
-                method: 'DELETE',
-                headers: this.config.clientPasswordHash ? { 'x-password-hash': this.config.clientPasswordHash } : {}
-            });
-
-            if (!response.ok) {
-                const result = await response.json();
-                throw new Error(result.error || 'Failed to delete video');
-            }
+        try {
+            await this.client().videos.delete(videoId);
+        } catch (error) {
+            this.handleError(error);
         }
     }
 
     /**
      * Downloads the finished MP4. Prefers the provider's direct CDN link when
      * the completed job exposes one — the gateway's /content route proxies the
-     * whole file and is unreliable. Falls back to /content otherwise. Only the
-     * `video` variant exists (no thumbnails/spritesheets — previews are
-     * generated client-side from the blob).
+     * whole file and is unreliable. Falls back to /content otherwise.
      */
     async downloadContent(videoId: string, outputUrl?: string): Promise<Blob> {
         if (outputUrl) {
@@ -166,33 +122,11 @@ export class VideoService {
             console.warn(`Direct CDN download failed (${direct.status}), falling back to gateway`);
         }
 
-        if (this.config.mode === 'frontend') {
-            if (!this.config.clientApiKey) {
-                throw new Error('API key is required for frontend mode');
-            }
-
-            const openai = createFrontendOpenAI(this.config.clientApiKey, this.config.baseURL);
-            try {
-                const content = await openai.videos.downloadContent(videoId, { variant: 'video' });
-                return await content.blob();
-            } catch (error) {
-                this.handleFrontendError(error);
-            }
-        } else {
-            const url = `/api/videos/${videoId}/content?variant=video`;
-            const fullUrl = this.config.clientPasswordHash
-                ? `${url}&password-hash=${encodeURIComponent(this.config.clientPasswordHash)}`
-                : url;
-
-            const response = await fetch(fullUrl, {
-                headers: this.config.clientPasswordHash ? { 'x-password-hash': this.config.clientPasswordHash } : {}
-            });
-
-            if (!response.ok) {
-                throw new Error(`Failed to download video: ${response.statusText}`);
-            }
-
-            return await response.blob();
+        try {
+            const content = await this.client().videos.downloadContent(videoId, { variant: 'video' });
+            return await content.blob();
+        } catch (error) {
+            this.handleError(error);
         }
     }
 }
