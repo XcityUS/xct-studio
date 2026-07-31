@@ -5,10 +5,18 @@ import { VideoHistoryPanel } from '@/components/video-history-panel';
 import { VideoOutput } from '@/components/video-output';
 import { ApiKeyDialog } from '@/components/api-key-dialog';
 import { ApiKeyGate } from '@/components/api-key-gate';
+import { ImageStudio } from '@/components/image-studio';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { calculateVideoCost } from '@/lib/cost-utils';
-import { db } from '@/lib/db';
+import { db, type ImageRecord } from '@/lib/db';
+import {
+    IMAGE_GENERATION_ENABLED,
+    generateImages,
+    type GeneratedImage,
+    type ImageSizeId
+} from '@/lib/image-service';
 import { VideoService } from '@/lib/video-service';
 import { InvalidApiKeyError } from '@/lib/errors';
 import {
@@ -41,6 +49,7 @@ export default function HomePage() {
     const [isApiKeyDialogOpen, setIsApiKeyDialogOpen] = React.useState(false);
     const [currentJobId, setCurrentJobId] = React.useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = React.useState(false);
+    const [activeTab, setActiveTab] = React.useState<'video' | 'image'>('video');
 
     // Creation form state
     const [createModel, setCreateModel] = React.useState<VideoModel>(DEFAULT_MODEL);
@@ -81,6 +90,51 @@ export default function HomePage() {
                 throw new Error('Sign in at xcity.ai (or set an API key) before uploading images.');
             }
             return uploadReferenceImage(file, key);
+        },
+        [resolveKey]
+    );
+
+    const handleGenerateImages = React.useCallback(
+        async (params: { prompt: string; model: string; size: ImageSizeId; n: number }): Promise<GeneratedImage[]> => {
+            const key = await resolveKey();
+            if (!key) {
+                throw new Error('Sign in at xcity.ai (or set an API key) to generate images.');
+            }
+            return generateImages(params, key, process.env.NEXT_PUBLIC_OPENAI_API_BASE_URL);
+        },
+        [resolveKey]
+    );
+
+    /** 发送到图生视频 — resolve a public URL for the image and load it into the video form. */
+    const handleAnimateImage = React.useCallback(
+        async (record: ImageRecord) => {
+            let url: string | null = null;
+
+            // A worker-hosted copy is permanent and CORS-clean — prefer it.
+            if (record.blob && (await mediaArchiveEnabled())) {
+                const key = await resolveKey();
+                if (!key) {
+                    throw new Error('Sign in at xcity.ai (or set an API key) first.');
+                }
+                const file = new File([record.blob], `${record.id}.png`, {
+                    type: record.blob.type || 'image/png'
+                });
+                url = await uploadReferenceImage(file, key);
+            } else if (record.source_url) {
+                // Provider URL: works while it lasts; the gateway fetches it
+                // server-side so CORS is not a concern.
+                url = record.source_url;
+            }
+
+            if (!url) {
+                throw new Error(
+                    'This image has no public URL and no media worker is configured to host one. Download it and upload it in the video form instead.'
+                );
+            }
+
+            setCreateInputReferenceUrl(url);
+            setActiveTab('video');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         },
         [resolveKey]
     );
@@ -476,11 +530,8 @@ export default function HomePage() {
     // Without SSO the manual key is the only way in — gate until one is set.
     const isApiKeyGateBlocked = !XCITY_SSO_ENABLED && !apiKey;
 
-    return (
-        <main className='flex flex-col items-center bg-black p-4 text-white md:p-8 lg:p-12'>
-            <ApiKeyDialog isOpen={isApiKeyDialogOpen} onOpenChange={setIsApiKeyDialogOpen} onSave={handleSaveApiKey} />
-
-            <div className='w-full max-w-7xl space-y-6'>
+    const videoTabContent = (
+        <>
                 <div className='grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-stretch'>
                     <div className='relative flex min-h-[600px] flex-col lg:col-span-1'>
                         <ApiKeyGate
@@ -586,6 +637,38 @@ export default function HomePage() {
                         onRegenerateItem={handleRegenerateItem}
                     />
                 </div>
+        </>
+    );
+
+    return (
+        <main className='flex flex-col items-center bg-black p-4 text-white md:p-8 lg:p-12'>
+            <ApiKeyDialog isOpen={isApiKeyDialogOpen} onOpenChange={setIsApiKeyDialogOpen} onSave={handleSaveApiKey} />
+
+            <div className='w-full max-w-7xl space-y-6'>
+                {IMAGE_GENERATION_ENABLED ? (
+                    <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'video' | 'image')}>
+                        <TabsList className='mb-4 border border-white/10 bg-white/5'>
+                            <TabsTrigger
+                                value='video'
+                                className='px-6 text-white/60 data-[state=active]:bg-white data-[state=active]:text-black'>
+                                Video
+                            </TabsTrigger>
+                            <TabsTrigger
+                                value='image'
+                                className='px-6 text-white/60 data-[state=active]:bg-white data-[state=active]:text-black'>
+                                Image
+                            </TabsTrigger>
+                        </TabsList>
+                        <TabsContent value='video' className='space-y-6'>
+                            {videoTabContent}
+                        </TabsContent>
+                        <TabsContent value='image'>
+                            <ImageStudio onGenerate={handleGenerateImages} onAnimate={handleAnimateImage} />
+                        </TabsContent>
+                    </Tabs>
+                ) : (
+                    <div className='space-y-6'>{videoTabContent}</div>
+                )}
             </div>
         </main>
     );
