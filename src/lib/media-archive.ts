@@ -31,6 +31,11 @@ export async function mediaArchiveEnabled(): Promise<boolean> {
     return (await loadWorkerUrl()).length > 0;
 }
 
+/** Base worker URL ('' when unconfigured) — also serves the showcase gallery. */
+export async function mediaWorkerUrl(): Promise<string> {
+    return loadWorkerUrl();
+}
+
 export interface ArchivedMedia {
     url: string;
     bytes: number | null;

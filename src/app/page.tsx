@@ -1,5 +1,6 @@
 'use client';
 
+import { GallerySection } from '@/components/gallery/gallery-section';
 import { CreationForm, type CreationFormData } from '@/components/creation-form';
 import { VideoHistoryPanel } from '@/components/video-history-panel';
 import { VideoOutput } from '@/components/video-output';
@@ -34,6 +35,8 @@ import {
 } from '@/lib/seedance';
 import { mediaArchiveEnabled, uploadReferenceImage } from '@/lib/media-archive';
 import { optimizePrompt } from '@/lib/prompt-optimizer';
+import { reconcilePreset } from '@/lib/gallery-preset';
+import type { GalleryItem } from '@/lib/gallery';
 import { captureVideoPoster } from '@/lib/thumbnail';
 import { XCITY_SSO_ENABLED, xcityLoginHref } from '@/lib/xcity-sso';
 import { useMediaArchive } from '@/hooks/use-media-archive';
@@ -65,6 +68,34 @@ export default function HomePage() {
     const { history, isInitialLoad, addItem, updateItem, removeItem, clearAll } = useVideoHistory();
     const { getVideoSrc, getThumbnailSrc, setRemoteSource, removeSource, clearAllSources, hasLocalCopy, hasSource } =
         useVideoSources();
+
+    // Showcase → creation form. Settings are reconciled against the target
+    // model first (see gallery-preset), because programmatic setState skips
+    // the form's own Select-driven correction.
+    const creationFormRef = React.useRef<HTMLDivElement>(null);
+
+    const applyPreset = React.useCallback((item: GalleryItem) => {
+        const p = reconcilePreset(item.params);
+        setCreateModel(p.model);
+        setCreatePrompt(p.prompt);
+        setCreateRatio(p.ratio);
+        setCreateResolution(p.resolution);
+        setCreateSeconds(p.seconds);
+        setCreateAudio(p.generate_audio);
+        setCreateInputReferenceUrl(p.input_reference_url ?? '');
+        setError(p.adjusted.length ? `Adjusted for ${p.model}: ${p.adjusted.join(', ')}` : null);
+        creationFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, []);
+
+    const applyReferenceFrame = React.useCallback((item: GalleryItem, frameUrl: string) => {
+        setCreateModel(item.params.model);
+        setCreateRatio(item.params.ratio);
+        setCreateInputReferenceUrl(frameUrl);
+        // Leave the prompt to the user: describing the motion is the point of
+        // image-to-video, and inheriting the original prompt fights that.
+        setCreatePrompt('');
+        creationFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, []);
 
     // One service for the app's lifetime: it reads the key through the ref at
     // call time, so it never needs rebuilding when the key arrives or rotates.
@@ -534,7 +565,7 @@ export default function HomePage() {
     const videoTabContent = (
         <>
                 <div className='grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-stretch'>
-                    <div className='relative flex min-h-[600px] flex-col lg:col-span-1'>
+                    <div ref={creationFormRef} className='relative flex min-h-[600px] flex-col lg:col-span-1'>
                         <ApiKeyGate
                             isBlocked={isApiKeyGateBlocked}
                             onConfigure={() => setIsApiKeyDialogOpen(true)}
@@ -624,6 +655,8 @@ export default function HomePage() {
                         />
                     </div>
                 </div>
+
+                <GallerySection onUsePreset={applyPreset} onUseAsReference={applyReferenceFrame} />
 
                 <div className='min-h-[450px]'>
                     <VideoHistoryPanel
