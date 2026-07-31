@@ -70,6 +70,18 @@ export function formatSize(ratio: VideoRatio, resolution: VideoResolution): stri
     return `${ratio} · ${resolution}`;
 }
 
+/**
+ * Inverse of formatSize, for history items predating stored createParams.
+ * Returns null when the string is not in display shape (e.g. the gateway's
+ * raw "16x9").
+ */
+export function parseSize(size: string): { ratio: VideoRatio; resolution: VideoResolution } | null {
+    const [ratioPart, resolutionPart] = size.split('·').map((s) => s.trim());
+    const ratio = RATIOS.find((r) => r === ratioPart);
+    const resolution = RESOLUTIONS.find((r) => r === resolutionPart);
+    return ratio && resolution ? { ratio, resolution } : null;
+}
+
 export function clampSeconds(value: number): number {
     if (Number.isNaN(value)) return DEFAULT_SECONDS;
     return Math.min(MAX_SECONDS, Math.max(MIN_SECONDS, Math.round(value)));

@@ -16,7 +16,10 @@ import {
     DEFAULT_RATIO,
     DEFAULT_RESOLUTION,
     DEFAULT_SECONDS,
+    clampSeconds,
     formatSize,
+    getSeedanceModel,
+    parseSize,
     type VideoModel,
     type VideoRatio,
     type VideoResolution
@@ -292,6 +295,7 @@ export default function HomePage() {
                 seconds: formData.seconds,
                 prompt: formData.prompt,
                 mode: 'create',
+                createParams: formData,
                 costDetails: calculateVideoCost({
                     model: formData.model,
                     resolution: formData.resolution,
@@ -312,6 +316,50 @@ export default function HomePage() {
         } finally {
             setIsSubmitting(false);
         }
+    };
+
+    /**
+     * Rebuilds submission parameters from a history item — the stored
+     * createParams when present, otherwise best-effort from display fields
+     * (items predating the field).
+     */
+    const buildParamsFromItem = React.useCallback((item: VideoMetadata): CreationFormData => {
+        if (item.createParams) {
+            return { ...item.createParams, prompt: item.prompt };
+        }
+        const parsed = parseSize(item.size);
+        return {
+            model: getSeedanceModel(item.model) ? (item.model as VideoModel) : DEFAULT_MODEL,
+            prompt: item.prompt,
+            ratio: parsed?.ratio ?? DEFAULT_RATIO,
+            resolution: parsed?.resolution ?? DEFAULT_RESOLUTION,
+            seconds: clampSeconds(item.seconds),
+            generate_audio: true,
+            camera_fixed: false
+        };
+    }, []);
+
+    /** 做同款 — fill the create form with an item's parameters. */
+    const handleReuseItem = React.useCallback(
+        (item: VideoMetadata) => {
+            const params = buildParamsFromItem(item);
+            setCreateModel(params.model);
+            setCreatePrompt(params.prompt);
+            setCreateRatio(params.ratio);
+            setCreateResolution(params.resolution);
+            setCreateSeconds(params.seconds);
+            setCreateAudio(params.generate_audio);
+            setCreateCameraFixed(params.camera_fixed ?? false);
+            setCreateInputReferenceUrl(params.input_reference_url ?? '');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        },
+        [buildParamsFromItem]
+    );
+
+    /** 重新生成 — resubmit an item with its exact parameters. */
+    const handleRegenerateItem = (item: VideoMetadata) => {
+        void handleCreateVideo(buildParamsFromItem(item));
+        window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
     const handleHistorySelect = (item: VideoMetadata) => {
@@ -534,6 +582,8 @@ export default function HomePage() {
                         getVideoSrc={getVideoSrc}
                         getThumbnailSrc={getThumbnailSrc}
                         onDeleteItem={handleDeleteVideo}
+                        onReuseItem={handleReuseItem}
+                        onRegenerateItem={handleRegenerateItem}
                     />
                 </div>
             </div>

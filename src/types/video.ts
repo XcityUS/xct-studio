@@ -42,6 +42,11 @@ export type VideoMetadata = {
     mode: 'create' | 'remix';
     /** Permanent R2 URL once archived — outlives the provider's 24h CDN link. */
     storedUrl?: string;
+    /**
+     * Exact submission parameters, kept for reuse/regenerate. Items created
+     * before this field existed fall back to parsing `size`/`model`.
+     */
+    createParams?: VideoJobCreate;
     costDetails: CostDetails | null;
     remix_of?: string;
     status?: 'processing' | 'completed' | 'failed';
