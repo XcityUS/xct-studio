@@ -21,6 +21,7 @@ import {
     type VideoRatio,
     type VideoResolution
 } from '@/lib/seedance';
+import { mediaArchiveEnabled, uploadReferenceImage } from '@/lib/media-archive';
 import { captureVideoPoster } from '@/lib/thumbnail';
 import { XCITY_SSO_ENABLED, xcityLoginHref } from '@/lib/xcity-sso';
 import { useMediaArchive } from '@/hooks/use-media-archive';
@@ -61,6 +62,24 @@ export default function HomePage() {
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    // Local image upload is only offered when a media worker is configured
+    // (checked at runtime via /api/config).
+    const [uploadEnabled, setUploadEnabled] = React.useState(false);
+    React.useEffect(() => {
+        void mediaArchiveEnabled().then(setUploadEnabled);
+    }, []);
+
+    const handleUploadImage = React.useCallback(
+        async (file: File): Promise<string> => {
+            const key = await resolveKey();
+            if (!key) {
+                throw new Error('Sign in at xcity.ai (or set an API key) before uploading images.');
+            }
+            return uploadReferenceImage(file, key);
+        },
+        [resolveKey]
+    );
 
     const handleInvalidApiKey = React.useCallback(
         (message = 'Your Xcity API key was rejected. Please sign in again or enter a new key.') => {
@@ -469,6 +488,7 @@ export default function HomePage() {
                                     setCameraFixed={setCreateCameraFixed}
                                     inputReferenceUrl={createInputReferenceUrl}
                                     setInputReferenceUrl={setCreateInputReferenceUrl}
+                                    onUploadImage={uploadEnabled ? handleUploadImage : undefined}
                                 />
                             )}
                         </ApiKeyGate>

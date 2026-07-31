@@ -18,3 +18,5 @@ ALLOWED_ORIGINS = "https://studio.xcity.ai,https://chat.xcity.ai,https://xcity.a
 # Refuse to copy anything larger than this (bytes). 12s of 1080p Seedance is
 # well under 100 MB; the cap is a runaway guard, not a product limit.
 MAX_BYTES = "209715200"
+# Cap for POST /upload reference images (bytes). 10 MB.
+MAX_UPLOAD_BYTES = "10485760"

@@ -24,8 +24,11 @@ function getStoredApiKey(): string | null {
  * SSO fetch when no key is on hand — never from captured state.
  */
 export function useXcityKey() {
-    const [apiKey, setApiKeyState] = React.useState<string | null>(() => getStoredApiKey());
-    const keyRef = React.useRef<string | null>(apiKey);
+    // Starts null on both server and client — the stored key is picked up in
+    // a mount effect. Reading localStorage in the initializer renders
+    // different HTML on the server than on the client (hydration error).
+    const [apiKey, setApiKeyState] = React.useState<string | null>(null);
+    const keyRef = React.useRef<string | null>(null);
 
     const [ssoStatus, setSsoStatus] = React.useState<SsoStatus>(XCITY_SSO_ENABLED ? 'checking' : 'ok');
     const [ssoError, setSsoError] = React.useState<string | null>(null);
@@ -34,6 +37,13 @@ export function useXcityKey() {
         keyRef.current = key;
         setApiKeyState(key);
     }, []);
+
+    React.useEffect(() => {
+        const stored = getStoredApiKey();
+        if (stored && !keyRef.current) {
+            setKey(stored);
+        }
+    }, [setKey]);
 
     const attemptSso = React.useCallback(async () => {
         setSsoStatus('checking');

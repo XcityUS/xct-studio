@@ -3,8 +3,8 @@
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ReferenceImageInput } from '@/components/reference-image-input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
 import { Textarea } from '@/components/ui/textarea';
@@ -45,6 +45,8 @@ type CreationFormProps = {
     setCameraFixed: React.Dispatch<React.SetStateAction<boolean>>;
     inputReferenceUrl: string;
     setInputReferenceUrl: React.Dispatch<React.SetStateAction<string>>;
+    /** Uploads a local image, resolving to its public URL. Absent = URL-only mode. */
+    onUploadImage?: (file: File) => Promise<string>;
 };
 
 const RATIO_LABELS: Record<VideoRatio, string> = {
@@ -73,7 +75,8 @@ export function CreationForm({
     cameraFixed,
     setCameraFixed,
     inputReferenceUrl,
-    setInputReferenceUrl
+    setInputReferenceUrl,
+    onUploadImage
 }: CreationFormProps) {
     const estimatedCost = calculateVideoCost({ model, resolution, seconds });
 
@@ -255,24 +258,14 @@ export function CreationForm({
                         </div>
                     </div>
 
-                    <div className='space-y-2'>
-                        <Label htmlFor='input-reference-url' className='text-white'>
-                            Reference Image URL (Optional)
-                        </Label>
-                        <Input
-                            id='input-reference-url'
-                            type='url'
-                            placeholder='https://…/image.png'
-                            value={inputReferenceUrl}
-                            onChange={(e) => setInputReferenceUrl(e.target.value)}
-                            disabled={isLoading}
-                            className='rounded-md border border-white/20 bg-black text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
-                        />
-                        <p className='text-xs text-white/40'>
-                            Public image URL to animate (image-to-video). The video starts from this frame, guided by
-                            your prompt.
-                        </p>
-                    </div>
+                    <ReferenceImageInput
+                        value={inputReferenceUrl}
+                        onChange={setInputReferenceUrl}
+                        onUpload={onUploadImage}
+                        disabled={isLoading}
+                        label='Reference Image (Optional)'
+                        hint='Image-to-video: the clip starts from this frame, guided by your prompt.'
+                    />
                 </CardContent>
                 <CardFooter className='flex items-center gap-3 border-t border-white/10 p-4'>
                     <Button
