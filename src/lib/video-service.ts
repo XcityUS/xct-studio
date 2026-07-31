@@ -19,7 +19,7 @@ function buildCreateBody(params: VideoJobCreate): Record<string, unknown> {
     const body: Record<string, unknown> = {
         model: params.model,
         prompt: params.prompt,
-        seconds: clampSeconds(params.seconds),
+        seconds: clampSeconds(params.seconds, params.model),
         ratio: params.ratio,
         resolution: params.resolution,
         generate_audio: params.generate_audio

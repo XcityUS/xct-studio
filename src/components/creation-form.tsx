@@ -10,12 +10,13 @@ import { Slider } from '@/components/ui/slider';
 import { Textarea } from '@/components/ui/textarea';
 import { calculateVideoCost } from '@/lib/cost-utils';
 import {
-    MAX_SECONDS,
-    MIN_SECONDS,
     RATIOS,
     RESOLUTIONS,
     SEEDANCE_MODELS,
+    clampSeconds,
+    getSeedanceModel,
     modelSupportsResolution,
+    secondsRange,
     type VideoModel,
     type VideoRatio,
     type VideoResolution
@@ -83,6 +84,8 @@ export function CreationForm({
     onUploadImage,
     onOptimizePrompt
 }: CreationFormProps) {
+    const { min: minSeconds, max: maxSeconds } = secondsRange(model);
+    const modelDef = getSeedanceModel(model);
     const estimatedCost = calculateVideoCost({ model, resolution, seconds });
 
     const [isInspirationOpen, setIsInspirationOpen] = React.useState(false);
@@ -221,10 +224,14 @@ export function CreationForm({
                             onValueChange={(value) => {
                                 const newModel = value as VideoModel;
                                 setModel(newModel);
-                                // Seedance 2.0 Fast has no 1080p tier.
+                                // Capabilities differ per model: 2.0 Fast has no
+                                // 1080p, only 2.5 does 4K, and only 2.5 goes past
+                                // 12s. Pull the current choices back into range
+                                // instead of submitting something the model rejects.
                                 if (!modelSupportsResolution(newModel, resolution)) {
                                     setResolution('720p');
                                 }
+                                setSeconds((prev) => clampSeconds(prev, newModel));
                             }}
                             disabled={isLoading}>
                             <SelectTrigger
@@ -302,14 +309,14 @@ export function CreationForm({
                         </div>
                         <Slider
                             value={[seconds]}
-                            min={MIN_SECONDS}
-                            max={MAX_SECONDS}
+                            min={minSeconds}
+                            max={maxSeconds}
                             step={1}
                             onValueChange={(value) => setSeconds(value[0] ?? seconds)}
                             disabled={isLoading}
                         />
                         <p className='text-xs text-white/40'>
-                            Seedance clips run {MIN_SECONDS}–{MAX_SECONDS} seconds.
+                            {modelDef?.label ?? 'Seedance'} clips run {minSeconds}–{maxSeconds} seconds.
                         </p>
                     </div>
 
@@ -367,8 +374,11 @@ export function CreationForm({
                         )}
                     </Button>
                     {estimatedCost && (
-                        <span className='whitespace-nowrap text-sm text-white/60'>
+                        <span
+                            className='whitespace-nowrap text-sm text-white/60'
+                            title={modelDef?.priceIsEstimate ? 'Provisional rate — BytePlus has not published pricing for this model yet' : undefined}>
                             ≈ ${estimatedCost.totalCost.toFixed(2)}
+                            {modelDef?.priceIsEstimate && <span className='ml-1 text-white/40'>est.</span>}
                         </span>
                     )}
                 </CardFooter>

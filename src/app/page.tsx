@@ -382,12 +382,13 @@ export default function HomePage() {
             return { ...item.createParams, prompt: item.prompt };
         }
         const parsed = parseSize(item.size);
+        const model = getSeedanceModel(item.model) ? (item.model as VideoModel) : DEFAULT_MODEL;
         return {
-            model: getSeedanceModel(item.model) ? (item.model as VideoModel) : DEFAULT_MODEL,
+            model,
             prompt: item.prompt,
             ratio: parsed?.ratio ?? DEFAULT_RATIO,
             resolution: parsed?.resolution ?? DEFAULT_RESOLUTION,
-            seconds: clampSeconds(item.seconds),
+            seconds: clampSeconds(item.seconds, model),
             generate_audio: true,
             camera_fixed: false
         };
