@@ -22,6 +22,7 @@ import {
     type VideoResolution
 } from '@/lib/seedance';
 import { mediaArchiveEnabled, uploadReferenceImage } from '@/lib/media-archive';
+import { optimizePrompt } from '@/lib/prompt-optimizer';
 import { captureVideoPoster } from '@/lib/thumbnail';
 import { XCITY_SSO_ENABLED, xcityLoginHref } from '@/lib/xcity-sso';
 import { useMediaArchive } from '@/hooks/use-media-archive';
@@ -77,6 +78,17 @@ export default function HomePage() {
                 throw new Error('Sign in at xcity.ai (or set an API key) before uploading images.');
             }
             return uploadReferenceImage(file, key);
+        },
+        [resolveKey]
+    );
+
+    const handleOptimizePrompt = React.useCallback(
+        async (prompt: string): Promise<string> => {
+            const key = await resolveKey();
+            if (!key) {
+                throw new Error('Sign in at xcity.ai (or set an API key) to use AI optimization.');
+            }
+            return optimizePrompt(prompt, key, process.env.NEXT_PUBLIC_OPENAI_API_BASE_URL);
         },
         [resolveKey]
     );
@@ -489,6 +501,7 @@ export default function HomePage() {
                                     inputReferenceUrl={createInputReferenceUrl}
                                     setInputReferenceUrl={setCreateInputReferenceUrl}
                                     onUploadImage={uploadEnabled ? handleUploadImage : undefined}
+                                    onOptimizePrompt={handleOptimizePrompt}
                                 />
                             )}
                         </ApiKeyGate>
