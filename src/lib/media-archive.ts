@@ -77,6 +77,50 @@ export async function archiveVideo(
     }
 }
 
+export interface UserAsset {
+    key: string;
+    url: string;
+    bytes: number | null;
+    uploaded: string | null;
+    kind: 'image' | 'video';
+}
+
+/** Lists everything the worker stores for this user (uploads + archived videos). */
+export async function listUserAssets(apiKey: string): Promise<UserAsset[]> {
+    const workerUrl = await loadWorkerUrl();
+    if (!workerUrl) {
+        throw new Error('Asset storage is not configured on this deployment.');
+    }
+    const res = await fetch(`${workerUrl}/assets`, {
+        headers: { Authorization: `Bearer ${apiKey}` }
+    });
+    if (!res.ok) {
+        throw new Error(`Could not load assets (${res.status}).`);
+    }
+    const data = (await res.json()) as { assets?: UserAsset[] };
+    return data.assets ?? [];
+}
+
+/** Deletes one stored object; the worker enforces the caller's namespace. */
+export async function deleteUserAsset(key: string, apiKey: string): Promise<void> {
+    const workerUrl = await loadWorkerUrl();
+    if (!workerUrl) {
+        throw new Error('Asset storage is not configured on this deployment.');
+    }
+    const res = await fetch(`${workerUrl}/assets/delete`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key })
+    });
+    if (!res.ok) {
+        const detail = await res
+            .json()
+            .then((d: { error?: string }) => d.error)
+            .catch(() => undefined);
+        throw new Error(detail || `Delete failed (${res.status}).`);
+    }
+}
+
 const UPLOADABLE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 

@@ -27,6 +27,12 @@ export interface SeedanceModel {
     /** Clip length bounds, in seconds — 2.5 generates far longer takes than 1.x/2.0. */
     minSeconds: number;
     maxSeconds: number;
+    /**
+     * How many reference images the model accepts. 1 = first-frame only;
+     * >1 = the 2.0-series multi-reference mode (role "reference_image",
+     * prompts cite [Image 1], [Image 2], …).
+     */
+    maxReferenceImages: number;
     /** Shown when a model's pricing is provisional rather than published. */
     priceIsEstimate?: boolean;
 }
@@ -38,7 +44,8 @@ export const SEEDANCE_MODELS = [
         description: 'Native audio · best value',
         pricePerSecond: { '480p': 0.023, '720p': 0.052, '1080p': 0.117, '4K': null },
         minSeconds: 4,
-        maxSeconds: 12
+        maxSeconds: 12,
+        maxReferenceImages: 1
     },
     {
         id: 'dreamina-seedance-2-0-260128',
@@ -46,7 +53,8 @@ export const SEEDANCE_MODELS = [
         description: 'High quality · audio',
         pricePerSecond: { '480p': 0.067, '720p': 0.151, '1080p': 0.374, '4K': null },
         minSeconds: 4,
-        maxSeconds: 12
+        maxSeconds: 12,
+        maxReferenceImages: 9
     },
     {
         id: 'dreamina-seedance-2-0-fast-260128',
@@ -54,7 +62,8 @@ export const SEEDANCE_MODELS = [
         description: 'Faster · no 1080p',
         pricePerSecond: { '480p': 0.054, '720p': 0.121, '1080p': null, '4K': null },
         minSeconds: 4,
-        maxSeconds: 12
+        maxSeconds: 12,
+        maxReferenceImages: 9
     },
     {
         id: 'dreamina-seedance-2-5-260628',
@@ -66,6 +75,7 @@ export const SEEDANCE_MODELS = [
         pricePerSecond: { '480p': 0.067, '720p': 0.151, '1080p': 0.374, '4K': 0.748 },
         minSeconds: 4,
         maxSeconds: 30,
+        maxReferenceImages: 9,
         priceIsEstimate: true
     }
 ] as const satisfies readonly SeedanceModel[];
@@ -104,6 +114,11 @@ export function parseSize(size: string): { ratio: VideoRatio; resolution: VideoR
     const ratio = RATIOS.find((r) => r === ratioPart);
     const resolution = RESOLUTIONS.find((r) => r === resolutionPart);
     return ratio && resolution ? { ratio, resolution } : null;
+}
+
+/** Reference-image cap for a model (1 = first-frame only). */
+export function maxReferenceImages(modelId: string): number {
+    return getSeedanceModel(modelId)?.maxReferenceImages ?? 1;
 }
 
 /** Duration bounds of a specific model; falls back to the widest range. */

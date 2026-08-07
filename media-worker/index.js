@@ -6,9 +6,11 @@
  * This worker copies a finished video into R2 once and serves it forever from
  * our own origin, with CORS and range support.
  *
- *   POST /archive  { video_id, source_url }   -> { url, key, bytes, cached }
- *   POST /upload   <raw image bytes>          -> { url, key, bytes, cached }
- *   GET  /media/<key>                         -> the file (public, immutable)
+ *   POST /archive        { video_id, source_url }   -> { url, key, bytes, cached }
+ *   POST /upload         <raw image bytes>          -> { url, key, bytes, cached }
+ *   GET  /assets                                    -> { assets: [{key, url, bytes, uploaded, kind}] }
+ *   POST /assets/delete  { key }                    -> { ok }
+ *   GET  /media/<key>                               -> the file (public, immutable)
  *
  * Uploads are authenticated with the caller's TokenHub virtual key, verified
  * against the gateway — this is not open storage. Objects are namespaced per
@@ -133,6 +135,74 @@ async function handleUpload(request, env, cors) {
     return json({ url: publicUrl, key, bytes: body.byteLength, cached: false }, 200, cors);
 }
 
+/** Shared bearer → owner resolution for the asset-management endpoints. */
+async function authOwner(request, env, cors) {
+    const auth = request.headers.get('authorization') || '';
+    const bearer = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+    if (!bearer) {
+        return { error: json({ error: 'missing bearer token' }, 401, cors) };
+    }
+    const owner = await resolveOwner(bearer, env);
+    if (!owner) {
+        return { error: json({ error: 'invalid or unauthorized key' }, 403, cors) };
+    }
+    return { owner };
+}
+
+/**
+ * GET /assets — everything stored under the caller's namespace: uploaded
+ * reference images (`<owner>/refs/…`) and archived videos (`<owner>/<id>.mp4`).
+ */
+async function handleAssetsList(request, env, cors) {
+    const { owner, error } = await authOwner(request, env, cors);
+    if (error) return error;
+
+    const origin = new URL(request.url).origin;
+    const assets = [];
+    let cursor;
+    // Cap the walk at ~2000 objects — far above any real user's asset count,
+    // low enough to keep the request bounded.
+    for (let page = 0; page < 2; page++) {
+        const listed = await env.XCITY_MEDIA.list({ prefix: `${owner}/`, limit: 1000, cursor });
+        for (const obj of listed.objects) {
+            assets.push({
+                key: obj.key,
+                url: `${origin}/media/${obj.key}`,
+                bytes: obj.size,
+                uploaded: obj.uploaded ? new Date(obj.uploaded).toISOString() : null,
+                kind: obj.key.startsWith(`${owner}/refs/`) ? 'image' : 'video',
+            });
+        }
+        if (!listed.truncated) break;
+        cursor = listed.cursor;
+    }
+
+    // Newest first — the panel shows recent work at the top.
+    assets.sort((a, b) => (b.uploaded || '').localeCompare(a.uploaded || ''));
+    return json({ assets }, 200, cors);
+}
+
+/** POST /assets/delete { key } — remove one object from the caller's namespace. */
+async function handleAssetsDelete(request, env, cors) {
+    const { owner, error } = await authOwner(request, env, cors);
+    if (error) return error;
+
+    let payload;
+    try {
+        payload = await request.json();
+    } catch {
+        return json({ error: 'invalid JSON body' }, 400, cors);
+    }
+    const key = typeof payload?.key === 'string' ? payload.key : '';
+    // Namespace check is the authorization: a key can only delete its own objects.
+    if (!key || !key.startsWith(`${owner}/`)) {
+        return json({ error: 'key is missing or outside your namespace' }, 403, cors);
+    }
+
+    await env.XCITY_MEDIA.delete(key);
+    return json({ ok: true, key }, 200, cors);
+}
+
 async function handleArchive(request, env, cors) {
     const auth = request.headers.get('authorization') || '';
     const bearer = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
@@ -250,6 +320,14 @@ export default {
 
         if (url.pathname === '/upload' && request.method === 'POST') {
             return handleUpload(request, env, cors);
+        }
+
+        if (url.pathname === '/assets' && request.method === 'GET') {
+            return handleAssetsList(request, env, cors);
+        }
+
+        if (url.pathname === '/assets/delete' && request.method === 'POST') {
+            return handleAssetsDelete(request, env, cors);
         }
 
         if (url.pathname.startsWith('/media/')) {
