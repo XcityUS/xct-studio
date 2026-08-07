@@ -33,6 +33,39 @@ function buildCreateBody(params: VideoJobCreate): Record<string, unknown> {
     return body;
 }
 
+/**
+ * The gateway's status strings vary by provider path: LiteLLM's OpenAI-style
+ * videos API says "processing", OpenAI says "in_progress", and BytePlus/Ark
+ * tasks report "running"/"succeeded". Collapse them onto the four statuses
+ * the app models — an unrecognized value counts as still-running so polling
+ * continues rather than dropping the job.
+ */
+const STATUS_MAP: Record<string, VideoJob['status']> = {
+    queued: 'queued',
+    pending: 'queued',
+    submitted: 'queued',
+    in_progress: 'in_progress',
+    processing: 'in_progress',
+    running: 'in_progress',
+    completed: 'completed',
+    succeeded: 'completed',
+    success: 'completed',
+    failed: 'failed',
+    error: 'failed',
+    cancelled: 'failed',
+    canceled: 'failed',
+    expired: 'failed'
+};
+
+function normalizeJob(raw: unknown): VideoJob {
+    const job = raw as VideoJob & { status?: string; progress?: number | string };
+    const status = STATUS_MAP[String(job.status ?? '').toLowerCase()] ?? 'in_progress';
+    const reported = Number(job.progress);
+    const progress =
+        status === 'completed' ? 100 : Number.isFinite(reported) ? Math.max(0, Math.min(100, reported)) : 0;
+    return { ...job, status, progress };
+}
+
 export class VideoService {
     private getApiKey: () => string | null;
     private baseURL?: string;
@@ -55,12 +88,50 @@ export class VideoService {
         return createFrontendOpenAI(key, this.baseURL);
     }
 
-    private handleError(error: unknown): never {
+    private handleError(error: unknown, model?: string): never {
         if (error && typeof error === 'object') {
             const status = (error as { status?: number }).status;
             const code = (error as { code?: string }).code;
-            if ((typeof status === 'number' && (status === 401 || status === 403)) || code === 'invalid_api_key') {
-                throw new InvalidApiKeyError();
+            const err = error as { message?: string; type?: string; error?: { message?: string; type?: string } };
+            const gatewayMessage = err.error?.message ?? err.message;
+            const errorType = err.error?.type ?? err.type;
+
+            if (typeof status === 'number' && (status === 401 || status === 403)) {
+                // LiteLLM answers "this key may not use that model" with a 401
+                // too — that is a model-allowlist problem on the gateway, not a
+                // bad key, and must not wipe the stored key.
+                const modelAccessDenied =
+                    errorType === 'key_model_access_denied' ||
+                    errorType === 'team_model_access_denied' ||
+                    (typeof gatewayMessage === 'string' &&
+                        /model/i.test(gatewayMessage) &&
+                        /access|allow/i.test(gatewayMessage));
+                if (modelAccessDenied) {
+                    throw new Error(
+                        `Your key does not have access to model "${model ?? 'unknown'}"` +
+                            (gatewayMessage ? ` — ${gatewayMessage}` : '') +
+                            ". Add it to the key's allowed models on TokenHub."
+                    );
+                }
+                throw new InvalidApiKeyError(gatewayMessage);
+            }
+            if (code === 'invalid_api_key') {
+                throw new InvalidApiKeyError(gatewayMessage);
+            }
+            // 404 = model unknown to the gateway; 400 only counts when the
+            // body blames the model (a plain 400 can be a legitimate provider
+            // param rejection — surface that message untouched below).
+            const modelNotFound =
+                status === 404 ||
+                (status === 400 &&
+                    typeof gatewayMessage === 'string' &&
+                    /model/i.test(gatewayMessage) &&
+                    /not (found|exist|in)|invalid|unknown|model list/i.test(gatewayMessage));
+            if (modelNotFound && model) {
+                throw new Error(
+                    `Video model "${model}" is not available on the gateway` +
+                        (gatewayMessage ? `: ${gatewayMessage}` : '.')
+                );
             }
         }
 
@@ -78,9 +149,9 @@ export class VideoService {
             // is present, which the gateway (URL-based image-to-video) does
             // not speak.
             const video = await this.client().post('/videos', { body: buildCreateBody(params) });
-            return video as VideoJob;
+            return normalizeJob(video);
         } catch (error) {
-            this.handleError(error);
+            this.handleError(error, params.model);
         }
     }
 
@@ -90,7 +161,7 @@ export class VideoService {
             // only OpenAI's documented fields and drops `output_url`, the
             // provider's direct CDN link we play from.
             const video = await this.client().get(`/videos/${encodeURIComponent(videoId)}`);
-            return video as VideoJob;
+            return normalizeJob(video);
         } catch (error) {
             this.handleError(error);
         }

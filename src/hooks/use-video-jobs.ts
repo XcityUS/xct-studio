@@ -5,7 +5,7 @@ import type { VideoService } from '@/lib/video-service';
 import type { VideoJob } from '@/types/video';
 import * as React from 'react';
 
-const POLL_INTERVAL_MS = 10_000;
+const POLL_INTERVAL_MS = 5_000;
 /** Kept under the historical name so in-flight jobs survive the refactor. */
 const ACTIVE_JOBS_STORAGE_KEY = 'activeVideoJobs';
 
@@ -19,8 +19,16 @@ interface VideoJobCallbacks {
     onInvalidKey: () => void;
 }
 
+function isTerminal(job: VideoJob) {
+    return job.status === 'completed' || job.status === 'failed';
+}
+
 function persistActiveJobIds(jobs: Map<string, VideoJob>) {
-    const activeIds = Array.from(jobs.keys()).filter((id) => !id.startsWith('temp_'));
+    // Terminal jobs stay in the map as display entries for the output panel —
+    // only genuinely in-flight ids belong in the resume list.
+    const activeIds = Array.from(jobs.entries())
+        .filter(([id, job]) => !id.startsWith('temp_') && !isTerminal(job))
+        .map(([id]) => id);
     localStorage.setItem(ACTIVE_JOBS_STORAGE_KEY, JSON.stringify(activeIds));
 }
 
@@ -60,10 +68,11 @@ export function useVideoJobs(service: VideoService, callbacks: VideoJobCallbacks
         callbacksRef.current = callbacks;
     }, [callbacks]);
 
-    /** Stable key over non-temp ids — the polling effect's only dependency. */
+    /** Stable key over non-temp, still-running ids — the polling effect's only dependency. */
     const activeJobIdsKey = React.useMemo(() => {
-        return Array.from(activeJobs.keys())
-            .filter((id) => !id.startsWith('temp_'))
+        return Array.from(activeJobs.entries())
+            .filter(([id, job]) => !id.startsWith('temp_') && !isTerminal(job))
+            .map(([id]) => id)
             .join('|');
     }, [activeJobs]);
 
@@ -130,12 +139,14 @@ export function useVideoJobs(service: VideoService, callbacks: VideoJobCallbacks
                 };
 
                 if (merged.status === 'completed' || merged.status === 'failed') {
-                    // Remove from the active set FIRST so a slow callback (the
+                    // Mark terminal in the map FIRST so a slow callback (the
                     // completion path downloads the video) can't race the next
-                    // poll tick into handling the same job twice.
+                    // poll tick into handling the same job twice. The entry
+                    // stays as a display job — deleting it used to blank the
+                    // output panel the moment a video finished.
                     setActiveJobs((prev) => {
                         const next = new Map(prev);
-                        next.delete(jobId);
+                        next.set(jobId, merged);
                         persistActiveJobIds(next);
                         return next;
                     });
