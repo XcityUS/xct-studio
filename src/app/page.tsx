@@ -196,11 +196,15 @@ export default function HomePage() {
         async (job: VideoJob) => {
             console.log(`Downloading video for job: ${job.id}`);
 
-            // Ark attaches the CDN link a moment after the job first reports
-            // completed, so the update that triggered this can arrive without
-            // one. Ask again rather than giving up on the video.
+            // Ark attaches the CDN link a beat AFTER the job first reports
+            // completed — a single immediate re-read usually comes back empty
+            // and the preview then hangs forever. Poll with backoff (~1 min
+            // window) until the link shows up.
             let sourceUrl = job.output_url;
-            if (!sourceUrl) {
+            const retryDelaysMs = [2_000, 4_000, 8_000, 16_000, 30_000];
+            for (const delay of retryDelaysMs) {
+                if (sourceUrl) break;
+                await new Promise((resolve) => setTimeout(resolve, delay));
                 try {
                     sourceUrl = (await videoService.retrieveVideo(job.id)).output_url;
                 } catch (err) {
@@ -249,7 +253,10 @@ export default function HomePage() {
                         status: 'completed'
                     });
                 } else {
-                    setError(err instanceof Error ? err.message : 'Failed to download video');
+                    setError(
+                        `The gateway reported the video as completed but never exposed its download link (job ${job.id}). ` +
+                            'Select it from History in a moment to retry, or check the TokenHub logs.'
+                    );
                 }
             }
         },
@@ -457,13 +464,16 @@ export default function HomePage() {
     const handleHistorySelect = (item: VideoMetadata) => {
         setCurrentJobId(item.id);
 
-        // If the job is still active it's already tracked.
-        if (activeJobs.has(item.id)) {
+        // An in-flight job is already tracked and has no source yet. Terminal
+        // jobs fall through: they may still need a playback source resolved
+        // (e.g. the CDN link arrived late or expired).
+        const tracked = activeJobs.get(item.id);
+        if (tracked && tracked.status !== 'completed' && tracked.status !== 'failed') {
             return;
         }
 
         // Register a display job for the output panel.
-        addJob({
+        if (!tracked) addJob({
             id: item.id,
             object: 'video',
             created_at: item.timestamp,
