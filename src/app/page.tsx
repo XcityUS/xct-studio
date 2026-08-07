@@ -35,6 +35,7 @@ import {
 } from '@/lib/seedance';
 import { mediaArchiveEnabled, uploadReferenceImage } from '@/lib/media-archive';
 import { optimizePrompt } from '@/lib/prompt-optimizer';
+import { estimateVideoProgress } from '@/lib/progress';
 import { reconcilePreset } from '@/lib/gallery-preset';
 import type { GalleryItem } from '@/lib/gallery';
 import { captureVideoPoster } from '@/lib/thumbnail';
@@ -258,7 +259,12 @@ export default function HomePage() {
     const jobCallbacks = React.useMemo(
         () => ({
             onProgress: (job: VideoJob) => {
-                updateItem(job.id, { progress: job.progress, status: 'processing' });
+                // The gateway rarely reports a real percentage — blend it with
+                // a time-based estimate so history tiles show movement.
+                updateItem(job.id, {
+                    progress: estimateVideoProgress(job.created_at, Number(job.seconds), job.progress, Date.now()),
+                    status: 'processing'
+                });
             },
             onCompleted: (job: VideoJob) => {
                 updateItem(job.id, { progress: 100, status: 'completed' });

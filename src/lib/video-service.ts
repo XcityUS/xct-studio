@@ -33,6 +33,39 @@ function buildCreateBody(params: VideoJobCreate): Record<string, unknown> {
     return body;
 }
 
+/**
+ * The gateway's status strings vary by provider path: LiteLLM's OpenAI-style
+ * videos API says "processing", OpenAI says "in_progress", and BytePlus/Ark
+ * tasks report "running"/"succeeded". Collapse them onto the four statuses
+ * the app models — an unrecognized value counts as still-running so polling
+ * continues rather than dropping the job.
+ */
+const STATUS_MAP: Record<string, VideoJob['status']> = {
+    queued: 'queued',
+    pending: 'queued',
+    submitted: 'queued',
+    in_progress: 'in_progress',
+    processing: 'in_progress',
+    running: 'in_progress',
+    completed: 'completed',
+    succeeded: 'completed',
+    success: 'completed',
+    failed: 'failed',
+    error: 'failed',
+    cancelled: 'failed',
+    canceled: 'failed',
+    expired: 'failed'
+};
+
+function normalizeJob(raw: unknown): VideoJob {
+    const job = raw as VideoJob & { status?: string; progress?: number | string };
+    const status = STATUS_MAP[String(job.status ?? '').toLowerCase()] ?? 'in_progress';
+    const reported = Number(job.progress);
+    const progress =
+        status === 'completed' ? 100 : Number.isFinite(reported) ? Math.max(0, Math.min(100, reported)) : 0;
+    return { ...job, status, progress };
+}
+
 export class VideoService {
     private getApiKey: () => string | null;
     private baseURL?: string;
@@ -116,7 +149,7 @@ export class VideoService {
             // is present, which the gateway (URL-based image-to-video) does
             // not speak.
             const video = await this.client().post('/videos', { body: buildCreateBody(params) });
-            return video as VideoJob;
+            return normalizeJob(video);
         } catch (error) {
             this.handleError(error, params.model);
         }
@@ -128,7 +161,7 @@ export class VideoService {
             // only OpenAI's documented fields and drops `output_url`, the
             // provider's direct CDN link we play from.
             const video = await this.client().get(`/videos/${encodeURIComponent(videoId)}`);
-            return video as VideoJob;
+            return normalizeJob(video);
         } catch (error) {
             this.handleError(error);
         }

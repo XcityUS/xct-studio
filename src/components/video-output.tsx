@@ -5,6 +5,7 @@ import { Slider } from '@/components/ui/slider';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { estimateVideoProgress } from '@/lib/progress';
 import type { VideoJob } from '@/types/video';
 import { AlertCircle, CheckCircle, Clock, Copy, Check, Download, Loader2, Pause, Play, Sparkles } from 'lucide-react';
 import * as React from 'react';
@@ -59,6 +60,28 @@ function ClickablePrompt({ prompt }: { prompt: string }) {
     );
 }
 
+/**
+ * Smoothly ticking display progress for a running job. The gateway rarely
+ * reports a real percentage mid-flight, so this re-renders once a second and
+ * blends the reported value with a time-based estimate.
+ */
+function useDisplayProgress(job: VideoJob | null): number {
+    const running = Boolean(job && (job.status === 'queued' || job.status === 'in_progress'));
+    const [now, setNow] = React.useState(() => Date.now());
+
+    React.useEffect(() => {
+        if (!running) return;
+        setNow(Date.now());
+        const timer = setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(timer);
+    }, [running, job?.id]);
+
+    if (!job) return 0;
+    if (job.status === 'completed') return 100;
+    if (!running) return job.progress || 0;
+    return estimateVideoProgress(job.created_at, Number(job.seconds), job.progress, now);
+}
+
 export function VideoOutput({
     job,
     videoSrc,
@@ -67,6 +90,8 @@ export function VideoOutput({
     onSendToRemix,
     onDownload
 }: VideoOutputProps) {
+    const displayProgress = useDisplayProgress(job);
+
     const getStatusBadge = () => {
         if (!job) return null;
 
@@ -82,7 +107,7 @@ export function VideoOutput({
                 return (
                     <div className='flex items-center gap-2 rounded-md bg-yellow-500/20 px-3 py-1.5 text-sm text-yellow-300'>
                         <Loader2 className='h-4 w-4 animate-spin' />
-                        Processing {job.progress}%
+                        Processing {displayProgress}%
                     </div>
                 );
             case 'completed':
@@ -177,12 +202,12 @@ export function VideoOutput({
                             <div className='w-full space-y-2'>
                                 <div className='flex justify-between text-sm text-white/60'>
                                     <span>Progress</span>
-                                    <span>{job.progress}%</span>
+                                    <span>{displayProgress}%</span>
                                 </div>
                                 <div className='h-2 w-full overflow-hidden rounded-full bg-white/10'>
                                     <div
-                                        className='h-full rounded-full bg-blue-500 transition-all duration-500 ease-out'
-                                        style={{ width: `${job.progress}%` }}
+                                        className='h-full rounded-full bg-blue-500 transition-all duration-1000 ease-linear'
+                                        style={{ width: `${displayProgress}%` }}
                                     />
                                 </div>
                             </div>
@@ -205,6 +230,23 @@ export function VideoOutput({
                                 </p>
                             </div>
                         )}
+                    </div>
+                )}
+
+                {job && job.status === 'completed' && !completedOutput && (
+                    <div className='flex flex-col items-center justify-center text-center'>
+                        {thumbnailSrc ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                                src={thumbnailSrc}
+                                alt='Video first frame'
+                                className='mb-4 max-h-64 rounded-lg border border-white/10 object-contain'
+                            />
+                        ) : (
+                            <Loader2 className='mb-4 h-12 w-12 animate-spin text-white/60' />
+                        )}
+                        <p className='text-white/60'>Video ready — loading preview…</p>
+                        <p className='mt-2 text-sm text-white/40'>Fetching the finished video from the gateway</p>
                     </div>
                 )}
 
@@ -397,7 +439,9 @@ function CompletedVideoPlayer({ jobId, videoSrc, thumbnailSrc }: CompletedVideoP
             >
                 <video
                     ref={videoRef}
-                    src={videoSrc}
+                    // The #t fragment forces browsers to paint the first frame
+                    // when no poster was captured (e.g. CDN-only playback).
+                    src={thumbnailSrc ? videoSrc : `${videoSrc}#t=0.001`}
                     poster={thumbnailSrc || undefined}
                     className='h-full w-full max-h-full object-contain'
                     style={{ display: 'block', outline: 'none' }}

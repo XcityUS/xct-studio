@@ -15,7 +15,10 @@ import {
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import {
+    Check,
+    Copy,
     DollarSign,
+    Search,
     Sparkles as SparklesIcon,
     Trash2,
     RefreshCw,
@@ -38,6 +41,45 @@ type VideoHistoryPanelProps = {
     /** 重新生成 — resubmit this item's parameters as a new job. */
     onRegenerateItem?: (item: VideoMetadata) => void;
 };
+
+/**
+ * Prompt line on a history tile: click to expand the full text, copy icon to
+ * grab it. The prompt is stored with every video, so this is where users
+ * retrieve it.
+ */
+function TilePrompt({ prompt }: { prompt: string }) {
+    const [expanded, setExpanded] = React.useState(false);
+    const [copied, setCopied] = React.useState(false);
+
+    const handleCopy = async (e: React.MouseEvent) => {
+        e.stopPropagation();
+        try {
+            await navigator.clipboard.writeText(prompt);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        } catch (err) {
+            console.error('Failed to copy prompt:', err);
+        }
+    };
+
+    return (
+        <div className='flex items-start gap-1'>
+            <p
+                className={cn('flex-1 cursor-pointer text-xs text-white/70', !expanded && 'line-clamp-1')}
+                title={expanded ? 'Collapse prompt' : 'Show full prompt'}
+                onClick={() => setExpanded((v) => !v)}>
+                {prompt}
+            </p>
+            <button
+                type='button'
+                onClick={handleCopy}
+                title='Copy prompt'
+                className='shrink-0 pt-0.5 text-white/40 transition-colors hover:text-white'>
+                {copied ? <Check size={12} className='text-green-400' /> : <Copy size={12} />}
+            </button>
+        </div>
+    );
+}
 
 type StatusFilter = 'all' | 'completed' | 'processing' | 'failed';
 
@@ -63,6 +105,7 @@ export function VideoHistoryPanel({
     const [isTotalCostDialogOpen, setIsTotalCostDialogOpen] = React.useState(false);
     const [statusFilter, setStatusFilter] = React.useState<StatusFilter>('all');
     const [modelFilter, setModelFilter] = React.useState<string>('all');
+    const [promptQuery, setPromptQuery] = React.useState('');
 
     /** Models actually present in history, for the filter row. */
     const modelsInHistory = React.useMemo(() => {
@@ -70,12 +113,14 @@ export function VideoHistoryPanel({
     }, [history]);
 
     const filteredHistory = React.useMemo(() => {
+        const query = promptQuery.trim().toLowerCase();
         return history.filter((item) => {
             if (statusFilter !== 'all' && (item.status ?? 'completed') !== statusFilter) return false;
             if (modelFilter !== 'all' && item.model !== modelFilter) return false;
+            if (query && !item.prompt.toLowerCase().includes(query)) return false;
             return true;
         });
-    }, [history, statusFilter, modelFilter]);
+    }, [history, statusFilter, modelFilter, promptQuery]);
 
     const { totalCost, totalVideos, successfulVideos } = React.useMemo(() => {
         let cost = 0;
@@ -209,6 +254,25 @@ export function VideoHistoryPanel({
                     </div>
                 ) : (
                     <>
+                    <div className='mb-3 flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-2.5 py-1.5 focus-within:border-white/30'>
+                        <Search size={14} className='shrink-0 text-white/40' />
+                        <input
+                            type='text'
+                            value={promptQuery}
+                            onChange={(e) => setPromptQuery(e.target.value)}
+                            placeholder='Search prompts…'
+                            className='w-full bg-transparent text-xs text-white placeholder:text-white/30 focus:outline-none'
+                        />
+                        {promptQuery && (
+                            <button
+                                type='button'
+                                onClick={() => setPromptQuery('')}
+                                className='shrink-0 text-white/40 transition-colors hover:text-white'
+                                aria-label='Clear prompt search'>
+                                ×
+                            </button>
+                        )}
+                    </div>
                     <div className='mb-4 flex flex-wrap items-center gap-2'>
                         {STATUS_FILTERS.map((f) => (
                             <button
@@ -293,7 +357,10 @@ export function VideoHistoryPanel({
                                                 </div>
                                             ) : videoUrl && item.status !== 'failed' ? (
                                                 <video
-                                                    src={videoUrl}
+                                                    // Without a captured poster, a #t media fragment
+                                                    // makes browsers (Safari included) paint the first
+                                                    // frame instead of a blank box.
+                                                    src={thumbnailUrl ? videoUrl : `${videoUrl}#t=0.001`}
                                                     poster={thumbnailUrl}
                                                     className='h-full w-full object-cover'
                                                     muted
@@ -401,9 +468,7 @@ export function VideoHistoryPanel({
                                         )}
                                     </div>
                                     <div className='rounded-b-md border border-t-0 border-white/20 bg-neutral-900/50 p-2'>
-                                        <p className='line-clamp-1 text-xs text-white/70' title={item.prompt}>
-                                            {item.prompt}
-                                        </p>
+                                        <TilePrompt prompt={item.prompt} />
                                         <div className='mt-1 flex items-center justify-between text-[10px] text-white/40'>
                                             <span>{item.model}</span>
                                             <span>{item.size}</span>
