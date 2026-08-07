@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import { ReferenceImageInput } from '@/components/reference-image-input';
+import { ReferenceImagesInput } from '@/components/reference-images-input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
 import { Textarea } from '@/components/ui/textarea';
@@ -15,6 +15,7 @@ import {
     SEEDANCE_MODELS,
     clampSeconds,
     getSeedanceModel,
+    maxReferenceImages,
     modelSupportsResolution,
     secondsRange,
     type VideoModel,
@@ -46,8 +47,8 @@ type CreationFormProps = {
     setGenerateAudio: React.Dispatch<React.SetStateAction<boolean>>;
     cameraFixed: boolean;
     setCameraFixed: React.Dispatch<React.SetStateAction<boolean>>;
-    inputReferenceUrl: string;
-    setInputReferenceUrl: React.Dispatch<React.SetStateAction<string>>;
+    referenceUrls: string[];
+    setReferenceUrls: React.Dispatch<React.SetStateAction<string[]>>;
     /** Uploads a local image, resolving to its public URL. Absent = URL-only mode. */
     onUploadImage?: (file: File) => Promise<string>;
     /** Rewrites the prompt via the gateway's chat API. Absent = button hidden. */
@@ -79,15 +80,17 @@ export function CreationForm({
     setGenerateAudio,
     cameraFixed,
     setCameraFixed,
-    inputReferenceUrl,
-    setInputReferenceUrl,
+    referenceUrls,
+    setReferenceUrls,
     onUploadImage,
     onOptimizePrompt
 }: CreationFormProps) {
     const { min: minSeconds, max: maxSeconds } = secondsRange(model);
     const modelDef = getSeedanceModel(model);
     const estimatedCost = calculateVideoCost({ model, resolution, seconds });
-    const hasReferenceImage = inputReferenceUrl.trim().length > 0;
+    const refCap = maxReferenceImages(model);
+    // Ratio is provider-derived only in first-frame mode (exactly one image).
+    const isFirstFrameMode = referenceUrls.length === 1;
 
     const [isInspirationOpen, setIsInspirationOpen] = React.useState(false);
     const [isOptimizing, setIsOptimizing] = React.useState(false);
@@ -129,9 +132,11 @@ export function CreationForm({
             generate_audio: generateAudio,
             camera_fixed: cameraFixed
         };
-        const referenceUrl = inputReferenceUrl.trim();
-        if (referenceUrl) {
-            formData.input_reference_url = referenceUrl;
+        const refs = referenceUrls.map((u) => u.trim()).filter(Boolean);
+        if (refs.length === 1) {
+            formData.input_reference_url = refs[0];
+        } else if (refs.length > 1) {
+            formData.reference_image_urls = refs;
         }
         onSubmit(formData);
     };
@@ -233,6 +238,8 @@ export function CreationForm({
                                     setResolution('720p');
                                 }
                                 setSeconds((prev) => clampSeconds(prev, newModel));
+                                // 1.5 Pro takes a single first-frame image only.
+                                setReferenceUrls((prev) => prev.slice(0, maxReferenceImages(newModel)));
                             }}
                             disabled={isLoading}>
                             <SelectTrigger
@@ -261,7 +268,7 @@ export function CreationForm({
                             <Select
                                 value={ratio}
                                 onValueChange={(value) => setRatio(value as VideoRatio)}
-                                disabled={isLoading || hasReferenceImage}>
+                                disabled={isLoading || isFirstFrameMode}>
                                 <SelectTrigger
                                     id='ratio-select'
                                     className='rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50 disabled:opacity-50'>
@@ -275,7 +282,7 @@ export function CreationForm({
                                     ))}
                                 </SelectContent>
                             </Select>
-                            {hasReferenceImage && (
+                            {isFirstFrameMode && (
                                 <p className='text-xs text-white/40'>Follows the reference image</p>
                             )}
                         </div>
@@ -356,13 +363,12 @@ export function CreationForm({
                         </div>
                     </div>
 
-                    <ReferenceImageInput
-                        value={inputReferenceUrl}
-                        onChange={setInputReferenceUrl}
+                    <ReferenceImagesInput
+                        urls={referenceUrls}
+                        onChange={setReferenceUrls}
+                        maxImages={refCap}
                         onUpload={onUploadImage}
                         disabled={isLoading}
-                        label='Reference Image (Optional)'
-                        hint='Image-to-video: the clip starts from this frame, guided by your prompt.'
                     />
                 </CardContent>
                 <CardFooter className='flex items-center gap-3 border-t border-white/10 p-4'>

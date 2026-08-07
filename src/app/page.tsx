@@ -28,12 +28,19 @@ import {
     clampSeconds,
     formatSize,
     getSeedanceModel,
+    maxReferenceImages,
     parseSize,
     type VideoModel,
     type VideoRatio,
     type VideoResolution
 } from '@/lib/seedance';
-import { mediaArchiveEnabled, uploadReferenceImage } from '@/lib/media-archive';
+import {
+    deleteUserAsset,
+    listUserAssets,
+    mediaArchiveEnabled,
+    uploadReferenceImage
+} from '@/lib/media-archive';
+import { AssetsPanel } from '@/components/assets-panel';
 import { optimizePrompt } from '@/lib/prompt-optimizer';
 import { estimateVideoProgress } from '@/lib/progress';
 import { reconcilePreset } from '@/lib/gallery-preset';
@@ -53,7 +60,7 @@ export default function HomePage() {
     const [isApiKeyDialogOpen, setIsApiKeyDialogOpen] = React.useState(false);
     const [currentJobId, setCurrentJobId] = React.useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = React.useState(false);
-    const [activeTab, setActiveTab] = React.useState<'video' | 'image'>('video');
+    const [activeTab, setActiveTab] = React.useState<'video' | 'image' | 'assets'>('video');
 
     // Creation form state
     const [createModel, setCreateModel] = React.useState<VideoModel>(DEFAULT_MODEL);
@@ -63,7 +70,7 @@ export default function HomePage() {
     const [createSeconds, setCreateSeconds] = React.useState<number>(DEFAULT_SECONDS);
     const [createAudio, setCreateAudio] = React.useState(true);
     const [createCameraFixed, setCreateCameraFixed] = React.useState(false);
-    const [createInputReferenceUrl, setCreateInputReferenceUrl] = React.useState('');
+    const [createReferenceUrls, setCreateReferenceUrls] = React.useState<string[]>([]);
 
     const { apiKey, keyRef, ssoStatus, ssoError, attemptSso, resolveKey, saveManualKey, invalidateKey } = useXcityKey();
     const { history, isInitialLoad, addItem, updateItem, removeItem, clearAll } = useVideoHistory();
@@ -83,7 +90,7 @@ export default function HomePage() {
         setCreateResolution(p.resolution);
         setCreateSeconds(p.seconds);
         setCreateAudio(p.generate_audio);
-        setCreateInputReferenceUrl(p.input_reference_url ?? '');
+        setCreateReferenceUrls(p.input_reference_url ? [p.input_reference_url] : []);
         setError(p.adjusted.length ? `Adjusted for ${p.model}: ${p.adjusted.join(', ')}` : null);
         creationFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, []);
@@ -91,7 +98,7 @@ export default function HomePage() {
     const applyReferenceFrame = React.useCallback((item: GalleryItem, frameUrl: string) => {
         setCreateModel(item.params.model);
         setCreateRatio(item.params.ratio);
-        setCreateInputReferenceUrl(frameUrl);
+        setCreateReferenceUrls([frameUrl]);
         // Leave the prompt to the user: describing the motion is the point of
         // image-to-video, and inheriting the original prompt fights that.
         setCreatePrompt('');
@@ -164,11 +171,42 @@ export default function HomePage() {
                 );
             }
 
-            setCreateInputReferenceUrl(url);
+            setCreateReferenceUrls([url]);
             setActiveTab('video');
             window.scrollTo({ top: 0, behavior: 'smooth' });
         },
         [resolveKey]
+    );
+
+    const handleLoadAssets = React.useCallback(async () => {
+        const key = await resolveKey();
+        if (!key) {
+            throw new Error('Sign in at xcity.ai (or set an API key) to view your assets.');
+        }
+        return listUserAssets(key);
+    }, [resolveKey]);
+
+    const handleDeleteAsset = React.useCallback(
+        async (assetKey: string) => {
+            const key = await resolveKey();
+            if (!key) {
+                throw new Error('Sign in at xcity.ai (or set an API key) first.');
+            }
+            await deleteUserAsset(assetKey, key);
+        },
+        [resolveKey]
+    );
+
+    /** Assets tab → video form: append the image to the reference list. */
+    const handleUseAssetAsReference = React.useCallback(
+        (url: string) => {
+            setCreateReferenceUrls((prev) =>
+                prev.includes(url) ? prev : [...prev, url].slice(0, maxReferenceImages(createModel))
+            );
+            setActiveTab('video');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        },
+        [createModel]
     );
 
     const handleOptimizePrompt = React.useCallback(
@@ -449,7 +487,9 @@ export default function HomePage() {
             setCreateSeconds(params.seconds);
             setCreateAudio(params.generate_audio);
             setCreateCameraFixed(params.camera_fixed ?? false);
-            setCreateInputReferenceUrl(params.input_reference_url ?? '');
+            setCreateReferenceUrls(
+                params.reference_image_urls ?? (params.input_reference_url ? [params.input_reference_url] : [])
+            );
             window.scrollTo({ top: 0, behavior: 'smooth' });
         },
         [buildParamsFromItem]
@@ -645,8 +685,8 @@ export default function HomePage() {
                                     setGenerateAudio={setCreateAudio}
                                     cameraFixed={createCameraFixed}
                                     setCameraFixed={setCreateCameraFixed}
-                                    inputReferenceUrl={createInputReferenceUrl}
-                                    setInputReferenceUrl={setCreateInputReferenceUrl}
+                                    referenceUrls={createReferenceUrls}
+                                    setReferenceUrls={setCreateReferenceUrls}
                                     onUploadImage={uploadEnabled ? handleUploadImage : undefined}
                                     onOptimizePrompt={handleOptimizePrompt}
                                 />
@@ -695,26 +735,51 @@ export default function HomePage() {
             <ApiKeyDialog isOpen={isApiKeyDialogOpen} onOpenChange={setIsApiKeyDialogOpen} onSave={handleSaveApiKey} />
 
             <div className='w-full max-w-7xl space-y-6'>
-                {IMAGE_GENERATION_ENABLED ? (
-                    <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'video' | 'image')}>
+                {IMAGE_GENERATION_ENABLED || uploadEnabled ? (
+                    <Tabs
+                        value={activeTab}
+                        onValueChange={(v) => setActiveTab(v as 'video' | 'image' | 'assets')}>
                         <TabsList className='mb-4 border border-white/10 bg-white/5'>
                             <TabsTrigger
                                 value='video'
                                 className='px-6 text-white/60 data-[state=active]:bg-white data-[state=active]:text-black'>
                                 Video
                             </TabsTrigger>
-                            <TabsTrigger
-                                value='image'
-                                className='px-6 text-white/60 data-[state=active]:bg-white data-[state=active]:text-black'>
-                                Image
-                            </TabsTrigger>
+                            {IMAGE_GENERATION_ENABLED && (
+                                <TabsTrigger
+                                    value='image'
+                                    className='px-6 text-white/60 data-[state=active]:bg-white data-[state=active]:text-black'>
+                                    Image
+                                </TabsTrigger>
+                            )}
+                            {uploadEnabled && (
+                                <TabsTrigger
+                                    value='assets'
+                                    className='px-6 text-white/60 data-[state=active]:bg-white data-[state=active]:text-black'>
+                                    Assets
+                                </TabsTrigger>
+                            )}
                         </TabsList>
                         <TabsContent value='video' className='space-y-6'>
                             {videoTabContent}
                         </TabsContent>
-                        <TabsContent value='image'>
-                            <ImageStudio onGenerate={handleGenerateImages} onAnimate={handleAnimateImage} />
-                        </TabsContent>
+                        {IMAGE_GENERATION_ENABLED && (
+                            <TabsContent value='image'>
+                                <ImageStudio onGenerate={handleGenerateImages} onAnimate={handleAnimateImage} />
+                            </TabsContent>
+                        )}
+                        {uploadEnabled && (
+                            <TabsContent value='assets'>
+                                <div className='min-h-[450px]'>
+                                    <AssetsPanel
+                                        loadAssets={handleLoadAssets}
+                                        deleteAsset={handleDeleteAsset}
+                                        onUseAsReference={handleUseAssetAsReference}
+                                        active={activeTab === 'assets'}
+                                    />
+                                </div>
+                            </TabsContent>
+                        )}
                     </Tabs>
                 ) : (
                     <div className='space-y-6'>{videoTabContent}</div>

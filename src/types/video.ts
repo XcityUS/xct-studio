@@ -61,8 +61,17 @@ export type VideoJobCreate = {
     resolution: VideoResolution;
     seconds: number;
     generate_audio: boolean;
-    /** Public image URL for image-to-video (the gateway forwards it to Ark). */
+    /**
+     * Public image URL for image-to-video, first-frame mode (the output
+     * ratio follows this image; `ratio` is omitted from the request).
+     */
     input_reference_url?: string;
+    /**
+     * Multi-reference mode (Seedance 2.0/2.5, up to 9): each URL is sent with
+     * role "reference_image"; prompts cite them as [Image 1], [Image 2], ….
+     * Takes precedence over `input_reference_url` when non-empty.
+     */
+    reference_image_urls?: string[];
     /** Lock the camera in place (BytePlus provider param, passed through). */
     camera_fixed?: boolean;
 };
