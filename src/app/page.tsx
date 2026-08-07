@@ -392,7 +392,7 @@ export default function HomePage() {
         } catch (err: unknown) {
             console.error('Error creating video:', err);
             if (err instanceof InvalidApiKeyError) {
-                handleInvalidApiKey();
+                handleInvalidApiKey(err.message);
             } else {
                 setError(err instanceof Error ? err.message : 'An unexpected error occurred.');
             }

@@ -55,12 +55,50 @@ export class VideoService {
         return createFrontendOpenAI(key, this.baseURL);
     }
 
-    private handleError(error: unknown): never {
+    private handleError(error: unknown, model?: string): never {
         if (error && typeof error === 'object') {
             const status = (error as { status?: number }).status;
             const code = (error as { code?: string }).code;
-            if ((typeof status === 'number' && (status === 401 || status === 403)) || code === 'invalid_api_key') {
-                throw new InvalidApiKeyError();
+            const err = error as { message?: string; type?: string; error?: { message?: string; type?: string } };
+            const gatewayMessage = err.error?.message ?? err.message;
+            const errorType = err.error?.type ?? err.type;
+
+            if (typeof status === 'number' && (status === 401 || status === 403)) {
+                // LiteLLM answers "this key may not use that model" with a 401
+                // too — that is a model-allowlist problem on the gateway, not a
+                // bad key, and must not wipe the stored key.
+                const modelAccessDenied =
+                    errorType === 'key_model_access_denied' ||
+                    errorType === 'team_model_access_denied' ||
+                    (typeof gatewayMessage === 'string' &&
+                        /model/i.test(gatewayMessage) &&
+                        /access|allow/i.test(gatewayMessage));
+                if (modelAccessDenied) {
+                    throw new Error(
+                        `Your key does not have access to model "${model ?? 'unknown'}"` +
+                            (gatewayMessage ? ` — ${gatewayMessage}` : '') +
+                            ". Add it to the key's allowed models on TokenHub."
+                    );
+                }
+                throw new InvalidApiKeyError(gatewayMessage);
+            }
+            if (code === 'invalid_api_key') {
+                throw new InvalidApiKeyError(gatewayMessage);
+            }
+            // 404 = model unknown to the gateway; 400 only counts when the
+            // body blames the model (a plain 400 can be a legitimate provider
+            // param rejection — surface that message untouched below).
+            const modelNotFound =
+                status === 404 ||
+                (status === 400 &&
+                    typeof gatewayMessage === 'string' &&
+                    /model/i.test(gatewayMessage) &&
+                    /not (found|exist|in)|invalid|unknown|model list/i.test(gatewayMessage));
+            if (modelNotFound && model) {
+                throw new Error(
+                    `Video model "${model}" is not available on the gateway` +
+                        (gatewayMessage ? `: ${gatewayMessage}` : '.')
+                );
             }
         }
 
@@ -80,7 +118,7 @@ export class VideoService {
             const video = await this.client().post('/videos', { body: buildCreateBody(params) });
             return video as VideoJob;
         } catch (error) {
-            this.handleError(error);
+            this.handleError(error, params.model);
         }
     }
 
