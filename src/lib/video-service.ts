@@ -20,12 +20,16 @@ function buildCreateBody(params: VideoJobCreate): Record<string, unknown> {
         model: params.model,
         prompt: params.prompt,
         seconds: clampSeconds(params.seconds, params.model),
-        ratio: params.ratio,
         resolution: params.resolution,
         generate_audio: params.generate_audio
     };
     if (params.input_reference_url) {
+        // BytePlus rejects `ratio` on first-frame (image-to-video) tasks with
+        // InvalidParameter.TaskTypeConstraint — the output ratio always
+        // follows the reference image, so the param must be omitted entirely.
         body.input_reference = params.input_reference_url;
+    } else {
+        body.ratio = params.ratio;
     }
     if (params.camera_fixed !== undefined) {
         body.camera_fixed = params.camera_fixed;
@@ -119,14 +123,17 @@ export class VideoService {
                 throw new InvalidApiKeyError(gatewayMessage);
             }
             // 404 = model unknown to the gateway; 400 only counts when the
-            // body blames the model (a plain 400 can be a legitimate provider
-            // param rejection — surface that message untouched below).
+            // body specifically blames the model name (a plain 400 is usually
+            // a provider param rejection — e.g. "parameter ratio is not
+            // valid", which also contains the words model/invalid — and must
+            // surface untouched below).
             const modelNotFound =
                 status === 404 ||
                 (status === 400 &&
                     typeof gatewayMessage === 'string' &&
-                    /model/i.test(gatewayMessage) &&
-                    /not (found|exist|in)|invalid|unknown|model list/i.test(gatewayMessage));
+                    /invalid model|unknown model|model .{0,40}(not found|does not exist)|not in (the )?model list/i.test(
+                        gatewayMessage
+                    ));
             if (modelNotFound && model) {
                 throw new Error(
                     `Video model "${model}" is not available on the gateway` +

@@ -87,6 +87,7 @@ export function CreationForm({
     const { min: minSeconds, max: maxSeconds } = secondsRange(model);
     const modelDef = getSeedanceModel(model);
     const estimatedCost = calculateVideoCost({ model, resolution, seconds });
+    const hasReferenceImage = inputReferenceUrl.trim().length > 0;
 
     const [isInspirationOpen, setIsInspirationOpen] = React.useState(false);
     const [isOptimizing, setIsOptimizing] = React.useState(false);
@@ -255,10 +256,15 @@ export function CreationForm({
                             <Label htmlFor='ratio-select' className='text-white'>
                                 Aspect Ratio
                             </Label>
-                            <Select value={ratio} onValueChange={(value) => setRatio(value as VideoRatio)} disabled={isLoading}>
+                            {/* With a reference image the provider derives the ratio
+                                from the image and rejects an explicit one. */}
+                            <Select
+                                value={ratio}
+                                onValueChange={(value) => setRatio(value as VideoRatio)}
+                                disabled={isLoading || hasReferenceImage}>
                                 <SelectTrigger
                                     id='ratio-select'
-                                    className='rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'>
+                                    className='rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50 disabled:opacity-50'>
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent className='border-white/20 bg-black text-white'>
@@ -269,6 +275,9 @@ export function CreationForm({
                                     ))}
                                 </SelectContent>
                             </Select>
+                            {hasReferenceImage && (
+                                <p className='text-xs text-white/40'>Follows the reference image</p>
+                            )}
                         </div>
 
                         <div className='space-y-2'>
