@@ -74,7 +74,7 @@ export function ReferenceImagesInput({ urls, onChange, maxImages, onUpload, disa
 
     const hint =
         maxImages <= 1
-            ? 'Image-to-video: the clip starts from this frame; the output ratio follows the image.'
+            ? 'Image-to-video: the clip starts from this frame; the output ratio follows the image. Switch to Seedance 2.0/2.5 to use multiple reference images.'
             : urls.length >= 2
               ? `Reference mode — cite [Image 1], [Image 2] … in your prompt (up to ${maxImages} images). Aspect ratio applies.`
               : urls.length === 1
