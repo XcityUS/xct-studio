@@ -37,12 +37,36 @@ export function ReferenceImagesInput({ urls, onChange, maxImages, onUpload, disa
 
     const addUrls = React.useCallback(
         (added: string[]) => {
-            const cleaned = added.map((u) => u.trim()).filter(Boolean);
+            const cleaned = added
+                .map((u) => u.trim())
+                .filter((u) => {
+                    try {
+                        const parsed = new URL(u);
+                        return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+                    } catch {
+                        return false;
+                    }
+                });
             if (!cleaned.length) return;
             const next = [...urls, ...cleaned.filter((u) => !urls.includes(u))].slice(0, maxImages);
             onChange(next);
         },
         [urls, maxImages, onChange]
+    );
+
+    /**
+     * A URL sitting in the draft box is NOT part of the request — commit it on
+     * every exit path (Enter, Add, blur, paste), because "pasted but never
+     * pressed Add" silently generated without the reference.
+     */
+    const commitDraft = React.useCallback(
+        (value?: string) => {
+            const draft = (value ?? urlDraft).trim();
+            if (!draft) return;
+            addUrls([draft]);
+            setUrlDraft('');
+        },
+        [urlDraft, addUrls]
     );
 
     const handleFiles = React.useCallback(
@@ -196,8 +220,15 @@ export function ReferenceImagesInput({ urls, onChange, maxImages, onUpload, disa
                                 onKeyDown={(e) => {
                                     if (e.key === 'Enter') {
                                         e.preventDefault();
-                                        addUrls([urlDraft]);
-                                        setUrlDraft('');
+                                        commitDraft();
+                                    }
+                                }}
+                                onBlur={() => commitDraft()}
+                                onPaste={(e) => {
+                                    const pasted = e.clipboardData.getData('text');
+                                    if (pasted.trim()) {
+                                        e.preventDefault();
+                                        commitDraft(pasted);
                                     }
                                 }}
                                 disabled={disabled}
@@ -205,10 +236,7 @@ export function ReferenceImagesInput({ urls, onChange, maxImages, onUpload, disa
                             />
                             <button
                                 type='button'
-                                onClick={() => {
-                                    addUrls([urlDraft]);
-                                    setUrlDraft('');
-                                }}
+                                onClick={() => commitDraft()}
                                 disabled={disabled || !urlDraft.trim()}
                                 className='shrink-0 rounded-md border border-white/20 px-3 text-xs text-white/70 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-40'>
                                 Add
