@@ -17,7 +17,10 @@
  * user so one user's key cannot overwrite another's video.
  */
 
-const JSON_HEADERS = { 'Content-Type': 'application/json' };
+// no-store: Cloudflare's edge happily caches plain 404/error responses for
+// GETs, which then poison later fetches of the same URL (observed on /assets;
+// Ark's image download would hit the same trap after a delete + re-upload).
+const JSON_HEADERS = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' };
 
 function corsHeaders(origin, env) {
     const allowed = (env.ALLOWED_ORIGINS || '')
@@ -277,12 +280,13 @@ async function handleArchive(request, env, cors) {
 }
 
 async function handleMedia(request, env, key, cors) {
-    if (!key) return new Response('Not Found', { status: 404, headers: cors });
+    const notFoundHeaders = { ...cors, 'Cache-Control': 'no-store' };
+    if (!key) return new Response('Not Found', { status: 404, headers: notFoundHeaders });
 
     // Range support so the <video> element can seek without pulling the file.
     const range = request.headers.get('range');
     const object = await env.XCITY_MEDIA.get(key, range ? { range: request.headers } : undefined);
-    if (!object) return new Response('Not Found', { status: 404, headers: cors });
+    if (!object) return new Response('Not Found', { status: 404, headers: notFoundHeaders });
 
     const headers = new Headers(cors);
     object.writeHttpMetadata(headers);
@@ -341,6 +345,6 @@ export default {
             return json({ ok: true }, 200, cors);
         }
 
-        return new Response('Not Found', { status: 404, headers: cors });
+        return new Response('Not Found', { status: 404, headers: { ...cors, 'Cache-Control': 'no-store' } });
     },
 };

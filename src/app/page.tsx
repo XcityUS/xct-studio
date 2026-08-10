@@ -38,6 +38,7 @@ import {
     deleteUserAsset,
     listUserAssets,
     mediaArchiveEnabled,
+    mediaWorkerUrl,
     uploadReferenceImage
 } from '@/lib/media-archive';
 import { AssetsPanel } from '@/components/assets-panel';
@@ -386,6 +387,31 @@ export default function HomePage() {
             setError('Could not read your Xcity API key. Sign in at xcity.ai and retry.');
             setIsSubmitting(false);
             return;
+        }
+
+        // The provider downloads every reference image server-side; a stale
+        // link (e.g. an asset deleted after being added here) fails there as
+        // an opaque "resource download failed". Our worker's URLs are
+        // CORS-open, so verify those up front and name the broken image.
+        const refUrls = formData.reference_image_urls ?? (formData.input_reference_url ? [formData.input_reference_url] : []);
+        if (refUrls.length) {
+            const workerBase = await mediaWorkerUrl();
+            for (let i = 0; i < refUrls.length; i++) {
+                if (!workerBase || !refUrls[i].startsWith(workerBase)) continue;
+                let reachable = false;
+                try {
+                    reachable = (await fetch(refUrls[i], { method: 'HEAD' })).ok;
+                } catch {
+                    reachable = false;
+                }
+                if (!reachable) {
+                    setError(
+                        `Reference image ${i + 1} is no longer accessible — it may have been deleted from Assets. Remove it from the list and upload it again.`
+                    );
+                    setIsSubmitting(false);
+                    return;
+                }
+            }
         }
 
         // Optimistic placeholder so the output panel reacts immediately.
