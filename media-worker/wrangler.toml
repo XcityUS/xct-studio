@@ -2,6 +2,16 @@ name = "xcity-media"
 main = "index.js"
 compatibility_date = "2026-07-26"
 
+# Custom domain: BytePlus/Ark's image fetcher cannot download from
+# *.workers.dev (commonly blocklisted as an abuse domain), which broke every
+# image-to-video request with "resource download failed". media.xcity.ai is
+# served by this same worker; wrangler creates the DNS record on deploy
+# (xcity.ai's zone lives in this Cloudflare account). Set the studio's
+# MEDIA_WORKER_URL to https://media.xcity.ai so new upload/asset URLs use it.
+routes = [
+  { pattern = "media.xcity.ai", custom_domain = true }
+]
+
 # Generated videos live here permanently. Ark's own CDN links expire after
 # 24h, so anything the studio should still play tomorrow gets copied in.
 [[r2_buckets]]
