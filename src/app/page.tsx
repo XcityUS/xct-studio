@@ -393,9 +393,35 @@ export default function HomePage() {
         // link (e.g. an asset deleted after being added here) fails there as
         // an opaque "resource download failed". Our worker's URLs are
         // CORS-open, so verify those up front and name the broken image.
+        const workerBase = await mediaWorkerUrl();
+        // Ark cannot fetch *.workers.dev (blocklisted), which is why the
+        // worker moved to a custom domain — rebase legacy links (history
+        // reuse, stale form state) onto the current origin.
+        const rebase = (url: string): string => {
+            try {
+                const u = new URL(url);
+                if (
+                    workerBase &&
+                    u.hostname.endsWith('.workers.dev') &&
+                    u.pathname.startsWith('/media/') &&
+                    !workerBase.includes(u.hostname)
+                ) {
+                    return `${workerBase}${u.pathname}`;
+                }
+            } catch {
+                // Not a parsable URL — leave it for the gateway to reject.
+            }
+            return url;
+        };
+        if (formData.input_reference_url) {
+            formData.input_reference_url = rebase(formData.input_reference_url);
+        }
+        if (formData.reference_image_urls) {
+            formData.reference_image_urls = formData.reference_image_urls.map(rebase);
+        }
+
         const refUrls = formData.reference_image_urls ?? (formData.input_reference_url ? [formData.input_reference_url] : []);
         if (refUrls.length) {
-            const workerBase = await mediaWorkerUrl();
             for (let i = 0; i < refUrls.length; i++) {
                 if (!workerBase || !refUrls[i].startsWith(workerBase)) continue;
                 let reachable = false;
