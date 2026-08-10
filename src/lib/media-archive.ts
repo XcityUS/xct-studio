@@ -121,6 +121,30 @@ export async function deleteUserAsset(key: string, apiKey: string): Promise<void
     }
 }
 
+/**
+ * Fetches an image and returns it as a `data:` URI, or null when it cannot be
+ * read (missing object, CORS-blocked host, non-image response). Used to
+ * inline reference images into generation requests: Ark accepts Base64
+ * directly, which sidesteps its fetcher being challenged by Cloudflare's bot
+ * mitigation on our media host.
+ */
+export async function imageUrlToDataUri(url: string): Promise<string | null> {
+    try {
+        const res = await fetch(url);
+        if (!res.ok) return null;
+        const blob = await res.blob();
+        if (!blob.type.startsWith('image/')) return null;
+        return await new Promise<string | null>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null);
+            reader.onerror = () => resolve(null);
+            reader.readAsDataURL(blob);
+        });
+    } catch {
+        return null;
+    }
+}
+
 const UPLOADABLE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 

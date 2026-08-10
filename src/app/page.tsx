@@ -36,6 +36,7 @@ import {
 } from '@/lib/seedance';
 import {
     deleteUserAsset,
+    imageUrlToDataUri,
     listUserAssets,
     mediaArchiveEnabled,
     mediaWorkerUrl,
@@ -420,23 +421,50 @@ export default function HomePage() {
             formData.reference_image_urls = formData.reference_image_urls.map(rebase);
         }
 
+        // Ark's server-side fetcher cannot reliably download from
+        // Cloudflare-fronted hosts (bot mitigation challenges it while
+        // browsers pass), so inline every reference image as a Base64 data
+        // URI — officially supported ("URL, Base64 encoding, or asset ID").
+        // The request gets the inlined copies; history keeps the URLs (a
+        // multi-MB data URI would blow the localStorage quota).
+        const requestParams: CreationFormData = { ...formData };
         const refUrls = formData.reference_image_urls ?? (formData.input_reference_url ? [formData.input_reference_url] : []);
         if (refUrls.length) {
+            const inlined: string[] = [];
+            let totalChars = 0;
             for (let i = 0; i < refUrls.length; i++) {
-                if (!workerBase || !refUrls[i].startsWith(workerBase)) continue;
-                let reachable = false;
-                try {
-                    reachable = (await fetch(refUrls[i], { method: 'HEAD' })).ok;
-                } catch {
-                    reachable = false;
+                const url = refUrls[i];
+                const isWorkerHosted = Boolean(workerBase && url.startsWith(workerBase));
+                const dataUri = url.startsWith('data:') ? url : await imageUrlToDataUri(url);
+                if (!dataUri) {
+                    if (isWorkerHosted) {
+                        // Our own storage is CORS-open — a failed read means the
+                        // object is gone (e.g. deleted from Assets).
+                        setError(
+                            `Reference image ${i + 1} is no longer accessible — it may have been deleted from Assets. Remove it from the list and upload it again.`
+                        );
+                        setIsSubmitting(false);
+                        return;
+                    }
+                    // External host without CORS: pass the URL through and let
+                    // the provider try fetching it directly.
+                    inlined.push(url);
+                    continue;
                 }
-                if (!reachable) {
-                    setError(
-                        `Reference image ${i + 1} is no longer accessible — it may have been deleted from Assets. Remove it from the list and upload it again.`
-                    );
-                    setIsSubmitting(false);
-                    return;
-                }
+                totalChars += dataUri.length;
+                inlined.push(dataUri);
+            }
+            if (totalChars > 30_000_000) {
+                setError(
+                    'Reference images are too large to submit (over ~20 MB combined). Use fewer or smaller images.'
+                );
+                setIsSubmitting(false);
+                return;
+            }
+            if (formData.reference_image_urls) {
+                requestParams.reference_image_urls = inlined;
+            } else {
+                requestParams.input_reference_url = inlined[0];
             }
         }
 
@@ -457,7 +485,7 @@ export default function HomePage() {
         setCurrentJobId(tempId);
 
         try {
-            const result = await videoService.createVideo(formData);
+            const result = await videoService.createVideo(requestParams);
             console.log('Video job created:', result.id);
 
             // Normalize gateway-shaped fields (size "16x9", seconds "5") to
