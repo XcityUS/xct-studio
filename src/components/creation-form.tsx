@@ -6,6 +6,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ReferenceImagesInput } from '@/components/reference-images-input';
+import { ShotBuilderDialog, type ShotDraft } from '@/components/shot-builder';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
 import { Textarea } from '@/components/ui/textarea';
@@ -27,7 +28,7 @@ import { PromptInspirationDialog } from '@/components/prompt-inspiration';
 import { PROMPT_TEMPLATE_CATEGORIES, applyPromptTemplate } from '@/lib/prompt-templates';
 import { cn } from '@/lib/utils';
 import type { VideoJobCreate } from '@/types/video';
-import { ChevronDown, Lightbulb, Loader2, Sparkles, Undo2, Wand2 } from 'lucide-react';
+import { ChevronDown, Clapperboard, Lightbulb, Loader2, Sparkles, Undo2, Wand2 } from 'lucide-react';
 import * as React from 'react';
 
 export type CreationFormData = VideoJobCreate;
@@ -61,6 +62,8 @@ type CreationFormProps = {
     onUploadImage?: (file: File) => Promise<string>;
     /** Rewrites the prompt via the gateway's chat API. Absent = button hidden. */
     onOptimizePrompt?: (prompt: string) => Promise<string>;
+    /** Splits a script into Seedance shot rows via the gateway's chat API. */
+    onBreakdownScript?: (script: string) => Promise<ShotDraft[]>;
 };
 
 const RATIO_LABELS: Record<VideoRatio, string> = {
@@ -99,7 +102,8 @@ export function CreationForm({
     watermark,
     setWatermark,
     onUploadImage,
-    onOptimizePrompt
+    onOptimizePrompt,
+    onBreakdownScript
 }: CreationFormProps) {
     const { min: minSeconds, max: maxSeconds } = secondsRange(model);
     const modelDef = getSeedanceModel(model);
@@ -109,6 +113,7 @@ export function CreationForm({
     const isFirstFrameMode = referenceUrls.length === 1;
 
     const [isInspirationOpen, setIsInspirationOpen] = React.useState(false);
+    const [isShotBuilderOpen, setIsShotBuilderOpen] = React.useState(false);
     const [isOptimizing, setIsOptimizing] = React.useState(false);
     const [isAdvancedOpen, setIsAdvancedOpen] = React.useState(false);
     const [optimizeError, setOptimizeError] = React.useState<string | null>(null);
@@ -179,11 +184,11 @@ export function CreationForm({
             <form onSubmit={handleSubmit} className='flex h-full flex-1 flex-col overflow-hidden'>
                 <CardContent className='flex-1 space-y-5 overflow-y-auto p-4 lg:overflow-visible'>
                     <div className='space-y-1.5'>
-                        <div className='flex items-center justify-between'>
+                        <div className='flex flex-wrap items-center justify-between gap-2'>
                             <Label htmlFor='prompt' className='text-white'>
                                 Prompt
                             </Label>
-                            <div className='flex items-center gap-1'>
+                            <div className='flex flex-wrap items-center justify-end gap-1'>
                                 {promptBeforeOptimize !== null && (
                                     <button
                                         type='button'
@@ -200,6 +205,14 @@ export function CreationForm({
                                     className='flex items-center gap-1 rounded-md px-2 py-1 text-xs text-white/60 transition-colors hover:bg-white/10 hover:text-white'>
                                     <Lightbulb className='h-3 w-3' />
                                     Inspiration
+                                </button>
+                                <button
+                                    type='button'
+                                    onClick={() => setIsShotBuilderOpen(true)}
+                                    disabled={isLoading}
+                                    className='flex items-center gap-1 rounded-md px-2 py-1 text-xs text-white/60 transition-colors hover:bg-white/10 hover:text-white'>
+                                    <Clapperboard className='h-3 w-3' />
+                                    Shots
                                 </button>
                                 {onOptimizePrompt && (
                                     <button
@@ -263,6 +276,17 @@ export function CreationForm({
                                 setIsInspirationOpen(false);
                             }
                         }}
+                    />
+                    <ShotBuilderDialog
+                        isOpen={isShotBuilderOpen}
+                        onOpenChange={setIsShotBuilderOpen}
+                        referenceCount={referenceUrls.length}
+                        onApply={(nextPrompt) => {
+                            setPrompt(nextPrompt);
+                            setPromptBeforeOptimize(null);
+                            setIsShotBuilderOpen(false);
+                        }}
+                        onBreakdownScript={onBreakdownScript}
                     />
 
                     <div className='space-y-2'>

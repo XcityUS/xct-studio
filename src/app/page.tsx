@@ -46,6 +46,7 @@ import { AssetsPanel } from '@/components/assets-panel';
 import { optimizePrompt } from '@/lib/prompt-optimizer';
 import { estimateVideoProgress } from '@/lib/progress';
 import { reconcilePreset } from '@/lib/gallery-preset';
+import { breakdownScript } from '@/lib/script-breakdown';
 import type { GalleryItem } from '@/lib/gallery';
 import { captureVideoLastFrame, captureVideoPoster } from '@/lib/thumbnail';
 import { XCITY_SSO_ENABLED, xcityLoginHref } from '@/lib/xcity-sso';
@@ -235,6 +236,17 @@ export default function HomePage() {
                 throw new Error('Sign in at xcity.ai (or set an API key) to use AI optimization.');
             }
             return optimizePrompt(prompt, key, process.env.NEXT_PUBLIC_OPENAI_API_BASE_URL);
+        },
+        [resolveKey]
+    );
+
+    const handleBreakdownScript = React.useCallback(
+        async (script: string) => {
+            const key = await resolveKey();
+            if (!key) {
+                throw new Error('Sign in at xcity.ai (or set an API key) to use script breakdown.');
+            }
+            return breakdownScript(script, key, process.env.NEXT_PUBLIC_OPENAI_API_BASE_URL);
         },
         [resolveKey]
     );
@@ -881,6 +893,7 @@ export default function HomePage() {
                                     setWatermark={setCreateWatermark}
                                     onUploadImage={uploadEnabled ? handleUploadImage : undefined}
                                     onOptimizePrompt={handleOptimizePrompt}
+                                    onBreakdownScript={handleBreakdownScript}
                                 />
                             )}
                         </ApiKeyGate>
