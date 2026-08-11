@@ -1,5 +1,5 @@
-import type { VideoModel, VideoRatio, VideoResolution } from '@/lib/seedance';
 import { CostDetails } from '@/lib/cost-utils';
+import type { VideoModel, VideoRatio, VideoResolution } from '@/lib/seedance';
 
 /**
  * Normalized video job as returned by the TokenHub gateway's OpenAI-style
@@ -77,6 +77,16 @@ export type VideoJobCreate = {
      * Takes precedence over `input_reference_url` when non-empty.
      */
     reference_image_urls?: string[];
+    /**
+     * Optional video references for multi-reference mode. Prompts cite them as
+     * [Video 1], [Video 2], …; submit code may inline them as data URIs.
+     */
+    reference_video_urls?: string[];
+    /**
+     * Optional background music / timbre reference for multi-reference mode.
+     * History stores the public URL; submit code may inline it as a data URI.
+     */
+    reference_audio_url?: string;
     /** Lock the camera in place (BytePlus provider param, passed through). */
     camera_fixed?: boolean;
     /** Deterministic generation seed; absent means provider-random. */

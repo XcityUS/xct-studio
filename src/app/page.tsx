@@ -1,25 +1,42 @@
 'use client';
 
-import { GallerySection } from '@/components/gallery/gallery-section';
-import { CreationForm, type CreationFormData } from '@/components/creation-form';
-import { VideoHistoryPanel } from '@/components/video-history-panel';
-import { VideoOutput } from '@/components/video-output';
 import { ApiKeyDialog } from '@/components/api-key-dialog';
 import { ApiKeyGate } from '@/components/api-key-gate';
+import { AssetsPanel } from '@/components/assets-panel';
+import { CreationForm, type CreationFormData } from '@/components/creation-form';
+import { GallerySection } from '@/components/gallery/gallery-section';
 import { ImageStudio } from '@/components/image-studio';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { VideoHistoryPanel } from '@/components/video-history-panel';
+import { VideoOutput } from '@/components/video-output';
+import { useMediaArchive } from '@/hooks/use-media-archive';
+import { useVideoHistory } from '@/hooks/use-video-history';
+import { useVideoJobs, readPersistedActiveJobIds } from '@/hooks/use-video-jobs';
+import { useVideoSources } from '@/hooks/use-video-sources';
+import { useXcityKey } from '@/hooks/use-xcity-key';
 import { calculateVideoCost } from '@/lib/cost-utils';
 import { db, type ImageRecord } from '@/lib/db';
-import {
-    IMAGE_GENERATION_ENABLED,
-    generateImages,
-    type GeneratedImage,
-    type ImageSizeId
-} from '@/lib/image-service';
-import { VideoService } from '@/lib/video-service';
 import { InvalidApiKeyError } from '@/lib/errors';
+import type { GalleryItem } from '@/lib/gallery';
+import { reconcilePreset } from '@/lib/gallery-preset';
+import { IMAGE_GENERATION_ENABLED, generateImages, type GeneratedImage, type ImageSizeId } from '@/lib/image-service';
+import {
+    audioUrlToDataUri,
+    deleteUserAsset,
+    imageUrlToDataUri,
+    listUserAssets,
+    mediaArchiveEnabled,
+    mediaWorkerUrl,
+    uploadReferenceAudio,
+    uploadReferenceImage,
+    uploadReferenceVideo,
+    videoUrlToDataUri
+} from '@/lib/media-archive';
+import { estimateVideoProgress } from '@/lib/progress';
+import { optimizePrompt } from '@/lib/prompt-optimizer';
+import { breakdownScript } from '@/lib/script-breakdown';
 import {
     DEFAULT_MODEL,
     DEFAULT_RATIO,
@@ -34,28 +51,19 @@ import {
     type VideoRatio,
     type VideoResolution
 } from '@/lib/seedance';
-import {
-    deleteUserAsset,
-    imageUrlToDataUri,
-    listUserAssets,
-    mediaArchiveEnabled,
-    mediaWorkerUrl,
-    uploadReferenceImage
-} from '@/lib/media-archive';
-import { AssetsPanel } from '@/components/assets-panel';
-import { optimizePrompt } from '@/lib/prompt-optimizer';
-import { estimateVideoProgress } from '@/lib/progress';
-import { reconcilePreset } from '@/lib/gallery-preset';
-import type { GalleryItem } from '@/lib/gallery';
 import { captureVideoLastFrame, captureVideoPoster } from '@/lib/thumbnail';
+import { VideoService } from '@/lib/video-service';
 import { XCITY_SSO_ENABLED, xcityLoginHref } from '@/lib/xcity-sso';
-import { useMediaArchive } from '@/hooks/use-media-archive';
-import { useVideoHistory } from '@/hooks/use-video-history';
-import { useVideoJobs, readPersistedActiveJobIds } from '@/hooks/use-video-jobs';
-import { useVideoSources } from '@/hooks/use-video-sources';
-import { useXcityKey } from '@/hooks/use-xcity-key';
-import * as React from 'react';
 import type { VideoJob, VideoMetadata } from '@/types/video';
+import * as React from 'react';
+
+function fileNameWithoutExtension(fileName: string): string {
+    const clean = fileName.trim();
+    const dot = clean.lastIndexOf('.');
+    return dot > 0 ? clean.slice(0, dot) : clean;
+}
+
+const MAX_REFERENCE_VIDEOS = 2;
 
 export default function HomePage() {
     const [error, setError] = React.useState<string | null>(null);
@@ -74,6 +82,8 @@ export default function HomePage() {
     const [createCameraFixed, setCreateCameraFixed] = React.useState(false);
     const [createReferenceUrls, setCreateReferenceUrls] = React.useState<string[]>([]);
     const [createLastFrameUrl, setCreateLastFrameUrl] = React.useState('');
+    const [createReferenceAudioUrl, setCreateReferenceAudioUrl] = React.useState('');
+    const [createReferenceVideoUrls, setCreateReferenceVideoUrls] = React.useState<string[]>([]);
     const [createSeed, setCreateSeed] = React.useState<number | undefined>(undefined);
     const [createWatermark, setCreateWatermark] = React.useState(false);
 
@@ -89,6 +99,7 @@ export default function HomePage() {
 
     const applyPreset = React.useCallback((item: GalleryItem) => {
         const p = reconcilePreset(item.params);
+        const refs = p.reference_image_urls ?? (p.input_reference_url ? [p.input_reference_url] : []);
         setCreateModel(p.model);
         setCreatePrompt(p.prompt);
         setCreateRatio(p.ratio);
@@ -96,10 +107,12 @@ export default function HomePage() {
         setCreateSeconds(p.seconds);
         setCreateAudio(p.generate_audio);
         setCreateCameraFixed(p.camera_fixed ?? false);
-        setCreateReferenceUrls(
-            p.reference_image_urls ?? (p.input_reference_url ? [p.input_reference_url] : [])
+        setCreateReferenceUrls(refs);
+        setCreateLastFrameUrl(p.input_reference_url ? (p.last_frame_url ?? '') : '');
+        setCreateReferenceAudioUrl(refs.length >= 2 ? (p.reference_audio_url ?? '') : '');
+        setCreateReferenceVideoUrls(
+            refs.length >= 2 ? (p.reference_video_urls ?? []).slice(0, MAX_REFERENCE_VIDEOS) : []
         );
-        setCreateLastFrameUrl(p.input_reference_url ? p.last_frame_url ?? '' : '');
         setCreateSeed(p.seed);
         setCreateWatermark(p.watermark ?? false);
         setError(p.adjusted.length ? `Adjusted for ${p.model}: ${p.adjusted.join(', ')}` : null);
@@ -111,6 +124,8 @@ export default function HomePage() {
         setCreateRatio(item.params.ratio);
         setCreateReferenceUrls([frameUrl]);
         setCreateLastFrameUrl('');
+        setCreateReferenceAudioUrl('');
+        setCreateReferenceVideoUrls([]);
         // Leave the prompt to the user: describing the motion is the point of
         // image-to-video, and inheriting the original prompt fights that.
         setCreatePrompt('');
@@ -122,6 +137,20 @@ export default function HomePage() {
             setCreateLastFrameUrl('');
         }
     }, [createReferenceUrls.length, createLastFrameUrl]);
+
+    const isMultiReferenceMode = maxReferenceImages(createModel) > 1 && createReferenceUrls.length >= 2;
+    const wasMultiReferenceModeRef = React.useRef(isMultiReferenceMode);
+    React.useEffect(() => {
+        if (wasMultiReferenceModeRef.current && !isMultiReferenceMode) {
+            if (createReferenceAudioUrl) {
+                setCreateReferenceAudioUrl('');
+            }
+            if (createReferenceVideoUrls.length) {
+                setCreateReferenceVideoUrls([]);
+            }
+        }
+        wasMultiReferenceModeRef.current = isMultiReferenceMode;
+    }, [isMultiReferenceMode, createReferenceAudioUrl, createReferenceVideoUrls.length]);
 
     // One service for the app's lifetime: it reads the key through the ref at
     // call time, so it never needs rebuilding when the key arrives or rotates.
@@ -146,7 +175,29 @@ export default function HomePage() {
             if (!key) {
                 throw new Error('Sign in at xcity.ai (or set an API key) before uploading images.');
             }
-            return uploadReferenceImage(file, key);
+            return uploadReferenceImage(file, key, fileNameWithoutExtension(file.name));
+        },
+        [resolveKey]
+    );
+
+    const handleUploadAudio = React.useCallback(
+        async (file: File): Promise<string> => {
+            const key = await resolveKey();
+            if (!key) {
+                throw new Error('Sign in at xcity.ai (or set an API key) before uploading audio.');
+            }
+            return uploadReferenceAudio(file, key, fileNameWithoutExtension(file.name));
+        },
+        [resolveKey]
+    );
+
+    const handleUploadVideo = React.useCallback(
+        async (file: File): Promise<string> => {
+            const key = await resolveKey();
+            if (!key) {
+                throw new Error('Sign in at xcity.ai (or set an API key) before uploading video.');
+            }
+            return uploadReferenceVideo(file, key, fileNameWithoutExtension(file.name));
         },
         [resolveKey]
     );
@@ -176,7 +227,7 @@ export default function HomePage() {
                 const file = new File([record.blob], `${record.id}.png`, {
                     type: record.blob.type || 'image/png'
                 });
-                url = await uploadReferenceImage(file, key);
+                url = await uploadReferenceImage(file, key, fileNameWithoutExtension(file.name));
             } else if (record.source_url) {
                 // Provider URL: works while it lasts; the gateway fetches it
                 // server-side so CORS is not a concern.
@@ -191,6 +242,8 @@ export default function HomePage() {
 
             setCreateReferenceUrls([url]);
             setCreateLastFrameUrl('');
+            setCreateReferenceAudioUrl('');
+            setCreateReferenceVideoUrls([]);
             setActiveTab('video');
             window.scrollTo({ top: 0, behavior: 'smooth' });
         },
@@ -228,6 +281,15 @@ export default function HomePage() {
         [createModel]
     );
 
+    /** Assets tab -> video form: append the video to the reference video list. */
+    const handleUseAssetAsReferenceVideo = React.useCallback((url: string) => {
+        setCreateReferenceVideoUrls((prev) =>
+            prev.includes(url) ? prev : [...prev, url].slice(0, MAX_REFERENCE_VIDEOS)
+        );
+        setActiveTab('video');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }, []);
+
     const handleOptimizePrompt = React.useCallback(
         async (prompt: string): Promise<string> => {
             const key = await resolveKey();
@@ -235,6 +297,17 @@ export default function HomePage() {
                 throw new Error('Sign in at xcity.ai (or set an API key) to use AI optimization.');
             }
             return optimizePrompt(prompt, key, process.env.NEXT_PUBLIC_OPENAI_API_BASE_URL);
+        },
+        [resolveKey]
+    );
+
+    const handleBreakdownScript = React.useCallback(
+        async (script: string) => {
+            const key = await resolveKey();
+            if (!key) {
+                throw new Error('Sign in at xcity.ai (or set an API key) to use script breakdown.');
+            }
+            return breakdownScript(script, key, process.env.NEXT_PUBLIC_OPENAI_API_BASE_URL);
         },
         [resolveKey]
     );
@@ -440,25 +513,28 @@ export default function HomePage() {
         if (formData.reference_image_urls) {
             formData.reference_image_urls = formData.reference_image_urls.map(rebase);
         }
+        if (formData.reference_audio_url) {
+            formData.reference_audio_url = rebase(formData.reference_audio_url);
+        }
+        if (formData.reference_video_urls) {
+            formData.reference_video_urls = formData.reference_video_urls.map(rebase);
+        }
 
         // Ark's server-side fetcher cannot reliably download from
         // Cloudflare-fronted hosts (bot mitigation challenges it while
-        // browsers pass), so inline every reference image as a Base64 data
+        // browsers pass), so inline every reference media item as a Base64 data
         // URI — officially supported ("URL, Base64 encoding, or asset ID").
         // The request gets the inlined copies; history keeps the URLs (a
         // multi-MB data URI would blow the localStorage quota).
         const requestParams: CreationFormData = { ...formData };
+        let totalChars = 0;
         const refUrls =
             formData.reference_image_urls ??
             (formData.input_reference_url
-                ? [
-                      formData.input_reference_url,
-                      ...(formData.last_frame_url ? [formData.last_frame_url] : [])
-                  ]
+                ? [formData.input_reference_url, ...(formData.last_frame_url ? [formData.last_frame_url] : [])]
                 : []);
         if (refUrls.length) {
             const inlined: string[] = [];
-            let totalChars = 0;
             for (let i = 0; i < refUrls.length; i++) {
                 const url = refUrls[i];
                 const isWorkerHosted = Boolean(workerBase && url.startsWith(workerBase));
@@ -481,13 +557,6 @@ export default function HomePage() {
                 totalChars += dataUri.length;
                 inlined.push(dataUri);
             }
-            if (totalChars > 30_000_000) {
-                setError(
-                    'Reference images are too large to submit (over ~20 MB combined). Use fewer or smaller images.'
-                );
-                setIsSubmitting(false);
-                return;
-            }
             if (formData.reference_image_urls) {
                 requestParams.reference_image_urls = inlined;
             } else if (formData.input_reference_url) {
@@ -496,6 +565,53 @@ export default function HomePage() {
                     requestParams.last_frame_url = inlined[1];
                 }
             }
+        }
+        if (formData.reference_audio_url && formData.reference_image_urls?.length) {
+            const isWorkerHosted = Boolean(workerBase && formData.reference_audio_url.startsWith(workerBase));
+            const dataUri = formData.reference_audio_url.startsWith('data:')
+                ? formData.reference_audio_url
+                : await audioUrlToDataUri(formData.reference_audio_url);
+            if (!dataUri) {
+                if (isWorkerHosted) {
+                    setError(
+                        'Background audio is no longer accessible — it may have been deleted from Assets. Remove it and upload it again.'
+                    );
+                    setIsSubmitting(false);
+                    return;
+                }
+            } else {
+                totalChars += dataUri.length;
+                requestParams.reference_audio_url = dataUri;
+            }
+        }
+        if (formData.reference_video_urls?.length && formData.reference_image_urls?.length) {
+            const inlinedVideos: string[] = [];
+            for (let i = 0; i < formData.reference_video_urls.length; i++) {
+                const url = formData.reference_video_urls[i];
+                const isWorkerHosted = Boolean(workerBase && url.startsWith(workerBase));
+                const dataUri = url.startsWith('data:') ? url : await videoUrlToDataUri(url);
+                if (!dataUri) {
+                    if (isWorkerHosted) {
+                        setError(
+                            `Reference video ${i + 1} is no longer accessible — it may have been deleted from Assets. Remove it from the list and upload it again.`
+                        );
+                        setIsSubmitting(false);
+                        return;
+                    }
+                    // External host without CORS: pass the URL through and let
+                    // the provider try fetching it directly.
+                    inlinedVideos.push(url);
+                    continue;
+                }
+                totalChars += dataUri.length;
+                inlinedVideos.push(dataUri);
+            }
+            requestParams.reference_video_urls = inlinedVideos;
+        }
+        if (totalChars > 30_000_000) {
+            setError('Reference media are too large to submit (over ~20 MB combined). Use fewer or smaller files.');
+            setIsSubmitting(false);
+            return;
         }
 
         // Optimistic placeholder so the output panel reacts immediately.
@@ -598,9 +714,14 @@ export default function HomePage() {
             setCreateSeconds(params.seconds);
             setCreateAudio(params.generate_audio);
             setCreateCameraFixed(params.camera_fixed ?? false);
-            const refs = params.reference_image_urls ?? (params.input_reference_url ? [params.input_reference_url] : []);
+            const refs =
+                params.reference_image_urls ?? (params.input_reference_url ? [params.input_reference_url] : []);
             setCreateReferenceUrls(refs);
-            setCreateLastFrameUrl(refs.length === 1 ? params.last_frame_url ?? '' : '');
+            setCreateLastFrameUrl(refs.length === 1 ? (params.last_frame_url ?? '') : '');
+            setCreateReferenceAudioUrl(refs.length >= 2 ? (params.reference_audio_url ?? '') : '');
+            setCreateReferenceVideoUrls(
+                refs.length >= 2 ? (params.reference_video_urls ?? []).slice(0, MAX_REFERENCE_VIDEOS) : []
+            );
             setCreateSeed(params.seed);
             setCreateWatermark(params.watermark ?? false);
             window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -659,6 +780,8 @@ export default function HomePage() {
                 setCreateCameraFixed(params.camera_fixed ?? false);
                 setCreateReferenceUrls([frameUrl]);
                 setCreateLastFrameUrl('');
+                setCreateReferenceAudioUrl('');
+                setCreateReferenceVideoUrls([]);
                 setCreateSeed(params.seed);
                 setCreateWatermark(params.watermark ?? false);
                 setActiveTab('video');
@@ -699,19 +822,20 @@ export default function HomePage() {
         }
 
         // Register a display job for the output panel.
-        if (!tracked) addJob({
-            id: item.id,
-            object: 'video',
-            created_at: item.timestamp,
-            status: item.status === 'failed' ? 'failed' : 'completed',
-            model: item.model,
-            progress: item.status === 'failed' ? item.progress || 0 : 100,
-            seconds: String(item.seconds),
-            size: item.size,
-            prompt: item.prompt,
-            ...(item.error && { error: { message: item.error } }),
-            ...(item.remix_of && { remix_of: item.remix_of })
-        });
+        if (!tracked)
+            addJob({
+                id: item.id,
+                object: 'video',
+                created_at: item.timestamp,
+                status: item.status === 'failed' ? 'failed' : 'completed',
+                model: item.model,
+                progress: item.status === 'failed' ? item.progress || 0 : 100,
+                seconds: String(item.seconds),
+                size: item.size,
+                prompt: item.prompt,
+                ...(item.error && { error: { message: item.error } }),
+                ...(item.remix_of && { remix_of: item.remix_of })
+            });
 
         // Resolve a playback source on demand. A permanent R2 copy beats
         // everything: it never expires and is CORS-enabled.
@@ -806,121 +930,126 @@ export default function HomePage() {
 
     const videoTabContent = (
         <>
-                <div className='grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-stretch'>
-                    <div ref={creationFormRef} className='relative flex min-h-[600px] flex-col lg:col-span-1'>
-                        <ApiKeyGate
-                            isBlocked={isApiKeyGateBlocked}
-                            onConfigure={() => setIsApiKeyDialogOpen(true)}
-                            className='flex-1'>
-                            {XCITY_SSO_ENABLED && ssoStatus !== 'ok' ? (
-                                <div className='flex h-full min-h-[600px] w-full flex-col items-center justify-center gap-4 rounded-lg border border-white/10 bg-black p-8 text-center'>
-                                    {ssoStatus === 'checking' ? (
-                                        <>
-                                            <p className='text-lg font-medium text-white'>
-                                                Connecting your Xcity account…
-                                            </p>
-                                            <p className='text-sm text-white/50'>
-                                                Fetching your TokenHub key from xcity.ai
-                                            </p>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <p className='text-lg font-medium text-white'>Sign in with Xcity</p>
-                                            <p className='max-w-sm text-sm text-white/60'>
-                                                Video generation runs on your own Xcity plan. Sign in at xcity.ai and
-                                                come back — your TokenHub key is picked up automatically.
-                                            </p>
-                                            {ssoStatus === 'error' && ssoError && (
-                                                <p className='max-w-sm text-xs text-red-300/80'>({ssoError})</p>
-                                            )}
-                                            <div className='flex flex-wrap items-center justify-center gap-3'>
-                                                <Button asChild className='bg-white text-black hover:bg-white/90'>
-                                                    <a href={xcityLoginHref()}>Sign in at xcity.ai</a>
-                                                </Button>
-                                                <Button
-                                                    variant='secondary'
-                                                    onClick={() => void attemptSso()}
-                                                    className='bg-white/10 text-white hover:bg-white/20'>
-                                                    Retry
-                                                </Button>
-                                                <Button
-                                                    variant='ghost'
-                                                    onClick={() => setIsApiKeyDialogOpen(true)}
-                                                    className='text-white/60 hover:bg-white/10 hover:text-white'>
-                                                    Use an API key instead
-                                                </Button>
-                                            </div>
-                                        </>
-                                    )}
-                                </div>
-                            ) : (
-                                <CreationForm
-                                    onSubmit={handleCreateVideo}
-                                    isLoading={isSubmitting}
-                                    model={createModel}
-                                    setModel={setCreateModel}
-                                    prompt={createPrompt}
-                                    setPrompt={setCreatePrompt}
-                                    ratio={createRatio}
-                                    setRatio={setCreateRatio}
-                                    resolution={createResolution}
-                                    setResolution={setCreateResolution}
-                                    seconds={createSeconds}
-                                    setSeconds={setCreateSeconds}
-                                    generateAudio={createAudio}
-                                    setGenerateAudio={setCreateAudio}
-                                    cameraFixed={createCameraFixed}
-                                    setCameraFixed={setCreateCameraFixed}
-                                    referenceUrls={createReferenceUrls}
-                                    setReferenceUrls={setCreateReferenceUrls}
-                                    lastFrameUrl={createLastFrameUrl}
-                                    setLastFrameUrl={setCreateLastFrameUrl}
-                                    seed={createSeed}
-                                    setSeed={setCreateSeed}
-                                    watermark={createWatermark}
-                                    setWatermark={setCreateWatermark}
-                                    onUploadImage={uploadEnabled ? handleUploadImage : undefined}
-                                    onOptimizePrompt={handleOptimizePrompt}
-                                />
-                            )}
-                        </ApiKeyGate>
-                    </div>
-                    <div className='flex min-h-[600px] flex-col lg:col-span-1'>
-                        {error && (
-                            <Alert variant='destructive' className='mb-4 border-red-500/50 bg-red-900/20 text-red-300'>
-                                <AlertTitle className='text-red-200'>Error</AlertTitle>
-                                <AlertDescription>{error}</AlertDescription>
-                            </Alert>
+            <div className='grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-stretch'>
+                <div ref={creationFormRef} className='relative flex min-h-[600px] flex-col lg:col-span-1'>
+                    <ApiKeyGate
+                        isBlocked={isApiKeyGateBlocked}
+                        onConfigure={() => setIsApiKeyDialogOpen(true)}
+                        className='flex-1'>
+                        {XCITY_SSO_ENABLED && ssoStatus !== 'ok' ? (
+                            <div className='flex h-full min-h-[600px] w-full flex-col items-center justify-center gap-4 rounded-lg border border-white/10 bg-black p-8 text-center'>
+                                {ssoStatus === 'checking' ? (
+                                    <>
+                                        <p className='text-lg font-medium text-white'>Connecting your Xcity account…</p>
+                                        <p className='text-sm text-white/50'>
+                                            Fetching your TokenHub key from xcity.ai
+                                        </p>
+                                    </>
+                                ) : (
+                                    <>
+                                        <p className='text-lg font-medium text-white'>Sign in with Xcity</p>
+                                        <p className='max-w-sm text-sm text-white/60'>
+                                            Video generation runs on your own Xcity plan. Sign in at xcity.ai and come
+                                            back — your TokenHub key is picked up automatically.
+                                        </p>
+                                        {ssoStatus === 'error' && ssoError && (
+                                            <p className='max-w-sm text-xs text-red-300/80'>({ssoError})</p>
+                                        )}
+                                        <div className='flex flex-wrap items-center justify-center gap-3'>
+                                            <Button asChild className='bg-white text-black hover:bg-white/90'>
+                                                <a href={xcityLoginHref()}>Sign in at xcity.ai</a>
+                                            </Button>
+                                            <Button
+                                                variant='secondary'
+                                                onClick={() => void attemptSso()}
+                                                className='bg-white/10 text-white hover:bg-white/20'>
+                                                Retry
+                                            </Button>
+                                            <Button
+                                                variant='ghost'
+                                                onClick={() => setIsApiKeyDialogOpen(true)}
+                                                className='text-white/60 hover:bg-white/10 hover:text-white'>
+                                                Use an API key instead
+                                            </Button>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        ) : (
+                            <CreationForm
+                                onSubmit={handleCreateVideo}
+                                isLoading={isSubmitting}
+                                model={createModel}
+                                setModel={setCreateModel}
+                                prompt={createPrompt}
+                                setPrompt={setCreatePrompt}
+                                ratio={createRatio}
+                                setRatio={setCreateRatio}
+                                resolution={createResolution}
+                                setResolution={setCreateResolution}
+                                seconds={createSeconds}
+                                setSeconds={setCreateSeconds}
+                                generateAudio={createAudio}
+                                setGenerateAudio={setCreateAudio}
+                                cameraFixed={createCameraFixed}
+                                setCameraFixed={setCreateCameraFixed}
+                                referenceUrls={createReferenceUrls}
+                                setReferenceUrls={setCreateReferenceUrls}
+                                lastFrameUrl={createLastFrameUrl}
+                                setLastFrameUrl={setCreateLastFrameUrl}
+                                referenceAudioUrl={createReferenceAudioUrl}
+                                setReferenceAudioUrl={setCreateReferenceAudioUrl}
+                                referenceVideoUrls={createReferenceVideoUrls}
+                                setReferenceVideoUrls={setCreateReferenceVideoUrls}
+                                seed={createSeed}
+                                setSeed={setCreateSeed}
+                                watermark={createWatermark}
+                                setWatermark={setCreateWatermark}
+                                onUploadImage={uploadEnabled ? handleUploadImage : undefined}
+                                onUploadAudio={uploadEnabled ? handleUploadAudio : undefined}
+                                onUploadVideo={uploadEnabled ? handleUploadVideo : undefined}
+                                onOptimizePrompt={handleOptimizePrompt}
+                                onBreakdownScript={handleBreakdownScript}
+                            />
                         )}
-                        <VideoOutput
-                            job={currentJob || null}
-                            videoSrc={currentVideoSrc}
-                            thumbnailSrc={currentThumbnailSrc}
-                            isLoading={
-                                currentJob ? currentJob.status === 'queued' || currentJob.status === 'in_progress' : false
-                            }
-                            onDownload={handleDownloadVideo}
-                            onExtend={handleExtendCurrentVideo}
-                        />
-                    </div>
+                    </ApiKeyGate>
                 </div>
-
-                <GallerySection onUsePreset={applyPreset} onUseAsReference={applyReferenceFrame} />
-
-                <div className='min-h-[450px]'>
-                    <VideoHistoryPanel
-                        history={history}
-                        activeJobs={activeJobs}
-                        onSelectVideo={handleHistorySelect}
-                        onClearHistory={handleClearHistory}
-                        getVideoSrc={getVideoSrc}
-                        getThumbnailSrc={getThumbnailSrc}
-                        onDeleteItem={handleDeleteVideo}
-                        onReuseItem={handleReuseItem}
-                        onRegenerateItem={handleRegenerateItem}
-                        onExtendItem={handleExtendVideo}
+                <div className='flex min-h-[600px] flex-col lg:col-span-1'>
+                    {error && (
+                        <Alert variant='destructive' className='mb-4 border-red-500/50 bg-red-900/20 text-red-300'>
+                            <AlertTitle className='text-red-200'>Error</AlertTitle>
+                            <AlertDescription>{error}</AlertDescription>
+                        </Alert>
+                    )}
+                    <VideoOutput
+                        job={currentJob || null}
+                        videoSrc={currentVideoSrc}
+                        thumbnailSrc={currentThumbnailSrc}
+                        isLoading={
+                            currentJob ? currentJob.status === 'queued' || currentJob.status === 'in_progress' : false
+                        }
+                        onDownload={handleDownloadVideo}
+                        onExtend={handleExtendCurrentVideo}
                     />
                 </div>
+            </div>
+
+            <GallerySection onUsePreset={applyPreset} onUseAsReference={applyReferenceFrame} />
+
+            <div className='min-h-[450px]'>
+                <VideoHistoryPanel
+                    history={history}
+                    activeJobs={activeJobs}
+                    onSelectVideo={handleHistorySelect}
+                    onClearHistory={handleClearHistory}
+                    getVideoSrc={getVideoSrc}
+                    getThumbnailSrc={getThumbnailSrc}
+                    onDeleteItem={handleDeleteVideo}
+                    onReuseItem={handleReuseItem}
+                    onRegenerateItem={handleRegenerateItem}
+                    onExtendItem={handleExtendVideo}
+                />
+            </div>
         </>
     );
 
@@ -930,9 +1059,7 @@ export default function HomePage() {
 
             <div className='w-full max-w-7xl space-y-6'>
                 {IMAGE_GENERATION_ENABLED || uploadEnabled ? (
-                    <Tabs
-                        value={activeTab}
-                        onValueChange={(v) => setActiveTab(v as 'video' | 'image' | 'assets')}>
+                    <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'video' | 'image' | 'assets')}>
                         <TabsList className='mb-4 border border-white/10 bg-white/5'>
                             <TabsTrigger
                                 value='video'
@@ -969,6 +1096,7 @@ export default function HomePage() {
                                         loadAssets={handleLoadAssets}
                                         deleteAsset={handleDeleteAsset}
                                         onUseAsReference={handleUseAssetAsReference}
+                                        onUseAsReferenceVideo={handleUseAssetAsReferenceVideo}
                                         active={activeTab === 'assets'}
                                     />
                                 </div>

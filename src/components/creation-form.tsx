@@ -1,15 +1,20 @@
 'use client';
 
+import { PromptInspirationDialog } from '@/components/prompt-inspiration';
+import { ReferenceAudioInput } from '@/components/reference-audio-input';
+import { ReferenceImagesInput } from '@/components/reference-images-input';
+import { ReferenceVideosInput } from '@/components/reference-videos-input';
+import { ShotBuilderDialog, type ShotDraft } from '@/components/shot-builder';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { ReferenceImagesInput } from '@/components/reference-images-input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
 import { Textarea } from '@/components/ui/textarea';
 import { calculateVideoCost } from '@/lib/cost-utils';
+import { PROMPT_TEMPLATE_CATEGORIES, applyPromptTemplate } from '@/lib/prompt-templates';
 import {
     RATIOS,
     RESOLUTIONS,
@@ -23,11 +28,9 @@ import {
     type VideoRatio,
     type VideoResolution
 } from '@/lib/seedance';
-import { PromptInspirationDialog } from '@/components/prompt-inspiration';
-import { PROMPT_TEMPLATE_CATEGORIES, applyPromptTemplate } from '@/lib/prompt-templates';
 import { cn } from '@/lib/utils';
 import type { VideoJobCreate } from '@/types/video';
-import { ChevronDown, Lightbulb, Loader2, Sparkles, Undo2, Wand2 } from 'lucide-react';
+import { ChevronDown, Clapperboard, Lightbulb, Loader2, Sparkles, Undo2, Wand2 } from 'lucide-react';
 import * as React from 'react';
 
 export type CreationFormData = VideoJobCreate;
@@ -53,14 +56,24 @@ type CreationFormProps = {
     setReferenceUrls: React.Dispatch<React.SetStateAction<string[]>>;
     lastFrameUrl: string;
     setLastFrameUrl: React.Dispatch<React.SetStateAction<string>>;
+    referenceAudioUrl: string;
+    setReferenceAudioUrl: React.Dispatch<React.SetStateAction<string>>;
+    referenceVideoUrls: string[];
+    setReferenceVideoUrls: React.Dispatch<React.SetStateAction<string[]>>;
     seed: number | undefined;
     setSeed: React.Dispatch<React.SetStateAction<number | undefined>>;
     watermark: boolean;
     setWatermark: React.Dispatch<React.SetStateAction<boolean>>;
     /** Uploads a local image, resolving to its public URL. Absent = URL-only mode. */
     onUploadImage?: (file: File) => Promise<string>;
+    /** Uploads a local audio file, resolving to its public URL. Absent = URL-only mode. */
+    onUploadAudio?: (file: File) => Promise<string>;
+    /** Uploads a local video file, resolving to its public URL. Absent = URL-only mode. */
+    onUploadVideo?: (file: File) => Promise<string>;
     /** Rewrites the prompt via the gateway's chat API. Absent = button hidden. */
     onOptimizePrompt?: (prompt: string) => Promise<string>;
+    /** Splits a script into Seedance shot rows via the gateway's chat API. */
+    onBreakdownScript?: (script: string) => Promise<ShotDraft[]>;
 };
 
 const RATIO_LABELS: Record<VideoRatio, string> = {
@@ -94,12 +107,19 @@ export function CreationForm({
     setReferenceUrls,
     lastFrameUrl,
     setLastFrameUrl,
+    referenceAudioUrl,
+    setReferenceAudioUrl,
+    referenceVideoUrls,
+    setReferenceVideoUrls,
     seed,
     setSeed,
     watermark,
     setWatermark,
     onUploadImage,
-    onOptimizePrompt
+    onUploadAudio,
+    onUploadVideo,
+    onOptimizePrompt,
+    onBreakdownScript
 }: CreationFormProps) {
     const { min: minSeconds, max: maxSeconds } = secondsRange(model);
     const modelDef = getSeedanceModel(model);
@@ -107,8 +127,12 @@ export function CreationForm({
     const refCap = maxReferenceImages(model);
     // Ratio is provider-derived only in first-frame mode (exactly one image).
     const isFirstFrameMode = referenceUrls.length === 1;
+    const showMultiReferenceMedia = refCap > 1 && referenceUrls.length >= 2;
+    const showReferenceAudio = showMultiReferenceMedia;
+    const showReferenceVideos = showMultiReferenceMedia;
 
     const [isInspirationOpen, setIsInspirationOpen] = React.useState(false);
+    const [isShotBuilderOpen, setIsShotBuilderOpen] = React.useState(false);
     const [isOptimizing, setIsOptimizing] = React.useState(false);
     const [isAdvancedOpen, setIsAdvancedOpen] = React.useState(false);
     const [optimizeError, setOptimizeError] = React.useState<string | null>(null);
@@ -160,6 +184,14 @@ export function CreationForm({
             }
         } else if (refs.length > 1) {
             formData.reference_image_urls = refs;
+            const audio = referenceAudioUrl.trim();
+            if (showReferenceAudio && audio) {
+                formData.reference_audio_url = audio;
+            }
+            const videos = referenceVideoUrls.map((u) => u.trim()).filter(Boolean);
+            if (showReferenceVideos && videos.length) {
+                formData.reference_video_urls = videos.slice(0, 2);
+            }
         }
         onSubmit(formData);
     };
@@ -179,11 +211,11 @@ export function CreationForm({
             <form onSubmit={handleSubmit} className='flex h-full flex-1 flex-col overflow-hidden'>
                 <CardContent className='flex-1 space-y-5 overflow-y-auto p-4 lg:overflow-visible'>
                     <div className='space-y-1.5'>
-                        <div className='flex items-center justify-between'>
+                        <div className='flex flex-wrap items-center justify-between gap-2'>
                             <Label htmlFor='prompt' className='text-white'>
                                 Prompt
                             </Label>
-                            <div className='flex items-center gap-1'>
+                            <div className='flex flex-wrap items-center justify-end gap-1'>
                                 {promptBeforeOptimize !== null && (
                                     <button
                                         type='button'
@@ -200,6 +232,14 @@ export function CreationForm({
                                     className='flex items-center gap-1 rounded-md px-2 py-1 text-xs text-white/60 transition-colors hover:bg-white/10 hover:text-white'>
                                     <Lightbulb className='h-3 w-3' />
                                     Inspiration
+                                </button>
+                                <button
+                                    type='button'
+                                    onClick={() => setIsShotBuilderOpen(true)}
+                                    disabled={isLoading}
+                                    className='flex items-center gap-1 rounded-md px-2 py-1 text-xs text-white/60 transition-colors hover:bg-white/10 hover:text-white'>
+                                    <Clapperboard className='h-3 w-3' />
+                                    Shots
                                 </button>
                                 {onOptimizePrompt && (
                                     <button
@@ -264,6 +304,17 @@ export function CreationForm({
                             }
                         }}
                     />
+                    <ShotBuilderDialog
+                        isOpen={isShotBuilderOpen}
+                        onOpenChange={setIsShotBuilderOpen}
+                        referenceCount={referenceUrls.length}
+                        onApply={(nextPrompt) => {
+                            setPrompt(nextPrompt);
+                            setPromptBeforeOptimize(null);
+                            setIsShotBuilderOpen(false);
+                        }}
+                        onBreakdownScript={onBreakdownScript}
+                    />
 
                     <div className='space-y-2'>
                         <Label htmlFor='model-select' className='text-white'>
@@ -326,9 +377,7 @@ export function CreationForm({
                                     ))}
                                 </SelectContent>
                             </Select>
-                            {isFirstFrameMode && (
-                                <p className='text-xs text-white/40'>Follows the reference image</p>
-                            )}
+                            {isFirstFrameMode && <p className='text-xs text-white/40'>Follows the reference image</p>}
                         </div>
 
                         <div className='space-y-2'>
@@ -474,6 +523,22 @@ export function CreationForm({
                         onUpload={onUploadImage}
                         disabled={isLoading}
                     />
+                    {showReferenceAudio && (
+                        <ReferenceAudioInput
+                            url={referenceAudioUrl}
+                            onChange={setReferenceAudioUrl}
+                            onUpload={onUploadAudio}
+                            disabled={isLoading}
+                        />
+                    )}
+                    {showReferenceVideos && (
+                        <ReferenceVideosInput
+                            urls={referenceVideoUrls}
+                            onChange={setReferenceVideoUrls}
+                            onUpload={onUploadVideo}
+                            disabled={isLoading}
+                        />
+                    )}
                 </CardContent>
                 <CardFooter className='flex items-center gap-3 border-t border-white/10 p-4'>
                     <Button
@@ -494,8 +559,12 @@ export function CreationForm({
                     </Button>
                     {estimatedCost && (
                         <span
-                            className='whitespace-nowrap text-sm text-white/60'
-                            title={modelDef?.priceIsEstimate ? 'Provisional rate — BytePlus has not published pricing for this model yet' : undefined}>
+                            className='text-sm whitespace-nowrap text-white/60'
+                            title={
+                                modelDef?.priceIsEstimate
+                                    ? 'Provisional rate — BytePlus has not published pricing for this model yet'
+                                    : undefined
+                            }>
                             ≈ ${estimatedCost.totalCost.toFixed(2)}
                             {modelDef?.priceIsEstimate && <span className='ml-1 text-white/40'>est.</span>}
                         </span>

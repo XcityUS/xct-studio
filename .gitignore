@@ -42,6 +42,7 @@ next-env.d.ts
 
 # generated videos
 generated-videos/
+public/ffmpeg/
 
 # temporary api routes backup during frontend build
 .api-routes-backup/
