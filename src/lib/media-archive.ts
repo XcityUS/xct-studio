@@ -14,6 +14,8 @@
  * playback falls back to the provider URL.
  */
 
+import { StateConflictError } from './errors';
+
 let workerUrlPromise: Promise<string> | null = null;
 
 function loadWorkerUrl(): Promise<string> {
@@ -116,6 +118,64 @@ export async function deleteUserAsset(key: string, apiKey: string): Promise<void
             .catch(() => undefined);
         throw new Error(detail || `Delete failed (${res.status}).`);
     }
+}
+
+export async function fetchCloudState(apiKey: string): Promise<{ doc: unknown; etag: string } | null> {
+    const workerUrl = await loadWorkerUrl();
+    if (!workerUrl) return null;
+
+    const res = await fetch(`${workerUrl}/state`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        cache: 'no-store'
+    });
+    if (res.status === 404) return null;
+    if (!res.ok) {
+        throw new Error(`Could not load cloud history (${res.status}).`);
+    }
+
+    const etag = res.headers.get('etag');
+    if (!etag) {
+        throw new Error('Cloud history response returned no ETag.');
+    }
+
+    return { doc: (await res.json()) as unknown, etag };
+}
+
+export async function pushCloudState(doc: unknown, apiKey: string, etag: string | null): Promise<string> {
+    const workerUrl = await loadWorkerUrl();
+    if (!workerUrl) {
+        throw new Error('Cloud history sync is not configured on this deployment.');
+    }
+
+    const headers: Record<string, string> = {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+    };
+    if (etag) {
+        headers['If-Match'] = etag;
+    }
+
+    const res = await fetch(`${workerUrl}/state`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify(doc)
+    });
+    if (res.status === 412) {
+        throw new StateConflictError();
+    }
+    if (!res.ok) {
+        const detail = await res
+            .json()
+            .then((d: { error?: string }) => d.error)
+            .catch(() => undefined);
+        throw new Error(detail || `Could not save cloud history (${res.status}).`);
+    }
+
+    const data = (await res.json()) as { etag?: string };
+    if (!data.etag) {
+        throw new Error('Cloud history save returned no ETag.');
+    }
+    return data.etag;
 }
 
 async function urlToDataUri(url: string, accepts: (blob: Blob) => boolean): Promise<string | null> {

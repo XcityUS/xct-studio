@@ -88,7 +88,7 @@ export default function HomePage() {
     const [createWatermark, setCreateWatermark] = React.useState(false);
 
     const { apiKey, keyRef, ssoStatus, ssoError, attemptSso, resolveKey, saveManualKey, invalidateKey } = useXcityKey();
-    const { history, isInitialLoad, addItem, updateItem, removeItem, clearAll } = useVideoHistory();
+    const { history, isInitialLoad, addItem, updateItem, removeItem, clearAll } = useVideoHistory(resolveKey);
     const { getVideoSrc, getThumbnailSrc, setRemoteSource, removeSource, clearAllSources, hasLocalCopy, hasSource } =
         useVideoSources();
 
