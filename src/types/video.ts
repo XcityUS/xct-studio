@@ -77,6 +77,11 @@ export type VideoJobCreate = {
      * Takes precedence over `input_reference_url` when non-empty.
      */
     reference_image_urls?: string[];
+    /**
+     * Optional background music / timbre reference for multi-reference mode.
+     * History stores the public URL; submit code may inline it as a data URI.
+     */
+    reference_audio_url?: string;
     /** Lock the camera in place (BytePlus provider param, passed through). */
     camera_fixed?: boolean;
     /** Deterministic generation seed; absent means provider-random. */

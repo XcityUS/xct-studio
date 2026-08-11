@@ -27,7 +27,9 @@ function buildCreateBody(params: VideoJobCreate): Record<string, unknown> {
         // Multi-reference mode: the gateway turns the array into content items
         // with role "reference_image". Ratio stays valid here — only the
         // first-frame mode derives it from the image.
-        body.input_reference = params.reference_image_urls;
+        body.input_reference = params.reference_audio_url
+            ? [...params.reference_image_urls, { url: params.reference_audio_url, role: 'reference_audio' }]
+            : params.reference_image_urls;
         body.ratio = params.ratio;
     } else if (params.input_reference_url) {
         // BytePlus rejects `ratio` on first-frame (image-to-video) tasks with

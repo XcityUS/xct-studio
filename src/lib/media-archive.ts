@@ -82,7 +82,8 @@ export interface UserAsset {
     url: string;
     bytes: number | null;
     uploaded: string | null;
-    kind: 'image' | 'video';
+    kind: 'image' | 'audio' | 'video';
+    name: string | null;
 }
 
 /** Lists everything the worker stores for this user (uploads + archived videos). */
@@ -121,19 +122,12 @@ export async function deleteUserAsset(key: string, apiKey: string): Promise<void
     }
 }
 
-/**
- * Fetches an image and returns it as a `data:` URI, or null when it cannot be
- * read (missing object, CORS-blocked host, non-image response). Used to
- * inline reference images into generation requests: Ark accepts Base64
- * directly, which sidesteps its fetcher being challenged by Cloudflare's bot
- * mitigation on our media host.
- */
-export async function imageUrlToDataUri(url: string): Promise<string | null> {
+async function urlToDataUri(url: string, accepts: (blob: Blob) => boolean): Promise<string | null> {
     try {
         const res = await fetch(url);
         if (!res.ok) return null;
         const blob = await res.blob();
-        if (!blob.type.startsWith('image/')) return null;
+        if (!accepts(blob)) return null;
         return await new Promise<string | null>((resolve) => {
             const reader = new FileReader();
             reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null);
@@ -145,23 +139,46 @@ export async function imageUrlToDataUri(url: string): Promise<string | null> {
     }
 }
 
-const UPLOADABLE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
-const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+/**
+ * Fetches an image and returns it as a `data:` URI, or null when it cannot be
+ * read (missing object, CORS-blocked host, non-image response). Used to
+ * inline reference images into generation requests: Ark accepts Base64
+ * directly, which sidesteps its fetcher being challenged by Cloudflare's bot
+ * mitigation on our media host.
+ */
+export async function imageUrlToDataUri(url: string): Promise<string | null> {
+    return urlToDataUri(url, (blob) => blob.type.startsWith('image/'));
+}
+
+/** Same as image inlining, but only accepts audio blobs. */
+export async function audioUrlToDataUri(url: string): Promise<string | null> {
+    return urlToDataUri(url, (blob) => blob.type.startsWith('audio/'));
+}
+
+const UPLOADABLE_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const UPLOADABLE_AUDIO_TYPES = new Set(['audio/mpeg', 'audio/wav', 'audio/mp4', 'audio/x-m4a']);
+const MAX_IMAGE_UPLOAD_BYTES = 10 * 1024 * 1024;
+const MAX_AUDIO_UPLOAD_BYTES = 15 * 1024 * 1024;
+
+function assetNameHeader(name?: string): Record<string, string> {
+    const clean = name?.trim();
+    return clean ? { 'X-Asset-Name': encodeURIComponent(clean) } : {};
+}
 
 /**
  * Uploads a local reference image to R2 and returns its public URL — the
  * gateway's image-to-video takes a URL, not bytes. Unlike archiving this is a
  * user-initiated action, so failures throw with a message worth showing.
  */
-export async function uploadReferenceImage(file: File, apiKey: string): Promise<string> {
+export async function uploadReferenceImage(file: File, apiKey: string, name?: string): Promise<string> {
     const workerUrl = await loadWorkerUrl();
     if (!workerUrl) {
         throw new Error('Image uploads are not configured on this deployment. Paste a public image URL instead.');
     }
-    if (!UPLOADABLE_TYPES.has(file.type)) {
+    if (!UPLOADABLE_IMAGE_TYPES.has(file.type)) {
         throw new Error('Unsupported image type. Use PNG, JPEG, or WebP.');
     }
-    if (file.size > MAX_UPLOAD_BYTES) {
+    if (file.size > MAX_IMAGE_UPLOAD_BYTES) {
         throw new Error('Image is too large (max 10 MB).');
     }
 
@@ -169,7 +186,8 @@ export async function uploadReferenceImage(file: File, apiKey: string): Promise<
         method: 'POST',
         headers: {
             Authorization: `Bearer ${apiKey}`,
-            'Content-Type': file.type
+            'Content-Type': file.type,
+            ...assetNameHeader(name)
         },
         body: file
     });
@@ -183,6 +201,41 @@ export async function uploadReferenceImage(file: File, apiKey: string): Promise<
     const data = (await res.json()) as { url?: string };
     if (!data.url) {
         throw new Error('Image upload returned no URL.');
+    }
+    return data.url;
+}
+
+export async function uploadReferenceAudio(file: File, apiKey: string, name?: string): Promise<string> {
+    const workerUrl = await loadWorkerUrl();
+    if (!workerUrl) {
+        throw new Error('Audio uploads are not configured on this deployment. Paste a public audio URL instead.');
+    }
+    if (!UPLOADABLE_AUDIO_TYPES.has(file.type)) {
+        throw new Error('Unsupported audio type. Use MP3, WAV, or M4A.');
+    }
+    if (file.size > MAX_AUDIO_UPLOAD_BYTES) {
+        throw new Error('Audio is too large (max 15 MB).');
+    }
+
+    const res = await fetch(`${workerUrl}/upload`, {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': file.type,
+            ...assetNameHeader(name)
+        },
+        body: file
+    });
+    if (!res.ok) {
+        const detail = await res
+            .json()
+            .then((d: { error?: string }) => d.error)
+            .catch(() => undefined);
+        throw new Error(detail || `Audio upload failed (${res.status})`);
+    }
+    const data = (await res.json()) as { url?: string };
+    if (!data.url) {
+        throw new Error('Audio upload returned no URL.');
     }
     return data.url;
 }

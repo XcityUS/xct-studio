@@ -35,11 +35,13 @@ import {
     type VideoResolution
 } from '@/lib/seedance';
 import {
+    audioUrlToDataUri,
     deleteUserAsset,
     imageUrlToDataUri,
     listUserAssets,
     mediaArchiveEnabled,
     mediaWorkerUrl,
+    uploadReferenceAudio,
     uploadReferenceImage
 } from '@/lib/media-archive';
 import { AssetsPanel } from '@/components/assets-panel';
@@ -58,6 +60,12 @@ import { useXcityKey } from '@/hooks/use-xcity-key';
 import * as React from 'react';
 import type { VideoJob, VideoMetadata } from '@/types/video';
 
+function fileNameWithoutExtension(fileName: string): string {
+    const clean = fileName.trim();
+    const dot = clean.lastIndexOf('.');
+    return dot > 0 ? clean.slice(0, dot) : clean;
+}
+
 export default function HomePage() {
     const [error, setError] = React.useState<string | null>(null);
     const [isApiKeyDialogOpen, setIsApiKeyDialogOpen] = React.useState(false);
@@ -75,6 +83,7 @@ export default function HomePage() {
     const [createCameraFixed, setCreateCameraFixed] = React.useState(false);
     const [createReferenceUrls, setCreateReferenceUrls] = React.useState<string[]>([]);
     const [createLastFrameUrl, setCreateLastFrameUrl] = React.useState('');
+    const [createReferenceAudioUrl, setCreateReferenceAudioUrl] = React.useState('');
     const [createSeed, setCreateSeed] = React.useState<number | undefined>(undefined);
     const [createWatermark, setCreateWatermark] = React.useState(false);
 
@@ -90,6 +99,7 @@ export default function HomePage() {
 
     const applyPreset = React.useCallback((item: GalleryItem) => {
         const p = reconcilePreset(item.params);
+        const refs = p.reference_image_urls ?? (p.input_reference_url ? [p.input_reference_url] : []);
         setCreateModel(p.model);
         setCreatePrompt(p.prompt);
         setCreateRatio(p.ratio);
@@ -97,10 +107,9 @@ export default function HomePage() {
         setCreateSeconds(p.seconds);
         setCreateAudio(p.generate_audio);
         setCreateCameraFixed(p.camera_fixed ?? false);
-        setCreateReferenceUrls(
-            p.reference_image_urls ?? (p.input_reference_url ? [p.input_reference_url] : [])
-        );
+        setCreateReferenceUrls(refs);
         setCreateLastFrameUrl(p.input_reference_url ? p.last_frame_url ?? '' : '');
+        setCreateReferenceAudioUrl(refs.length >= 2 ? p.reference_audio_url ?? '' : '');
         setCreateSeed(p.seed);
         setCreateWatermark(p.watermark ?? false);
         setError(p.adjusted.length ? `Adjusted for ${p.model}: ${p.adjusted.join(', ')}` : null);
@@ -112,6 +121,7 @@ export default function HomePage() {
         setCreateRatio(item.params.ratio);
         setCreateReferenceUrls([frameUrl]);
         setCreateLastFrameUrl('');
+        setCreateReferenceAudioUrl('');
         // Leave the prompt to the user: describing the motion is the point of
         // image-to-video, and inheriting the original prompt fights that.
         setCreatePrompt('');
@@ -123,6 +133,12 @@ export default function HomePage() {
             setCreateLastFrameUrl('');
         }
     }, [createReferenceUrls.length, createLastFrameUrl]);
+
+    React.useEffect(() => {
+        if ((maxReferenceImages(createModel) <= 1 || createReferenceUrls.length < 2) && createReferenceAudioUrl) {
+            setCreateReferenceAudioUrl('');
+        }
+    }, [createModel, createReferenceUrls.length, createReferenceAudioUrl]);
 
     // One service for the app's lifetime: it reads the key through the ref at
     // call time, so it never needs rebuilding when the key arrives or rotates.
@@ -147,7 +163,18 @@ export default function HomePage() {
             if (!key) {
                 throw new Error('Sign in at xcity.ai (or set an API key) before uploading images.');
             }
-            return uploadReferenceImage(file, key);
+            return uploadReferenceImage(file, key, fileNameWithoutExtension(file.name));
+        },
+        [resolveKey]
+    );
+
+    const handleUploadAudio = React.useCallback(
+        async (file: File): Promise<string> => {
+            const key = await resolveKey();
+            if (!key) {
+                throw new Error('Sign in at xcity.ai (or set an API key) before uploading audio.');
+            }
+            return uploadReferenceAudio(file, key, fileNameWithoutExtension(file.name));
         },
         [resolveKey]
     );
@@ -177,7 +204,7 @@ export default function HomePage() {
                 const file = new File([record.blob], `${record.id}.png`, {
                     type: record.blob.type || 'image/png'
                 });
-                url = await uploadReferenceImage(file, key);
+                url = await uploadReferenceImage(file, key, fileNameWithoutExtension(file.name));
             } else if (record.source_url) {
                 // Provider URL: works while it lasts; the gateway fetches it
                 // server-side so CORS is not a concern.
@@ -192,6 +219,7 @@ export default function HomePage() {
 
             setCreateReferenceUrls([url]);
             setCreateLastFrameUrl('');
+            setCreateReferenceAudioUrl('');
             setActiveTab('video');
             window.scrollTo({ top: 0, behavior: 'smooth' });
         },
@@ -452,14 +480,18 @@ export default function HomePage() {
         if (formData.reference_image_urls) {
             formData.reference_image_urls = formData.reference_image_urls.map(rebase);
         }
+        if (formData.reference_audio_url) {
+            formData.reference_audio_url = rebase(formData.reference_audio_url);
+        }
 
         // Ark's server-side fetcher cannot reliably download from
         // Cloudflare-fronted hosts (bot mitigation challenges it while
-        // browsers pass), so inline every reference image as a Base64 data
+        // browsers pass), so inline every reference media item as a Base64 data
         // URI — officially supported ("URL, Base64 encoding, or asset ID").
         // The request gets the inlined copies; history keeps the URLs (a
         // multi-MB data URI would blow the localStorage quota).
         const requestParams: CreationFormData = { ...formData };
+        let totalChars = 0;
         const refUrls =
             formData.reference_image_urls ??
             (formData.input_reference_url
@@ -470,7 +502,6 @@ export default function HomePage() {
                 : []);
         if (refUrls.length) {
             const inlined: string[] = [];
-            let totalChars = 0;
             for (let i = 0; i < refUrls.length; i++) {
                 const url = refUrls[i];
                 const isWorkerHosted = Boolean(workerBase && url.startsWith(workerBase));
@@ -493,13 +524,6 @@ export default function HomePage() {
                 totalChars += dataUri.length;
                 inlined.push(dataUri);
             }
-            if (totalChars > 30_000_000) {
-                setError(
-                    'Reference images are too large to submit (over ~20 MB combined). Use fewer or smaller images.'
-                );
-                setIsSubmitting(false);
-                return;
-            }
             if (formData.reference_image_urls) {
                 requestParams.reference_image_urls = inlined;
             } else if (formData.input_reference_url) {
@@ -508,6 +532,31 @@ export default function HomePage() {
                     requestParams.last_frame_url = inlined[1];
                 }
             }
+        }
+        if (formData.reference_audio_url && formData.reference_image_urls?.length) {
+            const isWorkerHosted = Boolean(workerBase && formData.reference_audio_url.startsWith(workerBase));
+            const dataUri = formData.reference_audio_url.startsWith('data:')
+                ? formData.reference_audio_url
+                : await audioUrlToDataUri(formData.reference_audio_url);
+            if (!dataUri) {
+                if (isWorkerHosted) {
+                    setError(
+                        'Background audio is no longer accessible — it may have been deleted from Assets. Remove it and upload it again.'
+                    );
+                    setIsSubmitting(false);
+                    return;
+                }
+            } else {
+                totalChars += dataUri.length;
+                requestParams.reference_audio_url = dataUri;
+            }
+        }
+        if (totalChars > 30_000_000) {
+            setError(
+                'Reference media are too large to submit (over ~20 MB combined). Use fewer or smaller files.'
+            );
+            setIsSubmitting(false);
+            return;
         }
 
         // Optimistic placeholder so the output panel reacts immediately.
@@ -613,6 +662,7 @@ export default function HomePage() {
             const refs = params.reference_image_urls ?? (params.input_reference_url ? [params.input_reference_url] : []);
             setCreateReferenceUrls(refs);
             setCreateLastFrameUrl(refs.length === 1 ? params.last_frame_url ?? '' : '');
+            setCreateReferenceAudioUrl(refs.length >= 2 ? params.reference_audio_url ?? '' : '');
             setCreateSeed(params.seed);
             setCreateWatermark(params.watermark ?? false);
             window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -671,6 +721,7 @@ export default function HomePage() {
                 setCreateCameraFixed(params.camera_fixed ?? false);
                 setCreateReferenceUrls([frameUrl]);
                 setCreateLastFrameUrl('');
+                setCreateReferenceAudioUrl('');
                 setCreateSeed(params.seed);
                 setCreateWatermark(params.watermark ?? false);
                 setActiveTab('video');
@@ -887,11 +938,14 @@ export default function HomePage() {
                                     setReferenceUrls={setCreateReferenceUrls}
                                     lastFrameUrl={createLastFrameUrl}
                                     setLastFrameUrl={setCreateLastFrameUrl}
+                                    referenceAudioUrl={createReferenceAudioUrl}
+                                    setReferenceAudioUrl={setCreateReferenceAudioUrl}
                                     seed={createSeed}
                                     setSeed={setCreateSeed}
                                     watermark={createWatermark}
                                     setWatermark={setCreateWatermark}
                                     onUploadImage={uploadEnabled ? handleUploadImage : undefined}
+                                    onUploadAudio={uploadEnabled ? handleUploadAudio : undefined}
                                     onOptimizePrompt={handleOptimizePrompt}
                                     onBreakdownScript={handleBreakdownScript}
                                 />

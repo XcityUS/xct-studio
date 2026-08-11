@@ -7,8 +7,8 @@
  * our own origin, with CORS and range support.
  *
  *   POST /archive        { video_id, source_url }   -> { url, key, bytes, cached }
- *   POST /upload         <raw image bytes>          -> { url, key, bytes, cached }
- *   GET  /assets                                    -> { assets: [{key, url, bytes, uploaded, kind}] }
+ *   POST /upload         <raw image/audio bytes>    -> { url, key, bytes, cached }
+ *   GET  /assets                                    -> { assets: [{key, url, bytes, uploaded, kind, name}] }
  *   POST /assets/delete  { key }                    -> { ok }
  *   GET  /media/<key>                               -> the file (public, immutable)
  *
@@ -34,7 +34,7 @@ function corsHeaders(origin, env) {
     return {
         'Access-Control-Allow-Origin': origin,
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+        'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Asset-Name',
         'Access-Control-Max-Age': '600',
         Vary: 'Origin',
     };
@@ -78,15 +78,32 @@ function safeVideoId(id) {
     return String(id).replace(/[^A-Za-z0-9._-]/g, '').slice(0, 120);
 }
 
-/** Image types Ark accepts as an image-to-video reference frame. */
+/** Upload types accepted for reference media. */
 const UPLOAD_TYPES = {
     'image/png': 'png',
     'image/jpeg': 'jpg',
-    'image/webp': 'webp'
+    'image/webp': 'webp',
+    'audio/mpeg': 'mp3',
+    'audio/wav': 'wav',
+    'audio/mp4': 'm4a',
+    'audio/x-m4a': 'm4a'
 };
 
+function assetNameFromHeader(request) {
+    const raw = request.headers.get('x-asset-name');
+    if (!raw) return null;
+    let decoded;
+    try {
+        decoded = decodeURIComponent(raw);
+    } catch {
+        decoded = raw;
+    }
+    const name = decoded.trim().slice(0, 80);
+    return name || null;
+}
+
 /**
- * POST /upload — store a reference image and hand back a public URL.
+ * POST /upload — store a reference media file and hand back a public URL.
  *
  * The gateway's image-to-video takes a *URL*, not bytes, so users picking a
  * local file need somewhere public to put it first. Content-addressed
@@ -106,12 +123,15 @@ async function handleUpload(request, env, cors) {
     }
 
     const body = await request.arrayBuffer();
-    const maxUpload = Number(env.MAX_UPLOAD_BYTES || 0) || 10485760; // 10 MB
+    const isAudio = contentType.startsWith('audio/');
+    // MAX_UPLOAD_BYTES (prod: 10 MB) governs images; audio gets a fixed
+    // 15 MB ceiling to match the client-side cap in media-archive.ts.
+    const maxUpload = isAudio ? 15 * 1024 * 1024 : Number(env.MAX_UPLOAD_BYTES || 0) || 10 * 1024 * 1024;
     if (body.byteLength === 0) {
         return json({ error: 'empty body' }, 400, cors);
     }
     if (body.byteLength > maxUpload) {
-        return json({ error: `image is ${body.byteLength} bytes, over the ${maxUpload} limit` }, 413, cors);
+        return json({ error: `upload is ${body.byteLength} bytes, over the ${maxUpload} limit` }, 413, cors);
     }
 
     const owner = await resolveOwner(bearer, env);
@@ -120,7 +140,7 @@ async function handleUpload(request, env, cors) {
     }
 
     const hash = await sha256Hex(body);
-    const key = `${owner}/refs/${hash}.${ext}`;
+    const key = `${owner}/${isAudio ? 'audio' : 'refs'}/${hash}.${ext}`;
     const publicUrl = `${new URL(request.url).origin}/media/${key}`;
 
     const existing = await env.XCITY_MEDIA.head(key);
@@ -128,11 +148,13 @@ async function handleUpload(request, env, cors) {
         return json({ url: publicUrl, key, bytes: existing.size, cached: true }, 200, cors);
     }
 
+    const name = assetNameFromHeader(request);
     await env.XCITY_MEDIA.put(key, body, {
         httpMetadata: {
             contentType,
             cacheControl: 'public, max-age=31536000, immutable',
         },
+        ...(name ? { customMetadata: { name } } : {}),
     });
 
     return json({ url: publicUrl, key, bytes: body.byteLength, cached: false }, 200, cors);
@@ -154,7 +176,8 @@ async function authOwner(request, env, cors) {
 
 /**
  * GET /assets — everything stored under the caller's namespace: uploaded
- * reference images (`<owner>/refs/…`) and archived videos (`<owner>/<id>.mp4`).
+ * reference images (`<owner>/refs/…`), audio (`<owner>/audio/…`), and
+ * archived videos (`<owner>/<id>.mp4`).
  */
 async function handleAssetsList(request, env, cors) {
     const { owner, error } = await authOwner(request, env, cors);
@@ -166,14 +189,25 @@ async function handleAssetsList(request, env, cors) {
     // Cap the walk at ~2000 objects — far above any real user's asset count,
     // low enough to keep the request bounded.
     for (let page = 0; page < 2; page++) {
-        const listed = await env.XCITY_MEDIA.list({ prefix: `${owner}/`, limit: 1000, cursor });
+        const listed = await env.XCITY_MEDIA.list({
+            prefix: `${owner}/`,
+            limit: 1000,
+            cursor,
+            include: ['customMetadata'],
+        });
         for (const obj of listed.objects) {
+            const kind = obj.key.startsWith(`${owner}/refs/`)
+                ? 'image'
+                : obj.key.startsWith(`${owner}/audio/`)
+                    ? 'audio'
+                    : 'video';
             assets.push({
                 key: obj.key,
                 url: `${origin}/media/${obj.key}`,
                 bytes: obj.size,
                 uploaded: obj.uploaded ? new Date(obj.uploaded).toISOString() : null,
-                kind: obj.key.startsWith(`${owner}/refs/`) ? 'image' : 'video',
+                kind,
+                name: obj.customMetadata?.name ?? null,
             });
         }
         if (!listed.truncated) break;

@@ -3,7 +3,7 @@
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import type { UserAsset } from '@/lib/media-archive';
-import { Check, Copy, ImagePlus, Loader2, RefreshCw, Trash2 } from 'lucide-react';
+import { Check, Copy, ImagePlus, Loader2, Music, RefreshCw, Trash2 } from 'lucide-react';
 import * as React from 'react';
 
 type AssetsPanelProps = {
@@ -46,14 +46,14 @@ function CopyUrlButton({ url }: { url: string }) {
 
 /**
  * Cloud assets stored by the media worker under the user's namespace:
- * uploaded reference images and R2-archived videos. Images can be pulled
+ * uploaded reference media and R2-archived videos. Images can be pulled
  * straight back into the creation form as references.
  */
 export function AssetsPanel({ loadAssets, deleteAsset, onUseAsReference, active }: AssetsPanelProps) {
     const [assets, setAssets] = React.useState<UserAsset[] | null>(null);
     const [isLoading, setIsLoading] = React.useState(false);
     const [error, setError] = React.useState<string | null>(null);
-    const [kindFilter, setKindFilter] = React.useState<'all' | 'image' | 'video'>('all');
+    const [kindFilter, setKindFilter] = React.useState<'all' | 'image' | 'audio' | 'video'>('all');
 
     const refresh = React.useCallback(async () => {
         setIsLoading(true);
@@ -94,7 +94,7 @@ export function AssetsPanel({ loadAssets, deleteAsset, onUseAsReference, active 
                 <div>
                     <CardTitle className='text-lg font-medium text-white'>Assets</CardTitle>
                     <CardDescription className='mt-1 text-white/60'>
-                        Uploaded reference images and cloud-archived videos
+                        Uploaded reference media and cloud-archived videos
                     </CardDescription>
                 </div>
                 <Button
@@ -111,7 +111,7 @@ export function AssetsPanel({ loadAssets, deleteAsset, onUseAsReference, active 
                 {error && <p className='mb-3 text-sm text-red-400'>{error}</p>}
 
                 <div className='mb-4 flex items-center gap-2'>
-                    {(['all', 'image', 'video'] as const).map((k) => (
+                    {(['all', 'image', 'audio', 'video'] as const).map((k) => (
                         <button
                             key={k}
                             type='button'
@@ -121,7 +121,7 @@ export function AssetsPanel({ loadAssets, deleteAsset, onUseAsReference, active 
                                     ? 'rounded-full bg-white px-2.5 py-1 text-xs text-black'
                                     : 'rounded-full bg-white/10 px-2.5 py-1 text-xs text-white/60 transition-colors hover:bg-white/20 hover:text-white'
                             }>
-                            {k === 'all' ? 'All' : k === 'image' ? 'Images' : 'Videos'}
+                            {k === 'all' ? 'All' : k === 'image' ? 'Images' : k === 'audio' ? 'Audio' : 'Videos'}
                         </button>
                     ))}
                 </div>
@@ -136,13 +136,13 @@ export function AssetsPanel({ loadAssets, deleteAsset, onUseAsReference, active 
                         <p>
                             {assets && assets.length > 0
                                 ? 'No assets match the current filter.'
-                                : 'Nothing stored yet — uploaded reference images and archived videos will appear here.'}
+                                : 'Nothing stored yet — uploaded reference media and archived videos will appear here.'}
                         </p>
                     </div>
                 ) : (
                     <div className='grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5'>
                         {visible.map((asset) => (
-                            <div key={asset.key} className='flex flex-col'>
+                            <div key={asset.key} className='flex flex-col' title={asset.key}>
                                 <div className='relative aspect-square w-full overflow-hidden rounded-t-md border border-white/20 bg-neutral-900'>
                                     {asset.kind === 'image' ? (
                                         // eslint-disable-next-line @next/next/no-img-element -- worker-hosted URL
@@ -152,6 +152,11 @@ export function AssetsPanel({ loadAssets, deleteAsset, onUseAsReference, active 
                                             loading='lazy'
                                             className='h-full w-full object-cover'
                                         />
+                                    ) : asset.kind === 'audio' ? (
+                                        <div className='flex h-full w-full flex-col items-center justify-center gap-3 p-3'>
+                                            <Music className='h-8 w-8 text-white/35' />
+                                            <audio src={asset.url} controls preload='none' className='w-full' />
+                                        </div>
                                     ) : (
                                         <video
                                             src={`${asset.url}#t=0.001`}
@@ -171,6 +176,9 @@ export function AssetsPanel({ loadAssets, deleteAsset, onUseAsReference, active 
                                     </span>
                                 </div>
                                 <div className='rounded-b-md border border-t-0 border-white/20 bg-neutral-900/50 p-2'>
+                                    {asset.name && (
+                                        <div className='mb-1 truncate text-xs text-white/80'>{asset.name}</div>
+                                    )}
                                     <div className='flex items-center justify-between text-[10px] text-white/40'>
                                         <span>{asset.uploaded ? new Date(asset.uploaded).toLocaleDateString() : ''}</span>
                                         <span>{formatBytes(asset.bytes)}</span>

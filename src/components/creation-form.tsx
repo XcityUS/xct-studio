@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ReferenceAudioInput } from '@/components/reference-audio-input';
 import { ReferenceImagesInput } from '@/components/reference-images-input';
 import { ShotBuilderDialog, type ShotDraft } from '@/components/shot-builder';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -54,12 +55,16 @@ type CreationFormProps = {
     setReferenceUrls: React.Dispatch<React.SetStateAction<string[]>>;
     lastFrameUrl: string;
     setLastFrameUrl: React.Dispatch<React.SetStateAction<string>>;
+    referenceAudioUrl: string;
+    setReferenceAudioUrl: React.Dispatch<React.SetStateAction<string>>;
     seed: number | undefined;
     setSeed: React.Dispatch<React.SetStateAction<number | undefined>>;
     watermark: boolean;
     setWatermark: React.Dispatch<React.SetStateAction<boolean>>;
     /** Uploads a local image, resolving to its public URL. Absent = URL-only mode. */
     onUploadImage?: (file: File) => Promise<string>;
+    /** Uploads a local audio file, resolving to its public URL. Absent = URL-only mode. */
+    onUploadAudio?: (file: File) => Promise<string>;
     /** Rewrites the prompt via the gateway's chat API. Absent = button hidden. */
     onOptimizePrompt?: (prompt: string) => Promise<string>;
     /** Splits a script into Seedance shot rows via the gateway's chat API. */
@@ -97,11 +102,14 @@ export function CreationForm({
     setReferenceUrls,
     lastFrameUrl,
     setLastFrameUrl,
+    referenceAudioUrl,
+    setReferenceAudioUrl,
     seed,
     setSeed,
     watermark,
     setWatermark,
     onUploadImage,
+    onUploadAudio,
     onOptimizePrompt,
     onBreakdownScript
 }: CreationFormProps) {
@@ -111,6 +119,7 @@ export function CreationForm({
     const refCap = maxReferenceImages(model);
     // Ratio is provider-derived only in first-frame mode (exactly one image).
     const isFirstFrameMode = referenceUrls.length === 1;
+    const showReferenceAudio = refCap > 1 && referenceUrls.length >= 2;
 
     const [isInspirationOpen, setIsInspirationOpen] = React.useState(false);
     const [isShotBuilderOpen, setIsShotBuilderOpen] = React.useState(false);
@@ -165,6 +174,10 @@ export function CreationForm({
             }
         } else if (refs.length > 1) {
             formData.reference_image_urls = refs;
+            const audio = referenceAudioUrl.trim();
+            if (showReferenceAudio && audio) {
+                formData.reference_audio_url = audio;
+            }
         }
         onSubmit(formData);
     };
@@ -498,6 +511,14 @@ export function CreationForm({
                         onUpload={onUploadImage}
                         disabled={isLoading}
                     />
+                    {showReferenceAudio && (
+                        <ReferenceAudioInput
+                            url={referenceAudioUrl}
+                            onChange={setReferenceAudioUrl}
+                            onUpload={onUploadAudio}
+                            disabled={isLoading}
+                        />
+                    )}
                 </CardContent>
                 <CardFooter className='flex items-center gap-3 border-t border-white/10 p-4'>
                     <Button
