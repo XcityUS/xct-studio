@@ -29,19 +29,60 @@ Deployed on Railway at studio.xcity.ai; media worker on Cloudflare (R2).
   `URL.createObjectURL` during render.
 - **Storage names stay legacy** (`SoraVideoDB`, `soraVideoHistory`,
   `openaiApiKey`, `activeVideoJobs`) — renaming orphans existing users' data.
+- **Reference images are inlined as Base64 data URIs at submit** (see
+  `imageUrlToDataUri` in `media-archive.ts` + `handleCreateVideo`). Ark's
+  server-side fetcher is challenged by Cloudflare's bot mitigation — browsers
+  and curl fetch our media URLs fine, Ark gets "resource download failed" —
+  on BOTH `*.workers.dev` and the custom domain media.xcity.ai. Any scheme
+  that hands Ark a self-hosted URL will fail; Base64 is officially supported
+  (ModelArk doc 1520757). History stores URLs only — data URIs would blow the
+  localStorage quota.
+- **First-frame mode must omit `ratio`** (BytePlus TaskTypeConstraint: the
+  output ratio follows the image). Multi-reference mode (2+ images, `role:
+  reference_image`, Seedance 2.0/2.5 accept 1–9) keeps `ratio`. Exactly one
+  image = first-frame; two or more = reference mode (`buildCreateBody`).
+- **Normalize gateway job statuses** (`video-service.ts` STATUS_MAP): the
+  in-flight status is `processing` (LiteLLM) / `running` (Ark), NOT OpenAI's
+  `in_progress`; `succeeded` → completed. Unknown statuses count as running so
+  polling never stalls. `output_url` appears a beat AFTER completion — re-read
+  with backoff (~1 min window), never just once.
 
 ## Gateway params (BytePlus pass-through)
 
 `POST /v1/videos` body: `model, prompt, seconds, ratio, resolution,
-generate_audio, camera_fixed, input_reference` (public image URL). The gateway
-forwards provider params verbatim; don't convert ratio+resolution into a pixel
-`size` (mangles 21:9). Prices in `src/lib/seedance.ts` mirror the gateway cost
-map — keep them in sync with xcity-litellm's model_prices json.
+generate_audio, camera_fixed, input_reference`. The gateway forwards provider
+params verbatim; don't convert ratio+resolution into a pixel `size` (mangles
+21:9). Prices in `src/lib/seedance.ts` mirror the gateway cost map — keep them
+in sync with xcity-litellm's model_prices json.
 
-**Unverified against the live gateway** (needs a real TokenHub key):
-last-frame reference (尾帧) param shape, `seed` pass-through, `/v1/images`
-availability + Seedream ids (`NEXT_PUBLIC_IMAGE_MODELS` gate), chat model id
-for the prompt optimizer (`NEXT_PUBLIC_PROMPT_OPTIMIZER_MODEL`).
+`input_reference` (since xcity-litellm PR #52) accepts: a single string
+(first-frame; URL or Base64 data URI), a string array (multi-reference —
+gateway adds `role: "reference_image"`, prompts cite [Image 1], [Image 2]…),
+or `{url, role}` objects (explicit `first_frame`/`last_frame`).
+
+**Still unverified against the live gateway**: `seed` pass-through,
+`/v1/images` availability + Seedream ids (`NEXT_PUBLIC_IMAGE_MODELS` gate),
+chat model id for the prompt optimizer (`NEXT_PUBLIC_PROMPT_OPTIMIZER_MODEL`).
+
+## Deployment (every one of these burned us once)
+
+- **Studio**: Railway `xct-studio`, auto-deploys from master.
+  `NEXT_PUBLIC_MEDIA_WORKER_URL` / `MEDIA_WORKER_URL` must point at
+  `https://media.xcity.ai` (read at runtime via /api/config).
+- **Media worker**: deploy with `env -u CLOUDFLARE_API_TOKEN npx wrangler
+  deploy` — the profile's CLOUDFLARE_API_TOKEN lacks Workers perms and
+  SILENTLY overrides the OAuth login, making deploys fail with auth error
+  10000. Custom domain media.xcity.ai is claimed in wrangler.toml.
+- **TokenHub gateway**: Railway project `xct-litellm`, service **`xct-litellm`**
+  (tokenhub.xcity.one/.ai are bound to it). The sibling service
+  `xct-agent-gateway` is NOT tokenhub — a deploy landed there once by mistake.
+  Merging xcity-litellm does NOT auto-deploy; trigger it manually
+  (dashboard, or `railway up -s xct-litellm` from a clean checkout).
+- **User keys snapshot their model allowlist at mint** (xct-home
+  `src/lib/billing.ts` BYTEPLUS_MODELS). Adding a model to the gateway isn't
+  enough for existing keys — also bump `KEY_MODELS_REV` in xct-home
+  `src/lib/user-key.ts` so keys re-mint on next use, or they 401 with
+  `key_model_access_denied` forever.
 
 ## Commands
 
