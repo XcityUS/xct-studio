@@ -4,3 +4,10 @@ export class InvalidApiKeyError extends Error {
         this.name = 'InvalidApiKeyError';
     }
 }
+
+export class StateConflictError extends Error {
+    constructor(message = 'Cloud history changed on another device') {
+        super(message);
+        this.name = 'StateConflictError';
+    }
+}

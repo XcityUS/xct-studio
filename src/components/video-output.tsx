@@ -17,6 +17,7 @@ import {
     Loader2,
     Pause,
     Play,
+    Rocket,
     Sparkles,
     StepForward
 } from 'lucide-react';
@@ -30,6 +31,7 @@ type VideoOutputProps = {
     onSendToRemix?: (videoId: string) => void;
     onDownload?: (videoId: string) => void;
     onExtend?: (videoId: string) => void;
+    onFinalize?: (videoId: string) => void;
 };
 
 function ClickablePrompt({ prompt }: { prompt: string }) {
@@ -102,7 +104,8 @@ export function VideoOutput({
     isLoading,
     onSendToRemix,
     onDownload,
-    onExtend
+    onExtend,
+    onFinalize
 }: VideoOutputProps) {
     const displayProgress = useDisplayProgress(job);
 
@@ -156,6 +159,12 @@ export function VideoOutput({
     const handleExtend = () => {
         if (job && onExtend) {
             onExtend(job.id);
+        }
+    };
+
+    const handleFinalize = () => {
+        if (job && onFinalize) {
+            onFinalize(job.id);
         }
     };
 
@@ -296,6 +305,15 @@ export function VideoOutput({
                                     className='min-w-0 flex-1 basis-36 border-white/20 bg-black text-white hover:bg-white/10 hover:text-white'>
                                     <StepForward className='mr-2 h-4 w-4' />
                                     Extend
+                                </Button>
+                            )}
+                            {onFinalize && (
+                                <Button
+                                    onClick={handleFinalize}
+                                    variant='outline'
+                                    className='min-w-0 flex-1 basis-36 border-white/20 bg-black text-white hover:bg-white/10 hover:text-white'>
+                                    <Rocket className='mr-2 h-4 w-4' />
+                                    Finalize
                                 </Button>
                             )}
                             {onSendToRemix && (

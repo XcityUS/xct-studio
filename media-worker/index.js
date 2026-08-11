@@ -31,8 +31,9 @@ function corsHeaders(origin, env) {
     if (!ok) return {};
     return {
         'Access-Control-Allow-Origin': origin,
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Asset-Name',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
+        'Access-Control-Allow-Headers': 'Authorization, Content-Type, If-Match, X-Asset-Name',
+        'Access-Control-Expose-Headers': 'ETag',
         'Access-Control-Max-Age': '600',
         Vary: 'Origin'
     };
@@ -210,6 +211,9 @@ async function handleAssetsList(request, env, cors) {
             include: ['customMetadata']
         });
         for (const obj of listed.objects) {
+            if (obj.key.startsWith(`${owner}/state/`)) {
+                continue;
+            }
             const kind = obj.key.startsWith(`${owner}/refs/`)
                 ? 'image'
                 : obj.key.startsWith(`${owner}/audio/`)
@@ -252,6 +256,71 @@ async function handleAssetsDelete(request, env, cors) {
 
     await env.XCITY_MEDIA.delete(key);
     return json({ ok: true, key }, 200, cors);
+}
+
+const MAX_STATE_BYTES = 2 * 1024 * 1024;
+
+function stateKey(owner) {
+    return `${owner}/state/history.json`;
+}
+
+function etagFromIfMatch(value) {
+    const trimmed = (value || '').trim();
+    if (!trimmed || trimmed === '*') return null;
+    return trimmed.replace(/^"|"$/g, '');
+}
+
+async function handleStateGet(request, env, cors) {
+    const { owner, error } = await authOwner(request, env, cors);
+    if (error) return error;
+
+    const object = await env.XCITY_MEDIA.get(stateKey(owner));
+    if (!object) {
+        return json({ error: 'no state' }, 404, cors);
+    }
+
+    const headers = new Headers(cors);
+    headers.set('Content-Type', 'application/json');
+    headers.set('Cache-Control', 'no-store');
+    headers.set('ETag', object.httpEtag);
+    return new Response(object.body, { status: 200, headers });
+}
+
+async function handleStatePut(request, env, cors) {
+    const { owner, error } = await authOwner(request, env, cors);
+    if (error) return error;
+
+    const declared = Number(request.headers.get('content-length') || 0);
+    if (declared > MAX_STATE_BYTES) {
+        return json({ error: 'state is over the 2 MB limit' }, 413, cors);
+    }
+
+    const body = await request.arrayBuffer();
+    if (body.byteLength > MAX_STATE_BYTES) {
+        return json({ error: 'state is over the 2 MB limit' }, 413, cors);
+    }
+
+    const text = new TextDecoder().decode(body);
+    try {
+        JSON.parse(text);
+    } catch {
+        return json({ error: 'invalid JSON body' }, 400, cors);
+    }
+
+    const etagMatches = etagFromIfMatch(request.headers.get('if-match'));
+    const onlyIf = etagMatches ? { etagMatches } : { etagDoesNotExist: true };
+    const stored = await env.XCITY_MEDIA.put(stateKey(owner), text, {
+        onlyIf,
+        httpMetadata: {
+            contentType: 'application/json',
+            cacheControl: 'no-store'
+        }
+    });
+    if (!stored) {
+        return json({ error: 'state changed on another device' }, 412, cors);
+    }
+
+    return json({ etag: stored.httpEtag }, 200, cors);
 }
 
 async function handleArchive(request, env, cors) {
@@ -335,6 +404,9 @@ async function handleArchive(request, env, cors) {
 async function handleMedia(request, env, key, cors) {
     const notFoundHeaders = { ...cors, 'Cache-Control': 'no-store' };
     if (!key) return new Response('Not Found', { status: 404, headers: notFoundHeaders });
+    if (/^(u|k)\/[^/]+\/state\//.test(key)) {
+        return new Response('Not Found', { status: 404, headers: notFoundHeaders });
+    }
 
     // Range support so the <video> element can seek without pulling the file.
     const range = request.headers.get('range');
@@ -385,6 +457,14 @@ export default {
 
         if (url.pathname === '/assets/delete' && request.method === 'POST') {
             return handleAssetsDelete(request, env, cors);
+        }
+
+        if (url.pathname === '/state' && request.method === 'GET') {
+            return handleStateGet(request, env, cors);
+        }
+
+        if (url.pathname === '/state' && request.method === 'PUT') {
+            return handleStatePut(request, env, cors);
         }
 
         if (url.pathname.startsWith('/media/')) {

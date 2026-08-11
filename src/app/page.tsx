@@ -42,10 +42,12 @@ import {
     DEFAULT_RATIO,
     DEFAULT_RESOLUTION,
     DEFAULT_SECONDS,
+    RESOLUTIONS,
     clampSeconds,
     formatSize,
     getSeedanceModel,
     maxReferenceImages,
+    modelSupportsResolution,
     parseSize,
     type VideoModel,
     type VideoRatio,
@@ -64,6 +66,23 @@ function fileNameWithoutExtension(fileName: string): string {
 }
 
 const MAX_REFERENCE_VIDEOS = 2;
+
+function isVideoResolution(value: string | undefined): value is VideoResolution {
+    return Boolean(value && RESOLUTIONS.includes(value as VideoResolution));
+}
+
+function bestSupportedResolution(model: VideoModel): VideoResolution {
+    return (
+        [...RESOLUTIONS].reverse().find((resolution) => modelSupportsResolution(model, resolution)) ??
+        DEFAULT_RESOLUTION
+    );
+}
+
+function finalResolutionForDraft(model: VideoModel, resolution: string | undefined): VideoResolution {
+    return isVideoResolution(resolution) && modelSupportsResolution(model, resolution)
+        ? resolution
+        : bestSupportedResolution(model);
+}
 
 export default function HomePage() {
     const [error, setError] = React.useState<string | null>(null);
@@ -88,7 +107,7 @@ export default function HomePage() {
     const [createWatermark, setCreateWatermark] = React.useState(false);
 
     const { apiKey, keyRef, ssoStatus, ssoError, attemptSso, resolveKey, saveManualKey, invalidateKey } = useXcityKey();
-    const { history, isInitialLoad, addItem, updateItem, removeItem, clearAll } = useVideoHistory();
+    const { history, isInitialLoad, addItem, updateItem, removeItem, clearAll } = useVideoHistory(resolveKey);
     const { getVideoSrc, getThumbnailSrc, setRemoteSource, removeSource, clearAllSources, hasLocalCopy, hasSource } =
         useVideoSources();
 
@@ -404,20 +423,30 @@ export default function HomePage() {
                 });
             },
             onCompleted: (job: VideoJob) => {
-                updateItem(job.id, { progress: 100, status: 'completed' });
+                const historyItem = history.find((item) => item.id === job.id);
+                const createParams =
+                    typeof job.seed === 'number' &&
+                    historyItem?.createParams &&
+                    historyItem.createParams.seed === undefined
+                        ? { ...historyItem.createParams, seed: job.seed }
+                        : undefined;
+                updateItem(job.id, {
+                    progress: 100,
+                    status: 'completed',
+                    ...(createParams ? { createParams } : {})
+                });
                 void downloadAndStoreVideo(job);
             },
             onFailed: (job: VideoJob) => {
                 updateItem(job.id, {
                     status: 'failed',
-                    error: job.error?.message || 'Video generation failed',
-                    costDetails: null // No cost for failed videos
+                    error: job.error?.message || 'Video generation failed'
                 });
                 setError(job.error?.message || 'Video generation failed');
             },
             onInvalidKey: () => handleInvalidApiKey()
         }),
-        [updateItem, downloadAndStoreVideo, handleInvalidApiKey]
+        [history, updateItem, downloadAndStoreVideo, handleInvalidApiKey]
     );
 
     const { activeJobs, addJob, replaceJob, removeJob, restoreJobs, clearJobs } = useVideoJobs(
@@ -642,6 +671,10 @@ export default function HomePage() {
                 size: displaySize,
                 seconds: String(formData.seconds)
             };
+            const createParams =
+                typeof job.seed === 'number' && formData.seed === undefined
+                    ? { ...formData, seed: job.seed }
+                    : formData;
 
             replaceJob(tempId, job);
             setCurrentJobId(job.id);
@@ -657,12 +690,14 @@ export default function HomePage() {
                 seconds: formData.seconds,
                 prompt: formData.prompt,
                 mode: 'create',
-                createParams: formData,
+                createParams,
                 costDetails: calculateVideoCost({
                     model: formData.model,
                     resolution: formData.resolution,
                     seconds: formData.seconds
                 }),
+                draft: formData.draft || undefined,
+                finalResolution: formData.draft ? formData.final_resolution : undefined,
                 status: 'processing',
                 progress: 0
             });
@@ -710,7 +745,9 @@ export default function HomePage() {
             setCreateModel(params.model);
             setCreatePrompt(params.prompt);
             setCreateRatio(params.ratio);
-            setCreateResolution(params.resolution);
+            setCreateResolution(
+                params.draft ? finalResolutionForDraft(params.model, params.final_resolution) : params.resolution
+            );
             setCreateSeconds(params.seconds);
             setCreateAudio(params.generate_audio);
             setCreateCameraFixed(params.camera_fixed ?? false);
@@ -732,6 +769,23 @@ export default function HomePage() {
     /** 重新生成 — resubmit an item with its exact parameters. */
     const handleRegenerateItem = (item: VideoMetadata) => {
         void handleCreateVideo(buildParamsFromItem(item));
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    /** Finalize — rerun a draft at its selected final resolution with the same seed. */
+    const handleFinalizeItem = (item: VideoMetadata) => {
+        const params = buildParamsFromItem(item);
+        const finalResolution = finalResolutionForDraft(
+            params.model,
+            item.finalResolution ?? params.final_resolution
+        );
+        const finalParams: CreationFormData = {
+            ...params,
+            draft: false,
+            resolution: finalResolution
+        };
+        delete finalParams.final_resolution;
+        void handleCreateVideo(finalParams);
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
@@ -809,6 +863,15 @@ export default function HomePage() {
         },
         [history, handleExtendVideo]
     );
+
+    const handleFinalizeCurrentVideo = (videoId: string) => {
+        const item = history.find((candidate) => candidate.id === videoId);
+        if (!item) {
+            setError('Could not find this video in history.');
+            return;
+        }
+        handleFinalizeItem(item);
+    };
 
     const handleHistorySelect = (item: VideoMetadata) => {
         setCurrentJobId(item.id);
@@ -922,6 +985,9 @@ export default function HomePage() {
     };
 
     const currentJob = currentJobId ? activeJobs.get(currentJobId) : null;
+    const currentHistoryItem = currentJobId ? history.find((item) => item.id === currentJobId) : undefined;
+    const currentHistoryItemIsDraft =
+        currentHistoryItem?.draft === true || currentHistoryItem?.createParams?.draft === true;
     const currentVideoSrc = currentJobId ? getVideoSrc(currentJobId) : null;
     const currentThumbnailSrc = currentJobId ? getThumbnailSrc(currentJobId) : null;
 
@@ -1030,6 +1096,7 @@ export default function HomePage() {
                         }
                         onDownload={handleDownloadVideo}
                         onExtend={handleExtendCurrentVideo}
+                        onFinalize={currentHistoryItemIsDraft ? handleFinalizeCurrentVideo : undefined}
                     />
                 </div>
             </div>
@@ -1047,6 +1114,7 @@ export default function HomePage() {
                     onDeleteItem={handleDeleteVideo}
                     onReuseItem={handleReuseItem}
                     onRegenerateItem={handleRegenerateItem}
+                    onFinalizeItem={handleFinalizeItem}
                     onExtendItem={handleExtendVideo}
                 />
             </div>

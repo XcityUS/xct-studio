@@ -25,6 +25,7 @@ import {
     Loader2,
     PencilLine,
     RefreshCw,
+    Rocket,
     RotateCcw,
     Search,
     Sparkles as SparklesIcon,
@@ -46,6 +47,8 @@ type VideoHistoryPanelProps = {
     onReuseItem?: (item: VideoMetadata) => void;
     /** 重新生成 — resubmit this item's parameters as a new job. */
     onRegenerateItem?: (item: VideoMetadata) => void;
+    /** Finalize — rerun this draft at its selected final resolution. */
+    onFinalizeItem?: (item: VideoMetadata) => void;
     /** 续片 — continue this completed video from its last frame. */
     onExtendItem?: (item: VideoMetadata) => void;
 };
@@ -117,6 +120,7 @@ export function VideoHistoryPanel({
     onDeleteItem,
     onReuseItem,
     onRegenerateItem,
+    onFinalizeItem,
     onExtendItem
 }: VideoHistoryPanelProps) {
     const [openCostDialogId, setOpenCostDialogId] = React.useState<string | null>(null);
@@ -172,24 +176,40 @@ export function VideoHistoryPanel({
         : `${selectedItems.length} clips selected`;
     const canExportAssembly = selectedItems.length >= 2 && !hasMixedSelectedSizes && !isAssembling;
 
-    const { totalCost, totalVideos, successfulVideos } = React.useMemo(() => {
+    const { totalCost, totalVideos, successfulVideos, failedVideos, billedVideos } = React.useMemo(() => {
         let cost = 0;
         let videos = 0;
         let successful = 0;
+        let failed = 0;
+        let billed = 0;
         history.forEach((item) => {
-            // Only count cost for non-failed videos
-            if (item.costDetails && item.status !== 'failed') {
+            const state = getHistoryItemState(item, activeJobs?.get(item.id));
+            if (item.costDetails) {
                 cost += item.costDetails.totalCost;
+                billed += 1;
+            }
+            if (state.isCompleted) {
                 successful += 1;
             }
-            // Count all videos (including failed)
+            if (state.isFailed) {
+                failed += 1;
+            }
             videos += 1;
         });
 
-        return { totalCost: Math.round(cost * 100) / 100, totalVideos: videos, successfulVideos: successful };
-    }, [history]);
+        return {
+            totalCost: Math.round(cost * 100) / 100,
+            totalVideos: videos,
+            successfulVideos: successful,
+            failedVideos: failed,
+            billedVideos: billed
+        };
+    }, [history, activeJobs]);
 
-    const averageCost = successfulVideos > 0 ? totalCost / successfulVideos : 0;
+    const averageCost = billedVideos > 0 ? totalCost / billedVideos : 0;
+    const totalCostSummary = `Total Cost $${totalCost.toFixed(2)} · ${totalVideos.toLocaleString()} videos${
+        failedVideos > 0 ? ` (${failedVideos.toLocaleString()} failed)` : ''
+    }`;
 
     const resetAssembleState = React.useCallback(() => {
         setSelectedClipIds([]);
@@ -373,9 +393,12 @@ export function VideoHistoryPanel({
                                 <DialogHeader>
                                     <DialogTitle className='text-white'>Total Cost Summary</DialogTitle>
                                     <DialogDescription className='sr-only'>
-                                        A summary of the total estimated cost for all generated videos in the history.
+                                        A summary of the total billed cost for all generated videos in the history.
                                     </DialogDescription>
                                 </DialogHeader>
+                                <div className='rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm font-medium text-white'>
+                                    {totalCostSummary}
+                                </div>
                                 <div className='space-y-1 pt-1 text-xs text-neutral-400'>
                                     <p>Seedance pricing (per second, 720p / 1080p):</p>
                                     <ul className='list-disc pl-4'>
@@ -389,11 +412,14 @@ export function VideoHistoryPanel({
                                         <span>Total Videos Generated:</span> <span>{totalVideos.toLocaleString()}</span>
                                     </div>
                                     <div className='flex justify-between'>
+                                        <span>Successful Videos:</span> <span>{successfulVideos.toLocaleString()}</span>
+                                    </div>
+                                    <div className='flex justify-between'>
                                         <span>Average Cost Per Video:</span> <span>${averageCost.toFixed(2)}</span>
                                     </div>
                                     <hr className='my-2 border-neutral-700' />
                                     <div className='flex justify-between font-medium text-white'>
-                                        <span>Total Estimated Cost:</span>
+                                        <span>Total Billed Cost:</span>
                                         <span>${totalCost.toFixed(2)}</span>
                                     </div>
                                 </div>
@@ -522,6 +548,7 @@ export function VideoHistoryPanel({
                                     const videoUrl = getVideoSrc(item.id);
                                     const job = activeJobs?.get(item.id);
                                     const { isProcessing, isFailed, isCompleted } = getHistoryItemState(item, job);
+                                    const isDraft = item.draft === true || item.createParams?.draft === true;
                                     const selectionOrder = selectedClipIds.indexOf(item.id) + 1;
                                     const isSelectedForAssembly = selectionOrder > 0;
 
@@ -603,18 +630,26 @@ export function VideoHistoryPanel({
                                                         </div>
                                                     ) : (
                                                         <div
-                                                            className={cn(
-                                                                'pointer-events-none absolute top-1 left-1 z-10 flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] text-white',
-                                                                item.mode === 'remix'
-                                                                    ? 'bg-orange-600/80'
-                                                                    : 'bg-blue-600/80'
-                                                            )}>
-                                                            {item.mode === 'remix' ? (
-                                                                <RefreshCw size={12} />
-                                                            ) : (
-                                                                <SparklesIcon size={12} />
+                                                            className='pointer-events-none absolute top-1 left-1 z-10 flex flex-wrap items-center gap-1'>
+                                                            <div
+                                                                className={cn(
+                                                                    'flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] text-white',
+                                                                    item.mode === 'remix'
+                                                                        ? 'bg-orange-600/80'
+                                                                        : 'bg-blue-600/80'
+                                                                )}>
+                                                                {item.mode === 'remix' ? (
+                                                                    <RefreshCw size={12} />
+                                                                ) : (
+                                                                    <SparklesIcon size={12} />
+                                                                )}
+                                                                {item.mode === 'remix' ? 'Remix' : 'Create'}
+                                                            </div>
+                                                            {isDraft && (
+                                                                <div className='rounded-full bg-cyan-600/85 px-1.5 py-0.5 text-[11px] text-white'>
+                                                                    Draft
+                                                                </div>
                                                             )}
-                                                            {item.mode === 'remix' ? 'Remix' : 'Create'}
                                                         </div>
                                                     )}
                                                     <div className='pointer-events-none absolute bottom-1 left-1 z-10 flex items-center gap-1'>
@@ -623,7 +658,7 @@ export function VideoHistoryPanel({
                                                         </div>
                                                     </div>
                                                 </button>
-                                                {!isAssembleMode && item.costDetails && item.status !== 'failed' && (
+                                                {!isAssembleMode && item.costDetails && (
                                                     <Dialog
                                                         open={openCostDialogId === item.id}
                                                         onOpenChange={(isOpen) => !isOpen && setOpenCostDialogId(null)}>
@@ -633,7 +668,12 @@ export function VideoHistoryPanel({
                                                                     e.stopPropagation();
                                                                     setOpenCostDialogId(item.id);
                                                                 }}
-                                                                className='absolute top-1 right-1 z-20 flex items-center gap-0.5 rounded-full bg-green-600/80 px-1.5 py-0.5 text-[11px] text-white transition-colors hover:bg-green-500/90'
+                                                                className={cn(
+                                                                    'absolute top-1 right-1 z-20 flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] text-white transition-colors',
+                                                                    isFailed
+                                                                        ? 'bg-amber-600/90 hover:bg-amber-500/90'
+                                                                        : 'bg-green-600/80 hover:bg-green-500/90'
+                                                                )}
                                                                 aria-label='Show cost breakdown'>
                                                                 <DollarSign size={12} />
                                                                 {item.costDetails.totalCost.toFixed(2)}
@@ -645,10 +685,15 @@ export function VideoHistoryPanel({
                                                                     Cost Breakdown
                                                                 </DialogTitle>
                                                                 <DialogDescription className='sr-only'>
-                                                                    Estimated cost breakdown for this video generation.
+                                                                    Billed cost breakdown for this video generation.
                                                                 </DialogDescription>
                                                             </DialogHeader>
                                                             <div className='space-y-2 py-4 text-sm text-neutral-300'>
+                                                                {isFailed && (
+                                                                    <div className='rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200'>
+                                                                        Billed at submission — generation failed.
+                                                                    </div>
+                                                                )}
                                                                 <div className='flex justify-between'>
                                                                     <span>Model:</span>{' '}
                                                                     <span>{item.costDetails.model}</span>
@@ -713,7 +758,7 @@ export function VideoHistoryPanel({
                                                     <span>{item.model}</span>
                                                     <span>{item.size}</span>
                                                 </div>
-                                                {(onReuseItem || onRegenerateItem || onExtendItem) &&
+                                                {(onReuseItem || onRegenerateItem || onFinalizeItem || onExtendItem) &&
                                                     !isProcessing &&
                                                     !isAssembleMode && (
                                                         <div className='mt-1.5 flex items-center gap-1'>
@@ -735,6 +780,16 @@ export function VideoHistoryPanel({
                                                                     className='flex flex-1 items-center justify-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white'>
                                                                     <StepForward size={11} />
                                                                     Extend
+                                                                </button>
+                                                            )}
+                                                            {onFinalizeItem && isCompleted && isDraft && (
+                                                                <button
+                                                                    type='button'
+                                                                    onClick={() => onFinalizeItem(item)}
+                                                                    title='Generate the final version at the selected resolution'
+                                                                    className='flex flex-1 items-center justify-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white'>
+                                                                    <Rocket size={11} />
+                                                                    Finalize
                                                                 </button>
                                                             )}
                                                             {onRegenerateItem && item.status !== 'failed' && (
