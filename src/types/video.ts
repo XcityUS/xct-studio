@@ -22,6 +22,7 @@ export type VideoJob = {
      */
     output_url?: string;
     prompt?: string;
+    seed?: number;
     error?: {
         message: string;
         code?: string;
@@ -48,6 +49,8 @@ export type VideoMetadata = {
      */
     createParams?: VideoJobCreate;
     costDetails: CostDetails | null;
+    draft?: boolean;
+    finalResolution?: string;
     remix_of?: string;
     status?: 'processing' | 'completed' | 'failed';
     error?: string;
@@ -91,6 +94,10 @@ export type VideoJobCreate = {
     camera_fixed?: boolean;
     /** Deterministic generation seed; absent means provider-random. */
     seed?: number;
+    /** Studio-only generation ladder flag. Omitted from the gateway request. */
+    draft?: boolean;
+    /** Studio-only final target resolution for a draft. Omitted from the gateway request. */
+    final_resolution?: string;
     /** Provider watermark flag. Omitted from the request unless true. */
     watermark?: boolean;
 };

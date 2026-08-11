@@ -84,12 +84,21 @@ const STATUS_MAP: Record<string, VideoJob['status']> = {
 };
 
 function normalizeJob(raw: unknown): VideoJob {
-    const job = raw as VideoJob & { status?: string; progress?: number | string };
+    const { seed, ...job } = raw as Omit<VideoJob, 'progress' | 'seed' | 'status'> & {
+        progress?: number | string;
+        seed?: unknown;
+        status?: string;
+    };
     const status = STATUS_MAP[String(job.status ?? '').toLowerCase()] ?? 'in_progress';
     const reported = Number(job.progress);
     const progress =
         status === 'completed' ? 100 : Number.isFinite(reported) ? Math.max(0, Math.min(100, reported)) : 0;
-    return { ...job, status, progress };
+    return {
+        ...job,
+        status,
+        progress,
+        ...(typeof seed === 'number' && Number.isFinite(seed) ? { seed } : {})
+    };
 }
 
 export class VideoService {

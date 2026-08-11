@@ -85,6 +85,7 @@ const RATIO_LABELS: Record<VideoRatio, string> = {
 };
 
 const CAMERA_TEMPLATES = PROMPT_TEMPLATE_CATEGORIES.find((category) => category.id === 'camera')?.templates ?? [];
+type GenerationMode = 'draft' | 'final';
 
 export function CreationForm({
     onSubmit,
@@ -123,7 +124,6 @@ export function CreationForm({
 }: CreationFormProps) {
     const { min: minSeconds, max: maxSeconds } = secondsRange(model);
     const modelDef = getSeedanceModel(model);
-    const estimatedCost = calculateVideoCost({ model, resolution, seconds });
     const refCap = maxReferenceImages(model);
     // Ratio is provider-derived only in first-frame mode (exactly one image).
     const isFirstFrameMode = referenceUrls.length === 1;
@@ -138,6 +138,20 @@ export function CreationForm({
     const [optimizeError, setOptimizeError] = React.useState<string | null>(null);
     // The prompt as it was before the last AI rewrite, so Undo can restore it.
     const [promptBeforeOptimize, setPromptBeforeOptimize] = React.useState<string | null>(null);
+    const supportsDraftMode = modelSupportsResolution(model, '480p');
+    const [generationMode, setGenerationMode] = React.useState<GenerationMode>(() =>
+        modelSupportsResolution(model, '480p') ? 'draft' : 'final'
+    );
+
+    React.useEffect(() => {
+        if (!supportsDraftMode) {
+            setGenerationMode('final');
+        }
+    }, [supportsDraftMode]);
+
+    const isDraftMode = supportsDraftMode && generationMode === 'draft';
+    const activeResolution: VideoResolution = isDraftMode ? '480p' : resolution;
+    const estimatedCost = calculateVideoCost({ model, resolution: activeResolution, seconds });
 
     const handleOptimize = async () => {
         if (!onOptimizePrompt || !prompt.trim() || isOptimizing) return;
@@ -168,13 +182,17 @@ export function CreationForm({
             model,
             prompt,
             ratio,
-            resolution,
+            resolution: activeResolution,
             seconds,
             generate_audio: generateAudio,
             camera_fixed: cameraFixed,
             seed,
             watermark
         };
+        if (isDraftMode) {
+            formData.draft = true;
+            formData.final_resolution = resolution;
+        }
         const refs = referenceUrls.map((u) => u.trim()).filter(Boolean);
         if (refs.length === 1) {
             formData.input_reference_url = refs[0];
@@ -540,11 +558,44 @@ export function CreationForm({
                         />
                     )}
                 </CardContent>
-                <CardFooter className='flex items-center gap-3 border-t border-white/10 p-4'>
+                <CardFooter className='flex flex-col gap-3 border-t border-white/10 p-4'>
+                    <div
+                        className='flex w-full rounded-md border border-white/15 bg-white/[0.03] p-1'
+                        aria-label='Generation quality'>
+                        {supportsDraftMode && (
+                            <button
+                                type='button'
+                                onClick={() => setGenerationMode('draft')}
+                                disabled={isLoading}
+                                aria-pressed={isDraftMode}
+                                className={cn(
+                                    'flex-1 rounded px-3 py-2 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                                    isDraftMode
+                                        ? 'bg-white text-black'
+                                        : 'text-white/60 hover:bg-white/10 hover:text-white'
+                                )}>
+                                Draft · 480p
+                            </button>
+                        )}
+                        <button
+                            type='button'
+                            onClick={() => setGenerationMode('final')}
+                            disabled={isLoading}
+                            aria-pressed={!isDraftMode}
+                            className={cn(
+                                'rounded px-3 py-2 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                                supportsDraftMode ? 'flex-1' : 'w-full',
+                                !isDraftMode
+                                    ? 'bg-white text-black'
+                                    : 'text-white/60 hover:bg-white/10 hover:text-white'
+                            )}>
+                            Final · {resolution}
+                        </button>
+                    </div>
                     <Button
                         type='submit'
                         disabled={isLoading || !prompt.trim()}
-                        className='flex-1 bg-white text-black hover:bg-white/90 disabled:bg-white/40'>
+                        className='w-full bg-white text-black hover:bg-white/90 disabled:bg-white/40'>
                         {isLoading ? (
                             <>
                                 <Loader2 className='mr-2 h-4 w-4 animate-spin' />
@@ -558,16 +609,15 @@ export function CreationForm({
                         )}
                     </Button>
                     {estimatedCost && (
-                        <span
-                            className='text-sm whitespace-nowrap text-white/60'
+                        <p
+                            className='w-full truncate text-xs whitespace-nowrap text-white/60'
                             title={
                                 modelDef?.priceIsEstimate
                                     ? 'Provisional rate — BytePlus has not published pricing for this model yet'
                                     : undefined
                             }>
-                            ≈ ${estimatedCost.totalCost.toFixed(2)}
-                            {modelDef?.priceIsEstimate && <span className='ml-1 text-white/40'>est.</span>}
-                        </span>
+                            Cost: ${estimatedCost.totalCost.toFixed(2)} · billed at submission
+                        </p>
                     )}
                 </CardFooter>
             </form>
