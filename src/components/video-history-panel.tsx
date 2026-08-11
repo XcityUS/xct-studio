@@ -24,6 +24,7 @@ import {
     RefreshCw,
     RotateCcw,
     PencilLine,
+    StepForward,
     Loader2
 } from 'lucide-react';
 import * as React from 'react';
@@ -40,6 +41,8 @@ type VideoHistoryPanelProps = {
     onReuseItem?: (item: VideoMetadata) => void;
     /** 重新生成 — resubmit this item's parameters as a new job. */
     onRegenerateItem?: (item: VideoMetadata) => void;
+    /** 续片 — continue this completed video from its last frame. */
+    onExtendItem?: (item: VideoMetadata) => void;
 };
 
 /**
@@ -99,7 +102,8 @@ export function VideoHistoryPanel({
     getThumbnailSrc,
     onDeleteItem,
     onReuseItem,
-    onRegenerateItem
+    onRegenerateItem,
+    onExtendItem
 }: VideoHistoryPanelProps) {
     const [openCostDialogId, setOpenCostDialogId] = React.useState<string | null>(null);
     const [isTotalCostDialogOpen, setIsTotalCostDialogOpen] = React.useState(false);
@@ -331,6 +335,7 @@ export function VideoHistoryPanel({
                             const job = activeJobs?.get(item.id);
                             const isProcessing = item.status === 'processing' || (job && (job.status === 'queued' || job.status === 'in_progress'));
                             const isFailed = item.status === 'failed' || (job && job.status === 'failed');
+                            const isCompleted = !isProcessing && !isFailed && (item.status ?? 'completed') === 'completed';
 
                             return (
                                 <div key={item.id} className='flex flex-col'>
@@ -473,7 +478,7 @@ export function VideoHistoryPanel({
                                             <span>{item.model}</span>
                                             <span>{item.size}</span>
                                         </div>
-                                        {(onReuseItem || onRegenerateItem) && !isProcessing && (
+                                        {(onReuseItem || onRegenerateItem || onExtendItem) && !isProcessing && (
                                             <div className='mt-1.5 flex items-center gap-1'>
                                                 {onReuseItem && (
                                                     <button
@@ -483,6 +488,16 @@ export function VideoHistoryPanel({
                                                         className='flex flex-1 items-center justify-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white'>
                                                         <PencilLine size={11} />
                                                         Reuse
+                                                    </button>
+                                                )}
+                                                {onExtendItem && isCompleted && (
+                                                    <button
+                                                        type='button'
+                                                        onClick={() => onExtendItem(item)}
+                                                        title='Continue from the last frame'
+                                                        className='flex flex-1 items-center justify-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white'>
+                                                        <StepForward size={11} />
+                                                        Extend
                                                     </button>
                                                 )}
                                                 {onRegenerateItem && item.status !== 'failed' && (

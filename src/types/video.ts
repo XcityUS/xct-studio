@@ -67,6 +67,11 @@ export type VideoJobCreate = {
      */
     input_reference_url?: string;
     /**
+     * Optional end frame for first-frame mode. Used only together with
+     * `input_reference_url`; history stores the public URL, not inlined data.
+     */
+    last_frame_url?: string;
+    /**
      * Multi-reference mode (Seedance 2.0/2.5, up to 9): each URL is sent with
      * role "reference_image"; prompts cite them as [Image 1], [Image 2], ….
      * Takes precedence over `input_reference_url` when non-empty.
@@ -74,4 +79,8 @@ export type VideoJobCreate = {
     reference_image_urls?: string[];
     /** Lock the camera in place (BytePlus provider param, passed through). */
     camera_fixed?: boolean;
+    /** Deterministic generation seed; absent means provider-random. */
+    seed?: number;
+    /** Provider watermark flag. Omitted from the request unless true. */
+    watermark?: boolean;
 };

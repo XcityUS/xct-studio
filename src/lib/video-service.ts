@@ -33,12 +33,23 @@ function buildCreateBody(params: VideoJobCreate): Record<string, unknown> {
         // BytePlus rejects `ratio` on first-frame (image-to-video) tasks with
         // InvalidParameter.TaskTypeConstraint — the output ratio always
         // follows the reference image, so the param must be omitted entirely.
-        body.input_reference = params.input_reference_url;
+        body.input_reference = params.last_frame_url
+            ? [
+                  { url: params.input_reference_url, role: 'first_frame' },
+                  { url: params.last_frame_url, role: 'last_frame' }
+              ]
+            : params.input_reference_url;
     } else {
         body.ratio = params.ratio;
     }
     if (params.camera_fixed !== undefined) {
         body.camera_fixed = params.camera_fixed;
+    }
+    if (params.seed !== undefined) {
+        body.seed = params.seed;
+    }
+    if (params.watermark) {
+        body.watermark = true;
     }
     return body;
 }

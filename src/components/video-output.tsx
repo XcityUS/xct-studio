@@ -7,7 +7,19 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { cn } from '@/lib/utils';
 import { estimateVideoProgress } from '@/lib/progress';
 import type { VideoJob } from '@/types/video';
-import { AlertCircle, CheckCircle, Clock, Copy, Check, Download, Loader2, Pause, Play, Sparkles } from 'lucide-react';
+import {
+    AlertCircle,
+    CheckCircle,
+    Clock,
+    Copy,
+    Check,
+    Download,
+    Loader2,
+    Pause,
+    Play,
+    Sparkles,
+    StepForward
+} from 'lucide-react';
 import * as React from 'react';
 
 type VideoOutputProps = {
@@ -17,6 +29,7 @@ type VideoOutputProps = {
     isLoading: boolean;
     onSendToRemix?: (videoId: string) => void;
     onDownload?: (videoId: string) => void;
+    onExtend?: (videoId: string) => void;
 };
 
 function ClickablePrompt({ prompt }: { prompt: string }) {
@@ -88,7 +101,8 @@ export function VideoOutput({
     thumbnailSrc,
     isLoading,
     onSendToRemix,
-    onDownload
+    onDownload,
+    onExtend
 }: VideoOutputProps) {
     const displayProgress = useDisplayProgress(job);
 
@@ -136,6 +150,12 @@ export function VideoOutput({
     const handleSendToRemix = () => {
         if (job && onSendToRemix) {
             onSendToRemix(job.id);
+        }
+    };
+
+    const handleExtend = () => {
+        if (job && onExtend) {
+            onExtend(job.id);
         }
     };
 
@@ -259,21 +279,30 @@ export function VideoOutput({
                             thumbnailSrc={thumbnailSrc}
                         />
 
-                        <div className='grid shrink-0 grid-cols-2 gap-3'>
+                        <div className='flex shrink-0 flex-wrap gap-3'>
                             {onDownload && (
                                 <Button
                                     onClick={handleDownload}
                                     variant='outline'
-                                    className='border-white/20 bg-black text-white hover:bg-white/10 hover:text-white'>
+                                    className='min-w-0 flex-1 basis-36 border-white/20 bg-black text-white hover:bg-white/10 hover:text-white'>
                                     <Download className='mr-2 h-4 w-4' />
                                     Download
+                                </Button>
+                            )}
+                            {onExtend && (
+                                <Button
+                                    onClick={handleExtend}
+                                    variant='outline'
+                                    className='min-w-0 flex-1 basis-36 border-white/20 bg-black text-white hover:bg-white/10 hover:text-white'>
+                                    <StepForward className='mr-2 h-4 w-4' />
+                                    Extend
                                 </Button>
                             )}
                             {onSendToRemix && (
                                 <Button
                                     onClick={handleSendToRemix}
                                     variant='outline'
-                                    className='border-white/20 bg-black text-white hover:bg-white/10 hover:text-white'>
+                                    className='min-w-0 flex-1 basis-36 border-white/20 bg-black text-white hover:bg-white/10 hover:text-white'>
                                     <Sparkles className='mr-2 h-4 w-4' />
                                     Send to Remix
                                 </Button>
