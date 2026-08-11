@@ -1,6 +1,5 @@
 'use client';
 
-import type { VideoMetadata, VideoJob } from '@/types/video';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -13,19 +12,25 @@ import {
     DialogFooter,
     DialogClose
 } from '@/components/ui/dialog';
+import { assembleClips } from '@/lib/assemble';
+import { db } from '@/lib/db';
 import { cn } from '@/lib/utils';
+import type { VideoMetadata, VideoJob } from '@/types/video';
 import {
     Check,
     Copy,
+    Download,
     DollarSign,
-    Search,
-    Sparkles as SparklesIcon,
-    Trash2,
+    Film,
+    Loader2,
+    PencilLine,
     RefreshCw,
     RotateCcw,
-    PencilLine,
+    Search,
+    Sparkles as SparklesIcon,
     StepForward,
-    Loader2
+    Trash2,
+    X
 } from 'lucide-react';
 import * as React from 'react';
 
@@ -93,6 +98,15 @@ const STATUS_FILTERS: Array<{ id: StatusFilter; label: string }> = [
     { id: 'failed', label: 'Failed' }
 ];
 
+function getHistoryItemState(item: VideoMetadata, job?: VideoJob) {
+    const isProcessing =
+        item.status === 'processing' || (job && (job.status === 'queued' || job.status === 'in_progress'));
+    const isFailed = item.status === 'failed' || (job && job.status === 'failed');
+    const isCompleted = !isProcessing && !isFailed && (item.status ?? 'completed') === 'completed';
+
+    return { isProcessing, isFailed, isCompleted };
+}
+
 export function VideoHistoryPanel({
     history,
     activeJobs,
@@ -110,11 +124,24 @@ export function VideoHistoryPanel({
     const [statusFilter, setStatusFilter] = React.useState<StatusFilter>('all');
     const [modelFilter, setModelFilter] = React.useState<string>('all');
     const [promptQuery, setPromptQuery] = React.useState('');
+    const [isAssembleMode, setIsAssembleMode] = React.useState(false);
+    const [selectedClipIds, setSelectedClipIds] = React.useState<string[]>([]);
+    const [isAssembling, setIsAssembling] = React.useState(false);
+    const [assembleProgress, setAssembleProgress] = React.useState<number | null>(null);
+    const [assembleError, setAssembleError] = React.useState<string | null>(null);
 
     /** Models actually present in history, for the filter row. */
     const modelsInHistory = React.useMemo(() => {
         return Array.from(new Set(history.map((item) => item.model)));
     }, [history]);
+
+    const historyById = React.useMemo(() => {
+        return new Map(history.map((item) => [item.id, item]));
+    }, [history]);
+
+    const completedClipCount = React.useMemo(() => {
+        return history.filter((item) => getHistoryItemState(item, activeJobs?.get(item.id)).isCompleted).length;
+    }, [history, activeJobs]);
 
     const filteredHistory = React.useMemo(() => {
         const query = promptQuery.trim().toLowerCase();
@@ -125,6 +152,25 @@ export function VideoHistoryPanel({
             return true;
         });
     }, [history, statusFilter, modelFilter, promptQuery]);
+
+    const selectedItems = React.useMemo(() => {
+        return selectedClipIds
+            .map((id) => historyById.get(id))
+            .filter((item): item is VideoMetadata => Boolean(item))
+            .filter((item) => getHistoryItemState(item, activeJobs?.get(item.id)).isCompleted);
+    }, [selectedClipIds, historyById, activeJobs]);
+
+    const selectedSizes = React.useMemo(() => {
+        return Array.from(new Set(selectedItems.map((item) => item.size).filter(Boolean)));
+    }, [selectedItems]);
+
+    const hasMixedSelectedSizes = selectedSizes.length > 1;
+    const selectedSizeLabel =
+        selectedItems.length === 0 ? '' : hasMixedSelectedSizes ? 'Mixed sizes' : selectedSizes[0] || 'Unknown size';
+    const selectedSummary = selectedSizeLabel
+        ? `${selectedItems.length} clips selected · ${selectedSizeLabel}`
+        : `${selectedItems.length} clips selected`;
+    const canExportAssembly = selectedItems.length >= 2 && !hasMixedSelectedSizes && !isAssembling;
 
     const { totalCost, totalVideos, successfulVideos } = React.useMemo(() => {
         let cost = 0;
@@ -144,6 +190,131 @@ export function VideoHistoryPanel({
     }, [history]);
 
     const averageCost = successfulVideos > 0 ? totalCost / successfulVideos : 0;
+
+    const resetAssembleState = React.useCallback(() => {
+        setSelectedClipIds([]);
+        setAssembleProgress(null);
+        setAssembleError(null);
+    }, []);
+
+    const exitAssembleMode = React.useCallback(() => {
+        if (isAssembling) return;
+        setIsAssembleMode(false);
+        resetAssembleState();
+    }, [isAssembling, resetAssembleState]);
+
+    const toggleAssembleMode = React.useCallback(() => {
+        if (isAssembling) return;
+
+        setIsAssembleMode((current) => {
+            if (current) {
+                resetAssembleState();
+            } else {
+                setAssembleError(null);
+            }
+
+            return !current;
+        });
+    }, [isAssembling, resetAssembleState]);
+
+    React.useEffect(() => {
+        setSelectedClipIds((current) => {
+            const next = current.filter((id) => {
+                const item = historyById.get(id);
+                return item ? getHistoryItemState(item, activeJobs?.get(id)).isCompleted : false;
+            });
+
+            return next.length === current.length ? current : next;
+        });
+    }, [historyById, activeJobs]);
+
+    React.useEffect(() => {
+        if (completedClipCount < 2 && isAssembleMode && !isAssembling) {
+            setIsAssembleMode(false);
+            resetAssembleState();
+        }
+    }, [completedClipCount, isAssembleMode, isAssembling, resetAssembleState]);
+
+    const handleToggleClipSelection = React.useCallback(
+        (item: VideoMetadata, isCompleted: boolean) => {
+            if (!isAssembleMode || !isCompleted || isAssembling) return;
+
+            setSelectedClipIds((current) => {
+                if (current.includes(item.id)) {
+                    return current.filter((id) => id !== item.id);
+                }
+
+                return [...current, item.id];
+            });
+            setAssembleProgress(null);
+            setAssembleError(null);
+        },
+        [isAssembleMode, isAssembling]
+    );
+
+    const resolveClipBlob = React.useCallback(
+        async (item: VideoMetadata) => {
+            const record = await db.videos.get(item.id);
+            if (record?.blob) return record.blob;
+
+            const src = getVideoSrc(item.id) ?? item.storedUrl;
+            if (!src) {
+                throw new Error(`Video source not found for ${item.filename || item.id}.`);
+            }
+
+            const response = await fetch(src);
+            if (!response.ok) {
+                throw new Error(`Could not load ${item.filename || item.id} (${response.status}).`);
+            }
+
+            return response.blob();
+        },
+        [getVideoSrc]
+    );
+
+    const handleExportAssembly = React.useCallback(async () => {
+        if (selectedItems.length < 2) {
+            setAssembleError('Select at least two completed clips.');
+            return;
+        }
+
+        if (hasMixedSelectedSizes) {
+            setAssembleError('Selected clips must share the same size before export.');
+            return;
+        }
+
+        setIsAssembling(true);
+        setAssembleError(null);
+        setAssembleProgress(0);
+
+        try {
+            const clips = await Promise.all(
+                selectedItems.map(async (item) => ({
+                    id: item.id,
+                    blob: await resolveClipBlob(item)
+                }))
+            );
+            const blob = await assembleClips(clips, setAssembleProgress);
+            const url = URL.createObjectURL(blob);
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const anchor = document.createElement('a');
+
+            try {
+                anchor.href = url;
+                anchor.download = `assembled-${timestamp}.mp4`;
+                document.body.appendChild(anchor);
+                anchor.click();
+            } finally {
+                document.body.removeChild(anchor);
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+            }
+        } catch (err) {
+            console.error('Error assembling clips:', err);
+            setAssembleError(err instanceof Error ? err.message : 'Failed to assemble clips.');
+        } finally {
+            setIsAssembling(false);
+        }
+    }, [hasMixedSelectedSizes, resolveClipBlob, selectedItems]);
 
     const handlePreviewEnter = React.useCallback((video: HTMLVideoElement) => {
         const tryPlay = () => {
@@ -241,15 +412,32 @@ export function VideoHistoryPanel({
                         </Dialog>
                     )}
                 </div>
-                {history.length > 0 && (
-                    <Button
-                        variant='ghost'
-                        size='sm'
-                        onClick={onClearHistory}
-                        className='h-auto rounded-md px-2 py-1 text-white/60 hover:bg-white/10 hover:text-white'>
-                        Clear
-                    </Button>
-                )}
+                <div className='flex items-center gap-2'>
+                    {completedClipCount >= 2 && (
+                        <Button
+                            variant='ghost'
+                            size='sm'
+                            onClick={toggleAssembleMode}
+                            disabled={isAssembling}
+                            className={cn(
+                                'h-auto rounded-md px-2 py-1 text-white/60 hover:bg-white/10 hover:text-white',
+                                isAssembleMode && 'bg-white text-black hover:bg-white hover:text-black'
+                            )}>
+                            <Film size={14} />
+                            Assemble
+                        </Button>
+                    )}
+                    {history.length > 0 && (
+                        <Button
+                            variant='ghost'
+                            size='sm'
+                            onClick={onClearHistory}
+                            disabled={isAssembling}
+                            className='h-auto rounded-md px-2 py-1 text-white/60 hover:bg-white/10 hover:text-white'>
+                            Clear
+                        </Button>
+                    )}
+                </div>
             </CardHeader>
             <CardContent className='flex-grow overflow-y-auto p-4'>
                 {history.length === 0 ? (
@@ -258,266 +446,373 @@ export function VideoHistoryPanel({
                     </div>
                 ) : (
                     <>
-                    <div className='mb-3 flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-2.5 py-1.5 focus-within:border-white/30'>
-                        <Search size={14} className='shrink-0 text-white/40' />
-                        <input
-                            type='text'
-                            value={promptQuery}
-                            onChange={(e) => setPromptQuery(e.target.value)}
-                            placeholder='Search prompts…'
-                            className='w-full bg-transparent text-xs text-white placeholder:text-white/30 focus:outline-none'
-                        />
-                        {promptQuery && (
-                            <button
-                                type='button'
-                                onClick={() => setPromptQuery('')}
-                                className='shrink-0 text-white/40 transition-colors hover:text-white'
-                                aria-label='Clear prompt search'>
-                                ×
-                            </button>
-                        )}
-                    </div>
-                    <div className='mb-4 flex flex-wrap items-center gap-2'>
-                        {STATUS_FILTERS.map((f) => (
-                            <button
-                                key={f.id}
-                                type='button'
-                                onClick={() => setStatusFilter(f.id)}
-                                className={cn(
-                                    'rounded-full px-2.5 py-1 text-xs transition-colors',
-                                    statusFilter === f.id
-                                        ? 'bg-white text-black'
-                                        : 'bg-white/10 text-white/60 hover:bg-white/20 hover:text-white'
-                                )}>
-                                {f.label}
-                            </button>
-                        ))}
-                        {modelsInHistory.length > 1 && (
-                            <>
-                                <span className='mx-1 h-4 w-px bg-white/15' />
+                        <div className='mb-3 flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-2.5 py-1.5 focus-within:border-white/30'>
+                            <Search size={14} className='shrink-0 text-white/40' />
+                            <input
+                                type='text'
+                                value={promptQuery}
+                                onChange={(e) => setPromptQuery(e.target.value)}
+                                placeholder='Search prompts…'
+                                className='w-full bg-transparent text-xs text-white placeholder:text-white/30 focus:outline-none'
+                            />
+                            {promptQuery && (
                                 <button
                                     type='button'
-                                    onClick={() => setModelFilter('all')}
+                                    onClick={() => setPromptQuery('')}
+                                    className='shrink-0 text-white/40 transition-colors hover:text-white'
+                                    aria-label='Clear prompt search'>
+                                    ×
+                                </button>
+                            )}
+                        </div>
+                        <div className='mb-4 flex flex-wrap items-center gap-2'>
+                            {STATUS_FILTERS.map((f) => (
+                                <button
+                                    key={f.id}
+                                    type='button'
+                                    onClick={() => setStatusFilter(f.id)}
                                     className={cn(
                                         'rounded-full px-2.5 py-1 text-xs transition-colors',
-                                        modelFilter === 'all'
+                                        statusFilter === f.id
                                             ? 'bg-white text-black'
                                             : 'bg-white/10 text-white/60 hover:bg-white/20 hover:text-white'
                                     )}>
-                                    All models
+                                    {f.label}
                                 </button>
-                                {modelsInHistory.map((m) => (
+                            ))}
+                            {modelsInHistory.length > 1 && (
+                                <>
+                                    <span className='mx-1 h-4 w-px bg-white/15' />
                                     <button
-                                        key={m}
                                         type='button'
-                                        onClick={() => setModelFilter(m)}
+                                        onClick={() => setModelFilter('all')}
                                         className={cn(
                                             'rounded-full px-2.5 py-1 text-xs transition-colors',
-                                            modelFilter === m
+                                            modelFilter === 'all'
                                                 ? 'bg-white text-black'
                                                 : 'bg-white/10 text-white/60 hover:bg-white/20 hover:text-white'
                                         )}>
-                                        {m}
+                                        All models
                                     </button>
-                                ))}
-                            </>
-                        )}
-                    </div>
-                    {filteredHistory.length === 0 ? (
-                        <div className='flex h-40 items-center justify-center text-white/40'>
-                            <p>No videos match the current filter.</p>
-                        </div>
-                    ) : (
-                    <div className='grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5'>
-                        {filteredHistory.map((item) => {
-                            const thumbnailUrl = getThumbnailSrc ? getThumbnailSrc(item.id) : undefined;
-                            const videoUrl = getVideoSrc(item.id);
-                            const job = activeJobs?.get(item.id);
-                            const isProcessing = item.status === 'processing' || (job && (job.status === 'queued' || job.status === 'in_progress'));
-                            const isFailed = item.status === 'failed' || (job && job.status === 'failed');
-                            const isCompleted = !isProcessing && !isFailed && (item.status ?? 'completed') === 'completed';
-
-                            return (
-                                <div key={item.id} className='flex flex-col'>
-                                    <div className='group relative'>
+                                    {modelsInHistory.map((m) => (
                                         <button
-                                            onClick={() => onSelectVideo(item)}
-                                            className='relative block aspect-square w-full overflow-hidden rounded-t-md border border-white/20 transition-all duration-150 group-hover:border-white/40 focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-black focus:outline-none'
-                                            aria-label={`View video from ${new Date(item.timestamp).toLocaleString()}`}>
-                                            {isProcessing ? (
-                                                <div className='flex h-full w-full flex-col items-center justify-center bg-neutral-900'>
-                                                    <Loader2 className='h-8 w-8 animate-spin text-white/40 mb-2' />
-                                                    <span className='text-xs text-white/60'>
-                                                        {job?.status === 'queued' ? 'Queued' : `${item.progress || job?.progress || 0}%`}
-                                                    </span>
-                                                </div>
-                                            ) : isFailed ? (
-                                                <div className='flex h-full w-full flex-col items-center justify-center bg-red-950 text-red-400 p-2'>
-                                                    <span className='text-xs font-semibold'>Failed</span>
-                                                    {item.error && (
-                                                        <span className='text-[10px] text-red-300 mt-1 text-center line-clamp-2'>
-                                                            {item.error}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            ) : videoUrl && item.status !== 'failed' ? (
-                                                <video
-                                                    // Without a captured poster, a #t media fragment
-                                                    // makes browsers (Safari included) paint the first
-                                                    // frame instead of a blank box.
-                                                    src={thumbnailUrl ? videoUrl : `${videoUrl}#t=0.001`}
-                                                    poster={thumbnailUrl}
-                                                    className='h-full w-full object-cover'
-                                                    muted
-                                                    preload='metadata'
-                                                    playsInline
-                                                    onMouseEnter={(event) => handlePreviewEnter(event.currentTarget)}
-                                                    onMouseLeave={(event) => handlePreviewLeave(event.currentTarget)}
-                                                />
-                                            ) : (
-                                                <div className='flex h-full w-full items-center justify-center bg-neutral-800 text-neutral-500'>
-                                                    ?
-                                                </div>
-                                            )}
-                                            <div
-                                                className={cn(
-                                                    'pointer-events-none absolute top-1 left-1 z-10 flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] text-white',
-                                                    item.mode === 'remix' ? 'bg-orange-600/80' : 'bg-blue-600/80'
-                                                )}>
-                                                {item.mode === 'remix' ? (
-                                                    <RefreshCw size={12} />
-                                                ) : (
-                                                    <SparklesIcon size={12} />
-                                                )}
-                                                {item.mode === 'remix' ? 'Remix' : 'Create'}
-                                            </div>
-                                            <div className='pointer-events-none absolute bottom-1 left-1 z-10 flex items-center gap-1'>
-                                                <div className='flex items-center gap-1 rounded-full border border-white/10 bg-neutral-900/80 px-1 py-0.5 text-[11px] text-white/70'>
-                                                    <span>{item.seconds}s</span>
-                                                </div>
-                                            </div>
+                                            key={m}
+                                            type='button'
+                                            onClick={() => setModelFilter(m)}
+                                            className={cn(
+                                                'rounded-full px-2.5 py-1 text-xs transition-colors',
+                                                modelFilter === m
+                                                    ? 'bg-white text-black'
+                                                    : 'bg-white/10 text-white/60 hover:bg-white/20 hover:text-white'
+                                            )}>
+                                            {m}
                                         </button>
-                                        {item.costDetails && item.status !== 'failed' && (
-                                            <Dialog
-                                                open={openCostDialogId === item.id}
-                                                onOpenChange={(isOpen) => !isOpen && setOpenCostDialogId(null)}>
-                                                <DialogTrigger asChild>
+                                    ))}
+                                </>
+                            )}
+                        </div>
+                        {filteredHistory.length === 0 ? (
+                            <div className='flex h-40 items-center justify-center text-white/40'>
+                                <p>No videos match the current filter.</p>
+                            </div>
+                        ) : (
+                            <div className='grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5'>
+                                {filteredHistory.map((item) => {
+                                    const thumbnailUrl = getThumbnailSrc ? getThumbnailSrc(item.id) : undefined;
+                                    const videoUrl = getVideoSrc(item.id);
+                                    const job = activeJobs?.get(item.id);
+                                    const { isProcessing, isFailed, isCompleted } = getHistoryItemState(item, job);
+                                    const selectionOrder = selectedClipIds.indexOf(item.id) + 1;
+                                    const isSelectedForAssembly = selectionOrder > 0;
+
+                                    return (
+                                        <div key={item.id} className='flex flex-col'>
+                                            <div className='group relative'>
+                                                <button
+                                                    type='button'
+                                                    onClick={() => {
+                                                        if (isAssembleMode) {
+                                                            handleToggleClipSelection(item, isCompleted);
+                                                            return;
+                                                        }
+
+                                                        onSelectVideo(item);
+                                                    }}
+                                                    className={cn(
+                                                        'relative block aspect-square w-full overflow-hidden rounded-t-md border border-white/20 transition-all duration-150 group-hover:border-white/40 focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-black focus:outline-none',
+                                                        isAssembleMode && isCompleted && 'cursor-pointer',
+                                                        isAssembleMode &&
+                                                            !isCompleted &&
+                                                            'cursor-not-allowed opacity-60',
+                                                        isSelectedForAssembly && 'border-white ring-2 ring-white/40'
+                                                    )}
+                                                    aria-label={
+                                                        isAssembleMode
+                                                            ? `${isSelectedForAssembly ? 'Remove' : 'Select'} clip ${item.id} for assembly`
+                                                            : `View video from ${new Date(item.timestamp).toLocaleString()}`
+                                                    }
+                                                    aria-pressed={
+                                                        isAssembleMode && isCompleted
+                                                            ? isSelectedForAssembly
+                                                            : undefined
+                                                    }>
+                                                    {isProcessing ? (
+                                                        <div className='flex h-full w-full flex-col items-center justify-center bg-neutral-900'>
+                                                            <Loader2 className='mb-2 h-8 w-8 animate-spin text-white/40' />
+                                                            <span className='text-xs text-white/60'>
+                                                                {job?.status === 'queued'
+                                                                    ? 'Queued'
+                                                                    : `${item.progress || job?.progress || 0}%`}
+                                                            </span>
+                                                        </div>
+                                                    ) : isFailed ? (
+                                                        <div className='flex h-full w-full flex-col items-center justify-center bg-red-950 p-2 text-red-400'>
+                                                            <span className='text-xs font-semibold'>Failed</span>
+                                                            {item.error && (
+                                                                <span className='mt-1 line-clamp-2 text-center text-[10px] text-red-300'>
+                                                                    {item.error}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    ) : videoUrl && item.status !== 'failed' ? (
+                                                        <video
+                                                            // Without a captured poster, a #t media fragment
+                                                            // makes browsers (Safari included) paint the first
+                                                            // frame instead of a blank box.
+                                                            src={thumbnailUrl ? videoUrl : `${videoUrl}#t=0.001`}
+                                                            poster={thumbnailUrl}
+                                                            className='h-full w-full object-cover'
+                                                            muted
+                                                            preload='metadata'
+                                                            playsInline
+                                                            onMouseEnter={(event) =>
+                                                                handlePreviewEnter(event.currentTarget)
+                                                            }
+                                                            onMouseLeave={(event) =>
+                                                                handlePreviewLeave(event.currentTarget)
+                                                            }
+                                                        />
+                                                    ) : (
+                                                        <div className='flex h-full w-full items-center justify-center bg-neutral-800 text-neutral-500'>
+                                                            ?
+                                                        </div>
+                                                    )}
+                                                    {isAssembleMode && isCompleted ? (
+                                                        <div className='pointer-events-none absolute top-1 left-1 z-30 flex h-6 w-6 items-center justify-center rounded border border-white/60 bg-black/70 text-[11px] font-medium text-white backdrop-blur'>
+                                                            {isSelectedForAssembly ? selectionOrder : null}
+                                                        </div>
+                                                    ) : (
+                                                        <div
+                                                            className={cn(
+                                                                'pointer-events-none absolute top-1 left-1 z-10 flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] text-white',
+                                                                item.mode === 'remix'
+                                                                    ? 'bg-orange-600/80'
+                                                                    : 'bg-blue-600/80'
+                                                            )}>
+                                                            {item.mode === 'remix' ? (
+                                                                <RefreshCw size={12} />
+                                                            ) : (
+                                                                <SparklesIcon size={12} />
+                                                            )}
+                                                            {item.mode === 'remix' ? 'Remix' : 'Create'}
+                                                        </div>
+                                                    )}
+                                                    <div className='pointer-events-none absolute bottom-1 left-1 z-10 flex items-center gap-1'>
+                                                        <div className='flex items-center gap-1 rounded-full border border-white/10 bg-neutral-900/80 px-1 py-0.5 text-[11px] text-white/70'>
+                                                            <span>{item.seconds}s</span>
+                                                        </div>
+                                                    </div>
+                                                </button>
+                                                {!isAssembleMode && item.costDetails && item.status !== 'failed' && (
+                                                    <Dialog
+                                                        open={openCostDialogId === item.id}
+                                                        onOpenChange={(isOpen) => !isOpen && setOpenCostDialogId(null)}>
+                                                        <DialogTrigger asChild>
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setOpenCostDialogId(item.id);
+                                                                }}
+                                                                className='absolute top-1 right-1 z-20 flex items-center gap-0.5 rounded-full bg-green-600/80 px-1.5 py-0.5 text-[11px] text-white transition-colors hover:bg-green-500/90'
+                                                                aria-label='Show cost breakdown'>
+                                                                <DollarSign size={12} />
+                                                                {item.costDetails.totalCost.toFixed(2)}
+                                                            </button>
+                                                        </DialogTrigger>
+                                                        <DialogContent className='border-neutral-700 bg-neutral-900 text-white sm:max-w-[450px]'>
+                                                            <DialogHeader>
+                                                                <DialogTitle className='text-white'>
+                                                                    Cost Breakdown
+                                                                </DialogTitle>
+                                                                <DialogDescription className='sr-only'>
+                                                                    Estimated cost breakdown for this video generation.
+                                                                </DialogDescription>
+                                                            </DialogHeader>
+                                                            <div className='space-y-2 py-4 text-sm text-neutral-300'>
+                                                                <div className='flex justify-between'>
+                                                                    <span>Model:</span>{' '}
+                                                                    <span>{item.costDetails.model}</span>
+                                                                </div>
+                                                                <div className='flex justify-between'>
+                                                                    <span>Resolution:</span>{' '}
+                                                                    <span>{item.costDetails.resolution}</span>
+                                                                </div>
+                                                                <div className='flex justify-between'>
+                                                                    <span>Duration:</span>{' '}
+                                                                    <span>{item.costDetails.duration}s</span>
+                                                                </div>
+                                                                <div className='flex justify-between'>
+                                                                    <span>Price Per Second:</span>{' '}
+                                                                    <span>
+                                                                        ${item.costDetails.pricePerSecond.toFixed(2)}
+                                                                    </span>
+                                                                </div>
+                                                                <hr className='my-2 border-neutral-700' />
+                                                                <div className='flex justify-between font-medium text-white'>
+                                                                    <span>Total Cost:</span>
+                                                                    <span>
+                                                                        ${item.costDetails.totalCost.toFixed(2)}
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                            <DialogFooter>
+                                                                <DialogClose asChild>
+                                                                    <Button
+                                                                        type='button'
+                                                                        variant='secondary'
+                                                                        size='sm'
+                                                                        className='bg-neutral-700 text-neutral-200 hover:bg-neutral-600'>
+                                                                        Close
+                                                                    </Button>
+                                                                </DialogClose>
+                                                            </DialogFooter>
+                                                        </DialogContent>
+                                                    </Dialog>
+                                                )}
+                                                {!isAssembleMode && onDeleteItem && (
                                                     <button
                                                         onClick={(e) => {
                                                             e.stopPropagation();
-                                                            setOpenCostDialogId(item.id);
+                                                            const message =
+                                                                item.status === 'failed'
+                                                                    ? 'Are you sure you want to delete this failed request from your history?'
+                                                                    : 'Delete this video from your history? This removes it from your browser storage. Archived cloud copies are not affected.';
+                                                            if (confirm(message)) {
+                                                                onDeleteItem(item);
+                                                            }
                                                         }}
-                                                        className='absolute top-1 right-1 z-20 flex items-center gap-0.5 rounded-full bg-green-600/80 px-1.5 py-0.5 text-[11px] text-white transition-colors hover:bg-green-500/90'
-                                                        aria-label='Show cost breakdown'>
-                                                        <DollarSign size={12} />
-                                                        {item.costDetails.totalCost.toFixed(2)}
-                                                    </button>
-                                                </DialogTrigger>
-                                                <DialogContent className='border-neutral-700 bg-neutral-900 text-white sm:max-w-[450px]'>
-                                                    <DialogHeader>
-                                                        <DialogTitle className='text-white'>Cost Breakdown</DialogTitle>
-                                                        <DialogDescription className='sr-only'>
-                                                            Estimated cost breakdown for this video generation.
-                                                        </DialogDescription>
-                                                    </DialogHeader>
-                                                    <div className='space-y-2 py-4 text-sm text-neutral-300'>
-                                                        <div className='flex justify-between'>
-                                                            <span>Model:</span> <span>{item.costDetails.model}</span>
-                                                        </div>
-                                                        <div className='flex justify-between'>
-                                                            <span>Resolution:</span>{' '}
-                                                            <span>{item.costDetails.resolution}</span>
-                                                        </div>
-                                                        <div className='flex justify-between'>
-                                                            <span>Duration:</span> <span>{item.costDetails.duration}s</span>
-                                                        </div>
-                                                        <div className='flex justify-between'>
-                                                            <span>Price Per Second:</span>{' '}
-                                                            <span>${item.costDetails.pricePerSecond.toFixed(2)}</span>
-                                                        </div>
-                                                        <hr className='my-2 border-neutral-700' />
-                                                        <div className='flex justify-between font-medium text-white'>
-                                                            <span>Total Cost:</span>
-                                                            <span>${item.costDetails.totalCost.toFixed(2)}</span>
-                                                        </div>
-                                                    </div>
-                                                    <DialogFooter>
-                                                        <DialogClose asChild>
-                                                            <Button
-                                                                type='button'
-                                                                variant='secondary'
-                                                                size='sm'
-                                                                className='bg-neutral-700 text-neutral-200 hover:bg-neutral-600'>
-                                                                Close
-                                                            </Button>
-                                                        </DialogClose>
-                                                    </DialogFooter>
-                                                </DialogContent>
-                                            </Dialog>
-                                        )}
-                                        {onDeleteItem && (
-                                            <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    const message = item.status === 'failed'
-                                                        ? 'Are you sure you want to delete this failed request from your history?'
-                                                        : 'Delete this video from your history? This removes it from your browser storage. Archived cloud copies are not affected.';
-                                                    if (confirm(message)) {
-                                                        onDeleteItem(item);
-                                                    }
-                                                }}
-                                                className='absolute bottom-1 right-1 z-20 flex items-center gap-0.5 rounded-full bg-red-600/80 p-1 text-white transition-colors hover:bg-red-500/90'
-                                                aria-label='Delete video'>
-                                                <Trash2 size={12} />
-                                            </button>
-                                        )}
-                                    </div>
-                                    <div className='rounded-b-md border border-t-0 border-white/20 bg-neutral-900/50 p-2'>
-                                        <TilePrompt prompt={item.prompt} />
-                                        <div className='mt-1 flex items-center justify-between text-[10px] text-white/40'>
-                                            <span>{item.model}</span>
-                                            <span>{item.size}</span>
-                                        </div>
-                                        {(onReuseItem || onRegenerateItem || onExtendItem) && !isProcessing && (
-                                            <div className='mt-1.5 flex items-center gap-1'>
-                                                {onReuseItem && (
-                                                    <button
-                                                        type='button'
-                                                        onClick={() => onReuseItem(item)}
-                                                        title='Fill the create form with these settings'
-                                                        className='flex flex-1 items-center justify-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white'>
-                                                        <PencilLine size={11} />
-                                                        Reuse
-                                                    </button>
-                                                )}
-                                                {onExtendItem && isCompleted && (
-                                                    <button
-                                                        type='button'
-                                                        onClick={() => onExtendItem(item)}
-                                                        title='Continue from the last frame'
-                                                        className='flex flex-1 items-center justify-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white'>
-                                                        <StepForward size={11} />
-                                                        Extend
-                                                    </button>
-                                                )}
-                                                {onRegenerateItem && item.status !== 'failed' && (
-                                                    <button
-                                                        type='button'
-                                                        onClick={() => onRegenerateItem(item)}
-                                                        title='Generate again with the same settings (new cost)'
-                                                        className='flex flex-1 items-center justify-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white'>
-                                                        <RotateCcw size={11} />
-                                                        Regenerate
+                                                        className='absolute right-1 bottom-1 z-20 flex items-center gap-0.5 rounded-full bg-red-600/80 p-1 text-white transition-colors hover:bg-red-500/90'
+                                                        aria-label='Delete video'>
+                                                        <Trash2 size={12} />
                                                     </button>
                                                 )}
                                             </div>
+                                            <div className='rounded-b-md border border-t-0 border-white/20 bg-neutral-900/50 p-2'>
+                                                <TilePrompt prompt={item.prompt} />
+                                                <div className='mt-1 flex items-center justify-between text-[10px] text-white/40'>
+                                                    <span>{item.model}</span>
+                                                    <span>{item.size}</span>
+                                                </div>
+                                                {(onReuseItem || onRegenerateItem || onExtendItem) &&
+                                                    !isProcessing &&
+                                                    !isAssembleMode && (
+                                                        <div className='mt-1.5 flex items-center gap-1'>
+                                                            {onReuseItem && (
+                                                                <button
+                                                                    type='button'
+                                                                    onClick={() => onReuseItem(item)}
+                                                                    title='Fill the create form with these settings'
+                                                                    className='flex flex-1 items-center justify-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white'>
+                                                                    <PencilLine size={11} />
+                                                                    Reuse
+                                                                </button>
+                                                            )}
+                                                            {onExtendItem && isCompleted && (
+                                                                <button
+                                                                    type='button'
+                                                                    onClick={() => onExtendItem(item)}
+                                                                    title='Continue from the last frame'
+                                                                    className='flex flex-1 items-center justify-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white'>
+                                                                    <StepForward size={11} />
+                                                                    Extend
+                                                                </button>
+                                                            )}
+                                                            {onRegenerateItem && item.status !== 'failed' && (
+                                                                <button
+                                                                    type='button'
+                                                                    onClick={() => onRegenerateItem(item)}
+                                                                    title='Generate again with the same settings (new cost)'
+                                                                    className='flex flex-1 items-center justify-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white'>
+                                                                    <RotateCcw size={11} />
+                                                                    Regenerate
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                        {isAssembleMode && (
+                            <div className='sticky bottom-0 z-40 mt-4 rounded-md border border-white/15 bg-neutral-950/95 p-3 shadow-lg backdrop-blur'>
+                                <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+                                    <div className='min-w-0 space-y-1'>
+                                        <div className='truncate text-sm font-medium text-white'>{selectedSummary}</div>
+                                        {hasMixedSelectedSizes ? (
+                                            <div className='text-xs text-red-300'>
+                                                Selected clips must share the same size before export.
+                                            </div>
+                                        ) : assembleError ? (
+                                            <div className='text-xs text-red-300'>{assembleError}</div>
+                                        ) : (
+                                            <div className='text-xs text-white/45'>
+                                                Select completed clips in export order.
+                                            </div>
+                                        )}
+                                        {assembleProgress !== null && (
+                                            <div className='flex items-center gap-2 pt-1'>
+                                                <div className='h-1.5 w-full overflow-hidden rounded-full bg-white/10'>
+                                                    <div
+                                                        className='h-full rounded-full bg-white transition-all duration-200'
+                                                        style={{ width: `${Math.round(assembleProgress * 100)}%` }}
+                                                    />
+                                                </div>
+                                                <span className='w-9 text-right text-[11px] text-white/55'>
+                                                    {Math.round(assembleProgress * 100)}%
+                                                </span>
+                                            </div>
                                         )}
                                     </div>
+                                    <div className='flex shrink-0 items-center gap-2'>
+                                        <Button
+                                            type='button'
+                                            size='sm'
+                                            variant='ghost'
+                                            onClick={exitAssembleMode}
+                                            disabled={isAssembling}
+                                            className='h-8 rounded-md px-2 text-white/60 hover:bg-white/10 hover:text-white'>
+                                            <X size={14} />
+                                            Cancel
+                                        </Button>
+                                        <Button
+                                            type='button'
+                                            size='sm'
+                                            onClick={handleExportAssembly}
+                                            disabled={!canExportAssembly}
+                                            className='h-8 rounded-md bg-white px-3 text-black hover:bg-white/90'>
+                                            {isAssembling ? (
+                                                <Loader2 size={14} className='animate-spin' />
+                                            ) : (
+                                                <Download size={14} />
+                                            )}
+                                            Export
+                                        </Button>
+                                    </div>
                                 </div>
-                            );
-                        })}
-                    </div>
-                    )}
+                            </div>
+                        )}
                     </>
                 )}
             </CardContent>
