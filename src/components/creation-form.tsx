@@ -3,6 +3,7 @@
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ReferenceImagesInput } from '@/components/reference-images-input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -23,9 +24,10 @@ import {
     type VideoResolution
 } from '@/lib/seedance';
 import { PromptInspirationDialog } from '@/components/prompt-inspiration';
-import { applyPromptTemplate } from '@/lib/prompt-templates';
+import { PROMPT_TEMPLATE_CATEGORIES, applyPromptTemplate } from '@/lib/prompt-templates';
+import { cn } from '@/lib/utils';
 import type { VideoJobCreate } from '@/types/video';
-import { Lightbulb, Loader2, Sparkles, Undo2, Wand2 } from 'lucide-react';
+import { ChevronDown, Lightbulb, Loader2, Sparkles, Undo2, Wand2 } from 'lucide-react';
 import * as React from 'react';
 
 export type CreationFormData = VideoJobCreate;
@@ -49,6 +51,12 @@ type CreationFormProps = {
     setCameraFixed: React.Dispatch<React.SetStateAction<boolean>>;
     referenceUrls: string[];
     setReferenceUrls: React.Dispatch<React.SetStateAction<string[]>>;
+    lastFrameUrl: string;
+    setLastFrameUrl: React.Dispatch<React.SetStateAction<string>>;
+    seed: number | undefined;
+    setSeed: React.Dispatch<React.SetStateAction<number | undefined>>;
+    watermark: boolean;
+    setWatermark: React.Dispatch<React.SetStateAction<boolean>>;
     /** Uploads a local image, resolving to its public URL. Absent = URL-only mode. */
     onUploadImage?: (file: File) => Promise<string>;
     /** Rewrites the prompt via the gateway's chat API. Absent = button hidden. */
@@ -62,6 +70,8 @@ const RATIO_LABELS: Record<VideoRatio, string> = {
     '4:3': '4:3 · Classic',
     '21:9': '21:9 · Cinematic'
 };
+
+const CAMERA_TEMPLATES = PROMPT_TEMPLATE_CATEGORIES.find((category) => category.id === 'camera')?.templates ?? [];
 
 export function CreationForm({
     onSubmit,
@@ -82,6 +92,12 @@ export function CreationForm({
     setCameraFixed,
     referenceUrls,
     setReferenceUrls,
+    lastFrameUrl,
+    setLastFrameUrl,
+    seed,
+    setSeed,
+    watermark,
+    setWatermark,
     onUploadImage,
     onOptimizePrompt
 }: CreationFormProps) {
@@ -94,6 +110,7 @@ export function CreationForm({
 
     const [isInspirationOpen, setIsInspirationOpen] = React.useState(false);
     const [isOptimizing, setIsOptimizing] = React.useState(false);
+    const [isAdvancedOpen, setIsAdvancedOpen] = React.useState(false);
     const [optimizeError, setOptimizeError] = React.useState<string | null>(null);
     // The prompt as it was before the last AI rewrite, so Undo can restore it.
     const [promptBeforeOptimize, setPromptBeforeOptimize] = React.useState<string | null>(null);
@@ -130,11 +147,17 @@ export function CreationForm({
             resolution,
             seconds,
             generate_audio: generateAudio,
-            camera_fixed: cameraFixed
+            camera_fixed: cameraFixed,
+            seed,
+            watermark
         };
         const refs = referenceUrls.map((u) => u.trim()).filter(Boolean);
         if (refs.length === 1) {
             formData.input_reference_url = refs[0];
+            const lastFrame = lastFrameUrl.trim();
+            if (lastFrame) {
+                formData.last_frame_url = lastFrame;
+            }
         } else if (refs.length > 1) {
             formData.reference_image_urls = refs;
         }
@@ -203,6 +226,27 @@ export function CreationForm({
                             disabled={isLoading}
                             className='min-h-[100px] resize-none rounded-md border border-white/20 bg-black text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
                         />
+                        {CAMERA_TEMPLATES.length > 0 && (
+                            <div className='flex items-center gap-2 overflow-hidden'>
+                                <span className='shrink-0 text-xs text-white/40'>Camera:</span>
+                                <div className='flex min-w-0 flex-1 gap-1.5 overflow-x-auto pb-1'>
+                                    {CAMERA_TEMPLATES.map((template) => (
+                                        <button
+                                            key={template.label}
+                                            type='button'
+                                            onClick={() => {
+                                                setPrompt((current) => applyPromptTemplate(current, template));
+                                                setPromptBeforeOptimize(null);
+                                            }}
+                                            disabled={isLoading}
+                                            title={template.text}
+                                            className='shrink-0 rounded-full border border-white/15 bg-white/5 px-2.5 py-1 text-xs text-white/70 transition-colors hover:border-white/30 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-40'>
+                                            {template.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                         {optimizeError && <p className='text-xs text-red-400'>{optimizeError}</p>}
                         <p className='text-xs text-white/40'>
                             Describe: shot type, subject, action, setting, and lighting for best results.
@@ -363,10 +407,70 @@ export function CreationForm({
                         </div>
                     </div>
 
+                    <div className='rounded-md border border-white/10 bg-white/[0.03]'>
+                        <button
+                            type='button'
+                            onClick={() => setIsAdvancedOpen((open) => !open)}
+                            className='flex w-full items-center justify-between px-3 py-2 text-left text-sm text-white/80 transition-colors hover:bg-white/5'
+                            aria-expanded={isAdvancedOpen}>
+                            <span>Advanced</span>
+                            <ChevronDown
+                                className={cn(
+                                    'h-4 w-4 text-white/50 transition-transform',
+                                    isAdvancedOpen && 'rotate-180'
+                                )}
+                            />
+                        </button>
+                        {isAdvancedOpen && (
+                            <div className='space-y-4 border-t border-white/10 p-3'>
+                                <div className='space-y-2'>
+                                    <Label htmlFor='seed-input' className='text-white/80'>
+                                        Seed
+                                    </Label>
+                                    <Input
+                                        id='seed-input'
+                                        type='number'
+                                        step={1}
+                                        inputMode='numeric'
+                                        placeholder='Random'
+                                        value={seed ?? ''}
+                                        onChange={(e) => {
+                                            const value = e.target.value.trim();
+                                            if (!value) {
+                                                setSeed(undefined);
+                                                return;
+                                            }
+                                            const parsed = Number(value);
+                                            if (Number.isFinite(parsed)) {
+                                                setSeed(Math.trunc(parsed));
+                                            }
+                                        }}
+                                        disabled={isLoading}
+                                        className='rounded-md border border-white/20 bg-black text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
+                                    />
+                                </div>
+                                <div className='flex items-center space-x-2'>
+                                    <Checkbox
+                                        id='watermark'
+                                        checked={watermark}
+                                        onCheckedChange={(checked) => setWatermark(checked === true)}
+                                        disabled={isLoading}
+                                        className='border-white/40 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black'
+                                    />
+                                    <Label htmlFor='watermark' className='cursor-pointer text-white/80'>
+                                        Watermark
+                                    </Label>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
                     <ReferenceImagesInput
                         urls={referenceUrls}
                         onChange={setReferenceUrls}
                         maxImages={refCap}
+                        lastFrameUrl={lastFrameUrl}
+                        onLastFrameChange={setLastFrameUrl}
                         onUpload={onUploadImage}
                         disabled={isLoading}
                     />

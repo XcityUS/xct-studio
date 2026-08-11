@@ -76,18 +76,24 @@ export const PROMPT_TEMPLATE_CATEGORIES: PromptTemplateCategory[] = [
     },
     {
         id: 'camera',
-        label: 'Camera',
+        label: 'Camera moves',
         templates: [
-            { label: 'Slow push-in', mode: 'append', text: 'camera slowly pushes in toward the subject' },
-            { label: 'Pull back reveal', mode: 'append', text: 'camera pulls back to reveal the full scene' },
-            { label: 'Orbit', mode: 'append', text: 'camera orbits smoothly around the subject' },
-            { label: 'Crane up', mode: 'append', text: 'camera cranes up from ground level to a high angle' },
-            { label: 'Tracking shot', mode: 'append', text: 'smooth tracking shot following the subject' },
-            { label: 'Handheld', mode: 'append', text: 'energetic handheld camera with slight shake' },
-            { label: 'Dolly zoom', mode: 'append', text: 'dolly zoom, background warping while the subject stays fixed' },
-            { label: 'FPV fly-through', mode: 'append', text: 'fast FPV drone fly-through' },
-            { label: 'Low angle', mode: 'append', text: 'dramatic low-angle shot looking up' },
-            { label: 'Top-down', mode: 'append', text: "top-down bird's-eye view" }
+            { label: 'Crash zoom', mode: 'append', text: 'sudden crash zoom into the subject for dramatic impact' },
+            { label: 'Slow dolly-in', mode: 'append', text: 'slow dolly-in with steady cinematic tension' },
+            { label: 'Orbit arc', mode: 'append', text: 'smooth orbiting arc shot around the subject' },
+            { label: 'Whip pan', mode: 'append', text: 'rapid whip pan with clean motion blur into the next beat' },
+            { label: 'Crane rise', mode: 'append', text: 'camera cranes upward from ground level into a sweeping high angle' },
+            { label: 'FPV fly-through', mode: 'append', text: 'fast FPV fly-through weaving through the environment' },
+            { label: 'Handheld doc', mode: 'append', text: 'natural handheld documentary camera with subtle human movement' },
+            { label: 'Dolly zoom', mode: 'append', text: 'dolly zoom vertigo effect, background warping while the subject holds' },
+            { label: 'Tracking shot', mode: 'append', text: 'smooth tracking shot following alongside the subject' },
+            { label: 'Top-down reveal', mode: 'append', text: 'top-down reveal that slowly uncovers the full composition' },
+            { label: 'Earth zoom-out', mode: 'append', text: 'camera zooms out from the scene into a vast earth-scale view' },
+            { label: 'Rack focus', mode: 'append', text: 'rack focus shifting attention from foreground detail to the subject' },
+            { label: 'Snorricam', mode: 'append', text: 'snorricam shot locked to the subject as the world moves behind them' },
+            { label: 'Speed ramp', mode: 'append', text: 'speed ramp from slow motion into a fast kinetic camera move' },
+            { label: 'Static locked-off', mode: 'append', text: 'static locked-off camera with disciplined symmetrical framing' },
+            { label: 'Push-in close-up', mode: 'append', text: 'controlled push-in ending on an intimate close-up' }
         ]
     },
     {

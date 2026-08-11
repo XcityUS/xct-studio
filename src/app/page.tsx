@@ -47,7 +47,7 @@ import { optimizePrompt } from '@/lib/prompt-optimizer';
 import { estimateVideoProgress } from '@/lib/progress';
 import { reconcilePreset } from '@/lib/gallery-preset';
 import type { GalleryItem } from '@/lib/gallery';
-import { captureVideoPoster } from '@/lib/thumbnail';
+import { captureVideoLastFrame, captureVideoPoster } from '@/lib/thumbnail';
 import { XCITY_SSO_ENABLED, xcityLoginHref } from '@/lib/xcity-sso';
 import { useMediaArchive } from '@/hooks/use-media-archive';
 import { useVideoHistory } from '@/hooks/use-video-history';
@@ -73,6 +73,9 @@ export default function HomePage() {
     const [createAudio, setCreateAudio] = React.useState(true);
     const [createCameraFixed, setCreateCameraFixed] = React.useState(false);
     const [createReferenceUrls, setCreateReferenceUrls] = React.useState<string[]>([]);
+    const [createLastFrameUrl, setCreateLastFrameUrl] = React.useState('');
+    const [createSeed, setCreateSeed] = React.useState<number | undefined>(undefined);
+    const [createWatermark, setCreateWatermark] = React.useState(false);
 
     const { apiKey, keyRef, ssoStatus, ssoError, attemptSso, resolveKey, saveManualKey, invalidateKey } = useXcityKey();
     const { history, isInitialLoad, addItem, updateItem, removeItem, clearAll } = useVideoHistory();
@@ -92,7 +95,13 @@ export default function HomePage() {
         setCreateResolution(p.resolution);
         setCreateSeconds(p.seconds);
         setCreateAudio(p.generate_audio);
-        setCreateReferenceUrls(p.input_reference_url ? [p.input_reference_url] : []);
+        setCreateCameraFixed(p.camera_fixed ?? false);
+        setCreateReferenceUrls(
+            p.reference_image_urls ?? (p.input_reference_url ? [p.input_reference_url] : [])
+        );
+        setCreateLastFrameUrl(p.input_reference_url ? p.last_frame_url ?? '' : '');
+        setCreateSeed(p.seed);
+        setCreateWatermark(p.watermark ?? false);
         setError(p.adjusted.length ? `Adjusted for ${p.model}: ${p.adjusted.join(', ')}` : null);
         creationFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, []);
@@ -101,11 +110,18 @@ export default function HomePage() {
         setCreateModel(item.params.model);
         setCreateRatio(item.params.ratio);
         setCreateReferenceUrls([frameUrl]);
+        setCreateLastFrameUrl('');
         // Leave the prompt to the user: describing the motion is the point of
         // image-to-video, and inheriting the original prompt fights that.
         setCreatePrompt('');
         creationFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, []);
+
+    React.useEffect(() => {
+        if (createReferenceUrls.length !== 1 && createLastFrameUrl) {
+            setCreateLastFrameUrl('');
+        }
+    }, [createReferenceUrls.length, createLastFrameUrl]);
 
     // One service for the app's lifetime: it reads the key through the ref at
     // call time, so it never needs rebuilding when the key arrives or rotates.
@@ -174,6 +190,7 @@ export default function HomePage() {
             }
 
             setCreateReferenceUrls([url]);
+            setCreateLastFrameUrl('');
             setActiveTab('video');
             window.scrollTo({ top: 0, behavior: 'smooth' });
         },
@@ -417,6 +434,9 @@ export default function HomePage() {
         if (formData.input_reference_url) {
             formData.input_reference_url = rebase(formData.input_reference_url);
         }
+        if (formData.last_frame_url) {
+            formData.last_frame_url = rebase(formData.last_frame_url);
+        }
         if (formData.reference_image_urls) {
             formData.reference_image_urls = formData.reference_image_urls.map(rebase);
         }
@@ -428,7 +448,14 @@ export default function HomePage() {
         // The request gets the inlined copies; history keeps the URLs (a
         // multi-MB data URI would blow the localStorage quota).
         const requestParams: CreationFormData = { ...formData };
-        const refUrls = formData.reference_image_urls ?? (formData.input_reference_url ? [formData.input_reference_url] : []);
+        const refUrls =
+            formData.reference_image_urls ??
+            (formData.input_reference_url
+                ? [
+                      formData.input_reference_url,
+                      ...(formData.last_frame_url ? [formData.last_frame_url] : [])
+                  ]
+                : []);
         if (refUrls.length) {
             const inlined: string[] = [];
             let totalChars = 0;
@@ -463,8 +490,11 @@ export default function HomePage() {
             }
             if (formData.reference_image_urls) {
                 requestParams.reference_image_urls = inlined;
-            } else {
+            } else if (formData.input_reference_url) {
                 requestParams.input_reference_url = inlined[0];
+                if (formData.last_frame_url) {
+                    requestParams.last_frame_url = inlined[1];
+                }
             }
         }
 
@@ -552,7 +582,8 @@ export default function HomePage() {
             resolution: parsed?.resolution ?? DEFAULT_RESOLUTION,
             seconds: clampSeconds(item.seconds, model),
             generate_audio: true,
-            camera_fixed: false
+            camera_fixed: false,
+            watermark: false
         };
     }, []);
 
@@ -567,9 +598,11 @@ export default function HomePage() {
             setCreateSeconds(params.seconds);
             setCreateAudio(params.generate_audio);
             setCreateCameraFixed(params.camera_fixed ?? false);
-            setCreateReferenceUrls(
-                params.reference_image_urls ?? (params.input_reference_url ? [params.input_reference_url] : [])
-            );
+            const refs = params.reference_image_urls ?? (params.input_reference_url ? [params.input_reference_url] : []);
+            setCreateReferenceUrls(refs);
+            setCreateLastFrameUrl(refs.length === 1 ? params.last_frame_url ?? '' : '');
+            setCreateSeed(params.seed);
+            setCreateWatermark(params.watermark ?? false);
             window.scrollTo({ top: 0, behavior: 'smooth' });
         },
         [buildParamsFromItem]
@@ -580,6 +613,79 @@ export default function HomePage() {
         void handleCreateVideo(buildParamsFromItem(item));
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
+
+    /** 续片 — continue a completed video from its final frame. */
+    const handleExtendVideo = React.useCallback(
+        async (item: VideoMetadata) => {
+            setError(null);
+
+            try {
+                if (!(await mediaArchiveEnabled())) {
+                    setError('Extend requires media storage to be configured');
+                    return;
+                }
+
+                const record = await db.videos.get(item.id);
+                let videoBlob = record?.blob;
+                if (!videoBlob) {
+                    const src = item.storedUrl ?? getVideoSrc(item.id);
+                    if (!src) {
+                        throw new Error('Video source not found. Select the video from History and try again.');
+                    }
+                    const res = await fetch(src);
+                    if (!res.ok) {
+                        throw new Error(`Could not load the video source (${res.status}).`);
+                    }
+                    videoBlob = await res.blob();
+                }
+
+                const frameBlob = await captureVideoLastFrame(videoBlob);
+                if (!frameBlob) {
+                    throw new Error('Could not capture the last frame from this video.');
+                }
+
+                const frameFile = new File([frameBlob], `${item.id}-last-frame.webp`, {
+                    type: frameBlob.type || 'image/webp'
+                });
+                const frameUrl = await handleUploadImage(frameFile);
+                const params = buildParamsFromItem(item);
+
+                setCreateModel(params.model);
+                setCreatePrompt('');
+                setCreateRatio(params.ratio);
+                setCreateResolution(params.resolution);
+                setCreateSeconds(params.seconds);
+                setCreateAudio(params.generate_audio);
+                setCreateCameraFixed(params.camera_fixed ?? false);
+                setCreateReferenceUrls([frameUrl]);
+                setCreateLastFrameUrl('');
+                setCreateSeed(params.seed);
+                setCreateWatermark(params.watermark ?? false);
+                setActiveTab('video');
+                creationFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } catch (err) {
+                console.error('Error extending video:', err);
+                if (err instanceof InvalidApiKeyError) {
+                    handleInvalidApiKey(err.message);
+                } else {
+                    setError(err instanceof Error ? err.message : 'Failed to extend video');
+                }
+            }
+        },
+        [buildParamsFromItem, getVideoSrc, handleInvalidApiKey, handleUploadImage]
+    );
+
+    const handleExtendCurrentVideo = React.useCallback(
+        (videoId: string) => {
+            const item = history.find((candidate) => candidate.id === videoId);
+            if (!item) {
+                setError('Could not find this video in history.');
+                return;
+            }
+            void handleExtendVideo(item);
+        },
+        [history, handleExtendVideo]
+    );
 
     const handleHistorySelect = (item: VideoMetadata) => {
         setCurrentJobId(item.id);
@@ -767,6 +873,12 @@ export default function HomePage() {
                                     setCameraFixed={setCreateCameraFixed}
                                     referenceUrls={createReferenceUrls}
                                     setReferenceUrls={setCreateReferenceUrls}
+                                    lastFrameUrl={createLastFrameUrl}
+                                    setLastFrameUrl={setCreateLastFrameUrl}
+                                    seed={createSeed}
+                                    setSeed={setCreateSeed}
+                                    watermark={createWatermark}
+                                    setWatermark={setCreateWatermark}
                                     onUploadImage={uploadEnabled ? handleUploadImage : undefined}
                                     onOptimizePrompt={handleOptimizePrompt}
                                 />
@@ -788,6 +900,7 @@ export default function HomePage() {
                                 currentJob ? currentJob.status === 'queued' || currentJob.status === 'in_progress' : false
                             }
                             onDownload={handleDownloadVideo}
+                            onExtend={handleExtendCurrentVideo}
                         />
                     </div>
                 </div>
@@ -805,6 +918,7 @@ export default function HomePage() {
                         onDeleteItem={handleDeleteVideo}
                         onReuseItem={handleReuseItem}
                         onRegenerateItem={handleRegenerateItem}
+                        onExtendItem={handleExtendVideo}
                     />
                 </div>
         </>
