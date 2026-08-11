@@ -3,7 +3,7 @@
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import type { UserAsset } from '@/lib/media-archive';
-import { Check, Copy, ImagePlus, Loader2, Music, RefreshCw, Trash2 } from 'lucide-react';
+import { Check, Copy, ImagePlus, Loader2, Music, RefreshCw, Trash2, Video } from 'lucide-react';
 import * as React from 'react';
 
 type AssetsPanelProps = {
@@ -12,6 +12,8 @@ type AssetsPanelProps = {
     deleteAsset: (key: string) => Promise<void>;
     /** Loads an image asset into the video form's reference list. */
     onUseAsReference: (url: string) => void;
+    /** Loads a video asset into the video form's reference video list. */
+    onUseAsReferenceVideo: (url: string) => void;
     /** The panel fetches lazily — only once it has actually been shown. */
     active: boolean;
 };
@@ -46,10 +48,16 @@ function CopyUrlButton({ url }: { url: string }) {
 
 /**
  * Cloud assets stored by the media worker under the user's namespace:
- * uploaded reference media and R2-archived videos. Images can be pulled
- * straight back into the creation form as references.
+ * uploaded reference media and R2-archived videos. Images and videos can be
+ * pulled straight back into the creation form as references.
  */
-export function AssetsPanel({ loadAssets, deleteAsset, onUseAsReference, active }: AssetsPanelProps) {
+export function AssetsPanel({
+    loadAssets,
+    deleteAsset,
+    onUseAsReference,
+    onUseAsReferenceVideo,
+    active
+}: AssetsPanelProps) {
     const [assets, setAssets] = React.useState<UserAsset[] | null>(null);
     const [isLoading, setIsLoading] = React.useState(false);
     const [error, setError] = React.useState<string | null>(null);
@@ -180,18 +188,30 @@ export function AssetsPanel({ loadAssets, deleteAsset, onUseAsReference, active 
                                         <div className='mb-1 truncate text-xs text-white/80'>{asset.name}</div>
                                     )}
                                     <div className='flex items-center justify-between text-[10px] text-white/40'>
-                                        <span>{asset.uploaded ? new Date(asset.uploaded).toLocaleDateString() : ''}</span>
+                                        <span>
+                                            {asset.uploaded ? new Date(asset.uploaded).toLocaleDateString() : ''}
+                                        </span>
                                         <span>{formatBytes(asset.bytes)}</span>
                                     </div>
-                                    <div className='mt-1.5 flex items-center gap-1'>
+                                    <div className='mt-1.5 flex flex-wrap items-center gap-1'>
                                         {asset.kind === 'image' && (
                                             <button
                                                 type='button'
                                                 title='Add to the video form as a reference image'
                                                 onClick={() => onUseAsReference(asset.url)}
-                                                className='flex flex-1 items-center justify-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white'>
+                                                className='flex min-w-[4rem] flex-1 items-center justify-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white'>
                                                 <ImagePlus size={11} />
                                                 Use as ref
+                                            </button>
+                                        )}
+                                        {asset.kind === 'video' && (
+                                            <button
+                                                type='button'
+                                                title='Add to the video form as a reference video'
+                                                onClick={() => onUseAsReferenceVideo(asset.url)}
+                                                className='flex min-w-[5rem] flex-1 items-center justify-center gap-1 rounded bg-white/10 px-1 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white'>
+                                                <Video size={11} />
+                                                Use as ref video
                                             </button>
                                         )}
                                         <CopyUrlButton url={asset.url} />

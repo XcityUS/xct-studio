@@ -7,7 +7,7 @@
  * our own origin, with CORS and range support.
  *
  *   POST /archive        { video_id, source_url }   -> { url, key, bytes, cached }
- *   POST /upload         <raw image/audio bytes>    -> { url, key, bytes, cached }
+ *   POST /upload         <raw image/audio/video bytes> -> { url, key, bytes, cached }
  *   GET  /assets                                    -> { assets: [{key, url, bytes, uploaded, kind, name}] }
  *   POST /assets/delete  { key }                    -> { ok }
  *   GET  /media/<key>                               -> the file (public, immutable)
@@ -27,23 +27,21 @@ function corsHeaders(origin, env) {
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean);
-    const ok =
-        origin &&
-        (allowed.includes(origin) || /^https?:\/\/localhost(:\d+)?$/.test(origin));
+    const ok = origin && (allowed.includes(origin) || /^https?:\/\/localhost(:\d+)?$/.test(origin));
     if (!ok) return {};
     return {
         'Access-Control-Allow-Origin': origin,
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Asset-Name',
         'Access-Control-Max-Age': '600',
-        Vary: 'Origin',
+        Vary: 'Origin'
     };
 }
 
 function json(body, status, extraHeaders) {
     return new Response(JSON.stringify(body), {
         status,
-        headers: { ...JSON_HEADERS, ...extraHeaders },
+        headers: { ...JSON_HEADERS, ...extraHeaders }
     });
 }
 
@@ -55,7 +53,7 @@ function json(body, status, extraHeaders) {
 async function resolveOwner(bearer, env) {
     const base = (env.LITELLM_BASE_URL || '').replace(/\/+$/, '');
     const res = await fetch(`${base}/key/info`, {
-        headers: { Authorization: `Bearer ${bearer}` },
+        headers: { Authorization: `Bearer ${bearer}` }
     });
     if (!res.ok) return null;
     const body = await res.json().catch(() => ({}));
@@ -75,7 +73,9 @@ async function sha256Hex(value) {
 
 /** Video ids are gateway-issued base64; keep only what is safe in a path. */
 function safeVideoId(id) {
-    return String(id).replace(/[^A-Za-z0-9._-]/g, '').slice(0, 120);
+    return String(id)
+        .replace(/[^A-Za-z0-9._-]/g, '')
+        .slice(0, 120);
 }
 
 /** Upload types accepted for reference media. */
@@ -86,7 +86,10 @@ const UPLOAD_TYPES = {
     'audio/mpeg': 'mp3',
     'audio/wav': 'wav',
     'audio/mp4': 'm4a',
-    'audio/x-m4a': 'm4a'
+    'audio/x-m4a': 'm4a',
+    'video/mp4': 'mp4',
+    'video/quicktime': 'mov',
+    'video/webm': 'webm'
 };
 
 function assetNameFromHeader(request) {
@@ -105,9 +108,9 @@ function assetNameFromHeader(request) {
 /**
  * POST /upload — store a reference media file and hand back a public URL.
  *
- * The gateway's image-to-video takes a *URL*, not bytes, so users picking a
- * local file need somewhere public to put it first. Content-addressed
- * (sha256), so re-uploading the same image is free and idempotent.
+ * The gateway takes a URL for picked local reference media, so users need
+ * somewhere public to put it first. Content-addressed (sha256), so
+ * re-uploading the same media is free and idempotent.
  */
 async function handleUpload(request, env, cors) {
     const auth = request.headers.get('authorization') || '';
@@ -119,14 +122,23 @@ async function handleUpload(request, env, cors) {
     const contentType = (request.headers.get('content-type') || '').split(';')[0].trim();
     const ext = UPLOAD_TYPES[contentType];
     if (!ext) {
-        return json({ error: `unsupported content-type (want one of: ${Object.keys(UPLOAD_TYPES).join(', ')})` }, 415, cors);
+        return json(
+            { error: `unsupported content-type (want one of: ${Object.keys(UPLOAD_TYPES).join(', ')})` },
+            415,
+            cors
+        );
     }
 
     const body = await request.arrayBuffer();
     const isAudio = contentType.startsWith('audio/');
-    // MAX_UPLOAD_BYTES (prod: 10 MB) governs images; audio gets a fixed
-    // 15 MB ceiling to match the client-side cap in media-archive.ts.
-    const maxUpload = isAudio ? 15 * 1024 * 1024 : Number(env.MAX_UPLOAD_BYTES || 0) || 10 * 1024 * 1024;
+    const isVideo = contentType.startsWith('video/');
+    // MAX_UPLOAD_BYTES (prod: 10 MB) governs images; audio/video get fixed
+    // ceilings to match the client-side caps in media-archive.ts.
+    const maxUpload = isVideo
+        ? 20 * 1024 * 1024
+        : isAudio
+          ? 15 * 1024 * 1024
+          : Number(env.MAX_UPLOAD_BYTES || 0) || 10 * 1024 * 1024;
     if (body.byteLength === 0) {
         return json({ error: 'empty body' }, 400, cors);
     }
@@ -140,7 +152,8 @@ async function handleUpload(request, env, cors) {
     }
 
     const hash = await sha256Hex(body);
-    const key = `${owner}/${isAudio ? 'audio' : 'refs'}/${hash}.${ext}`;
+    const prefix = isVideo ? 'videos' : isAudio ? 'audio' : 'refs';
+    const key = `${owner}/${prefix}/${hash}.${ext}`;
     const publicUrl = `${new URL(request.url).origin}/media/${key}`;
 
     const existing = await env.XCITY_MEDIA.head(key);
@@ -152,9 +165,9 @@ async function handleUpload(request, env, cors) {
     await env.XCITY_MEDIA.put(key, body, {
         httpMetadata: {
             contentType,
-            cacheControl: 'public, max-age=31536000, immutable',
+            cacheControl: 'public, max-age=31536000, immutable'
         },
-        ...(name ? { customMetadata: { name } } : {}),
+        ...(name ? { customMetadata: { name } } : {})
     });
 
     return json({ url: publicUrl, key, bytes: body.byteLength, cached: false }, 200, cors);
@@ -176,8 +189,9 @@ async function authOwner(request, env, cors) {
 
 /**
  * GET /assets — everything stored under the caller's namespace: uploaded
- * reference images (`<owner>/refs/…`), audio (`<owner>/audio/…`), and
- * archived videos (`<owner>/<id>.mp4`).
+ * reference images (`<owner>/refs/…`), audio (`<owner>/audio/…`),
+ * reference videos (`<owner>/videos/…`), and archived videos
+ * (`<owner>/<id>.mp4`).
  */
 async function handleAssetsList(request, env, cors) {
     const { owner, error } = await authOwner(request, env, cors);
@@ -193,21 +207,21 @@ async function handleAssetsList(request, env, cors) {
             prefix: `${owner}/`,
             limit: 1000,
             cursor,
-            include: ['customMetadata'],
+            include: ['customMetadata']
         });
         for (const obj of listed.objects) {
             const kind = obj.key.startsWith(`${owner}/refs/`)
                 ? 'image'
                 : obj.key.startsWith(`${owner}/audio/`)
-                    ? 'audio'
-                    : 'video';
+                  ? 'audio'
+                  : 'video';
             assets.push({
                 key: obj.key,
                 url: `${origin}/media/${obj.key}`,
                 bytes: obj.size,
                 uploaded: obj.uploaded ? new Date(obj.uploaded).toISOString() : null,
                 kind,
-                name: obj.customMetadata?.name ?? null,
+                name: obj.customMetadata?.name ?? null
             });
         }
         if (!listed.truncated) break;
@@ -302,12 +316,17 @@ async function handleArchive(request, env, cors) {
     const stored = await env.XCITY_MEDIA.put(key, upstream.body, {
         httpMetadata: {
             contentType: upstream.headers.get('content-type') || 'video/mp4',
-            cacheControl: 'public, max-age=31536000, immutable',
-        },
+            cacheControl: 'public, max-age=31536000, immutable'
+        }
     });
 
     return json(
-        { url: `${new URL(request.url).origin}/media/${key}`, key, bytes: stored?.size ?? declared ?? null, cached: false },
+        {
+            url: `${new URL(request.url).origin}/media/${key}`,
+            key,
+            bytes: stored?.size ?? declared ?? null,
+            cached: false
+        },
         200,
         cors
     );
@@ -380,5 +399,5 @@ export default {
         }
 
         return new Response('Not Found', { status: 404, headers: { ...cors, 'Cache-Control': 'no-store' } });
-    },
+    }
 };

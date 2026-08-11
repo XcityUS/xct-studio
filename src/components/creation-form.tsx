@@ -1,17 +1,20 @@
 'use client';
 
+import { PromptInspirationDialog } from '@/components/prompt-inspiration';
+import { ReferenceAudioInput } from '@/components/reference-audio-input';
+import { ReferenceImagesInput } from '@/components/reference-images-input';
+import { ReferenceVideosInput } from '@/components/reference-videos-input';
+import { ShotBuilderDialog, type ShotDraft } from '@/components/shot-builder';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { ReferenceAudioInput } from '@/components/reference-audio-input';
-import { ReferenceImagesInput } from '@/components/reference-images-input';
-import { ShotBuilderDialog, type ShotDraft } from '@/components/shot-builder';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
 import { Textarea } from '@/components/ui/textarea';
 import { calculateVideoCost } from '@/lib/cost-utils';
+import { PROMPT_TEMPLATE_CATEGORIES, applyPromptTemplate } from '@/lib/prompt-templates';
 import {
     RATIOS,
     RESOLUTIONS,
@@ -25,8 +28,6 @@ import {
     type VideoRatio,
     type VideoResolution
 } from '@/lib/seedance';
-import { PromptInspirationDialog } from '@/components/prompt-inspiration';
-import { PROMPT_TEMPLATE_CATEGORIES, applyPromptTemplate } from '@/lib/prompt-templates';
 import { cn } from '@/lib/utils';
 import type { VideoJobCreate } from '@/types/video';
 import { ChevronDown, Clapperboard, Lightbulb, Loader2, Sparkles, Undo2, Wand2 } from 'lucide-react';
@@ -57,6 +58,8 @@ type CreationFormProps = {
     setLastFrameUrl: React.Dispatch<React.SetStateAction<string>>;
     referenceAudioUrl: string;
     setReferenceAudioUrl: React.Dispatch<React.SetStateAction<string>>;
+    referenceVideoUrls: string[];
+    setReferenceVideoUrls: React.Dispatch<React.SetStateAction<string[]>>;
     seed: number | undefined;
     setSeed: React.Dispatch<React.SetStateAction<number | undefined>>;
     watermark: boolean;
@@ -65,6 +68,8 @@ type CreationFormProps = {
     onUploadImage?: (file: File) => Promise<string>;
     /** Uploads a local audio file, resolving to its public URL. Absent = URL-only mode. */
     onUploadAudio?: (file: File) => Promise<string>;
+    /** Uploads a local video file, resolving to its public URL. Absent = URL-only mode. */
+    onUploadVideo?: (file: File) => Promise<string>;
     /** Rewrites the prompt via the gateway's chat API. Absent = button hidden. */
     onOptimizePrompt?: (prompt: string) => Promise<string>;
     /** Splits a script into Seedance shot rows via the gateway's chat API. */
@@ -104,12 +109,15 @@ export function CreationForm({
     setLastFrameUrl,
     referenceAudioUrl,
     setReferenceAudioUrl,
+    referenceVideoUrls,
+    setReferenceVideoUrls,
     seed,
     setSeed,
     watermark,
     setWatermark,
     onUploadImage,
     onUploadAudio,
+    onUploadVideo,
     onOptimizePrompt,
     onBreakdownScript
 }: CreationFormProps) {
@@ -119,7 +127,9 @@ export function CreationForm({
     const refCap = maxReferenceImages(model);
     // Ratio is provider-derived only in first-frame mode (exactly one image).
     const isFirstFrameMode = referenceUrls.length === 1;
-    const showReferenceAudio = refCap > 1 && referenceUrls.length >= 2;
+    const showMultiReferenceMedia = refCap > 1 && referenceUrls.length >= 2;
+    const showReferenceAudio = showMultiReferenceMedia;
+    const showReferenceVideos = showMultiReferenceMedia;
 
     const [isInspirationOpen, setIsInspirationOpen] = React.useState(false);
     const [isShotBuilderOpen, setIsShotBuilderOpen] = React.useState(false);
@@ -177,6 +187,10 @@ export function CreationForm({
             const audio = referenceAudioUrl.trim();
             if (showReferenceAudio && audio) {
                 formData.reference_audio_url = audio;
+            }
+            const videos = referenceVideoUrls.map((u) => u.trim()).filter(Boolean);
+            if (showReferenceVideos && videos.length) {
+                formData.reference_video_urls = videos.slice(0, 2);
             }
         }
         onSubmit(formData);
@@ -363,9 +377,7 @@ export function CreationForm({
                                     ))}
                                 </SelectContent>
                             </Select>
-                            {isFirstFrameMode && (
-                                <p className='text-xs text-white/40'>Follows the reference image</p>
-                            )}
+                            {isFirstFrameMode && <p className='text-xs text-white/40'>Follows the reference image</p>}
                         </div>
 
                         <div className='space-y-2'>
@@ -519,6 +531,14 @@ export function CreationForm({
                             disabled={isLoading}
                         />
                     )}
+                    {showReferenceVideos && (
+                        <ReferenceVideosInput
+                            urls={referenceVideoUrls}
+                            onChange={setReferenceVideoUrls}
+                            onUpload={onUploadVideo}
+                            disabled={isLoading}
+                        />
+                    )}
                 </CardContent>
                 <CardFooter className='flex items-center gap-3 border-t border-white/10 p-4'>
                     <Button
@@ -539,8 +559,12 @@ export function CreationForm({
                     </Button>
                     {estimatedCost && (
                         <span
-                            className='whitespace-nowrap text-sm text-white/60'
-                            title={modelDef?.priceIsEstimate ? 'Provisional rate — BytePlus has not published pricing for this model yet' : undefined}>
+                            className='text-sm whitespace-nowrap text-white/60'
+                            title={
+                                modelDef?.priceIsEstimate
+                                    ? 'Provisional rate — BytePlus has not published pricing for this model yet'
+                                    : undefined
+                            }>
                             ≈ ${estimatedCost.totalCost.toFixed(2)}
                             {modelDef?.priceIsEstimate && <span className='ml-1 text-white/40'>est.</span>}
                         </span>
