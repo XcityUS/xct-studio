@@ -28,6 +28,7 @@ type ShotBuilderDialogProps = {
     isOpen: boolean;
     onOpenChange: (open: boolean) => void;
     referenceCount: number;
+    referenceLabels?: (string | null)[];
     onApply: (prompt: string) => void;
     onBreakdownScript?: (script: string) => Promise<ShotDraft[]>;
 };
@@ -85,6 +86,7 @@ export function ShotBuilderDialog({
     isOpen,
     onOpenChange,
     referenceCount,
+    referenceLabels,
     onApply,
     onBreakdownScript
 }: ShotBuilderDialogProps) {
@@ -279,19 +281,28 @@ export function ShotBuilderDialog({
                                         {referenceCount > 0 && (
                                             <div className='flex flex-wrap items-center gap-1.5'>
                                                 <span className='text-xs text-white/40'>Insert reference:</span>
-                                                {Array.from({ length: referenceCount }, (_, i) => i + 1).map((n) => (
-                                                    <button
-                                                        key={n}
-                                                        type='button'
-                                                        onClick={() =>
-                                                            updateShot(index, {
-                                                                description: appendImageToken(shot.description, n)
-                                                            })
-                                                        }
-                                                        className='rounded-full border border-white/15 bg-white/5 px-2 py-1 text-xs text-white/70 transition-colors hover:border-white/30 hover:bg-white/10 hover:text-white'>
-                                                        [Image {n}]
-                                                    </button>
-                                                ))}
+                                                {Array.from({ length: referenceCount }, (_, i) => i + 1).map((n) => {
+                                                    const label = referenceLabels?.[n - 1]?.trim();
+                                                    return (
+                                                        <button
+                                                            key={n}
+                                                            type='button'
+                                                            title={label ? `[Image ${n}] ${label}` : `[Image ${n}]`}
+                                                            onClick={() =>
+                                                                updateShot(index, {
+                                                                    description: appendImageToken(shot.description, n)
+                                                                })
+                                                            }
+                                                            className='inline-flex max-w-full items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2 py-1 text-xs text-white/70 transition-colors hover:border-white/30 hover:bg-white/10 hover:text-white'>
+                                                            <span className='shrink-0'>[Image {n}]</span>
+                                                            {label && (
+                                                                <span className='max-w-24 truncate text-white/45'>
+                                                                    {label}
+                                                                </span>
+                                                            )}
+                                                        </button>
+                                                    );
+                                                })}
                                             </div>
                                         )}
 

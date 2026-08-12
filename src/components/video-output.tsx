@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { estimateVideoProgress } from '@/lib/progress';
-import type { VideoJob } from '@/types/video';
+import type { VideoJob, VideoMetadata } from '@/types/video';
 import {
     AlertCircle,
     CheckCircle,
@@ -18,6 +18,7 @@ import {
     Pause,
     Play,
     Rocket,
+    Share2,
     Sparkles,
     StepForward
 } from 'lucide-react';
@@ -32,6 +33,9 @@ type VideoOutputProps = {
     onDownload?: (videoId: string) => void;
     onExtend?: (videoId: string) => void;
     onFinalize?: (videoId: string) => void;
+    onShare?: (item: VideoMetadata) => void;
+    shareItem?: VideoMetadata;
+    isSharePending?: boolean;
 };
 
 function ClickablePrompt({ prompt }: { prompt: string }) {
@@ -105,7 +109,10 @@ export function VideoOutput({
     onSendToRemix,
     onDownload,
     onExtend,
-    onFinalize
+    onFinalize,
+    onShare,
+    shareItem,
+    isSharePending
 }: VideoOutputProps) {
     const displayProgress = useDisplayProgress(job);
 
@@ -165,6 +172,12 @@ export function VideoOutput({
     const handleFinalize = () => {
         if (job && onFinalize) {
             onFinalize(job.id);
+        }
+    };
+
+    const handleShare = () => {
+        if (shareItem && onShare) {
+            onShare(shareItem);
         }
     };
 
@@ -314,6 +327,25 @@ export function VideoOutput({
                                     className='min-w-0 flex-1 basis-36 border-white/20 bg-black text-white hover:bg-white/10 hover:text-white'>
                                     <Rocket className='mr-2 h-4 w-4' />
                                     Finalize
+                                </Button>
+                            )}
+                            {onShare && shareItem && (
+                                <Button
+                                    onClick={handleShare}
+                                    disabled={!shareItem.storedUrl || isSharePending}
+                                    title={
+                                        shareItem.storedUrl
+                                            ? 'Share this video'
+                                            : 'Archive to cloud first — wait a moment'
+                                    }
+                                    variant='outline'
+                                    className='min-w-0 flex-1 basis-36 border-white/20 bg-black text-white hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-40'>
+                                    {isSharePending ? (
+                                        <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                                    ) : (
+                                        <Share2 className='mr-2 h-4 w-4' />
+                                    )}
+                                    Share
                                 </Button>
                             )}
                             {onSendToRemix && (

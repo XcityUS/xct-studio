@@ -25,6 +25,8 @@ bucket_name = "xcity-media"
 LITELLM_BASE_URL = "https://tokenhub.xcity.one"
 # Comma-separated exact origins allowed to call /archive from a browser.
 ALLOWED_ORIGINS = "https://studio.xcity.ai,https://chat.xcity.ai,https://xcity.ai"
+STUDIO_URL = "https://studio.xcity.ai"
+ADMIN_USER_IDS = ""
 # Refuse to copy anything larger than this (bytes). 12s of 1080p Seedance is
 # well under 100 MB; the cap is a runaway guard, not a product limit.
 MAX_BYTES = "209715200"
