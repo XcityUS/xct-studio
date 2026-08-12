@@ -120,3 +120,22 @@ export async function captureVideoPoster(videoBlob: Blob): Promise<Blob | undefi
 export async function captureVideoLastFrame(videoBlob: Blob): Promise<Blob | undefined> {
     return captureFrameAt(videoBlob, (duration) => duration - 0.05);
 }
+
+export async function getVideoDuration(videoBlob: Blob): Promise<number> {
+    const url = URL.createObjectURL(videoBlob);
+    try {
+        const video = document.createElement('video');
+        video.muted = true;
+        video.playsInline = true;
+        video.preload = 'metadata';
+        video.src = url;
+
+        if (video.readyState < HTMLMediaElement.HAVE_METADATA) {
+            await waitForVideoEvent(video, 'loadedmetadata', 'duration read');
+        }
+
+        return Number.isFinite(video.duration) ? Math.max(0, video.duration) : 0;
+    } finally {
+        URL.revokeObjectURL(url);
+    }
+}

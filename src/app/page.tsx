@@ -46,6 +46,7 @@ import {
     publishToCommunity,
     reviewCommunityItem,
     type CommunityReviewAction,
+    type UserAsset,
     uploadReferenceAudio,
     uploadReferenceImage,
     uploadReferenceVideo,
@@ -435,6 +436,14 @@ export default function HomePage() {
             throw new Error('Sign in at xcity.ai (or set an API key) to view your assets.');
         }
         return listUserAssets(key);
+    }, [resolveKey]);
+
+    const handleLoadAssemblyAudioAssets = React.useCallback(async (): Promise<UserAsset[]> => {
+        const key = await resolveKey();
+        if (!key) {
+            throw new Error('Sign in at xcity.ai (or set an API key) to view your audio assets.');
+        }
+        return (await listUserAssets(key)).filter((asset) => asset.kind === 'audio');
     }, [resolveKey]);
 
     const handleLoadCommunity = React.useCallback(() => {
@@ -1400,6 +1409,7 @@ export default function HomePage() {
                     onExtendItem={handleExtendVideo}
                     onShareItem={handleShareItem}
                     sharePendingId={sharingVideoId}
+                    loadAudioAssets={handleLoadAssemblyAudioAssets}
                 />
             </div>
         </>
