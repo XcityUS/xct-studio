@@ -1,5 +1,6 @@
 'use client';
 
+import { AssemblyEditor } from '@/components/assembly-editor';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -12,8 +13,9 @@ import {
     DialogFooter,
     DialogClose
 } from '@/components/ui/dialog';
-import { assembleClips } from '@/lib/assemble';
 import { db } from '@/lib/db';
+import type { CaptionSegment } from '@/lib/captions';
+import type { UserAsset } from '@/lib/media-archive';
 import { cn } from '@/lib/utils';
 import type { VideoMetadata, VideoJob } from '@/types/video';
 import {
@@ -55,6 +57,10 @@ type VideoHistoryPanelProps = {
     /** Share — create a public share page for this completed video. */
     onShareItem?: (item: VideoMetadata) => void;
     sharePendingId?: string | null;
+    /** Fetches user audio assets for the assembly editor's BGM picker. */
+    loadAudioAssets?: () => Promise<UserAsset[]>;
+    /** Transcribes an assembled film for the assembly editor's captions flow. */
+    onTranscribeVideo?: (blob: Blob) => Promise<CaptionSegment[]>;
 };
 
 /**
@@ -127,7 +133,9 @@ export function VideoHistoryPanel({
     onFinalizeItem,
     onExtendItem,
     onShareItem,
-    sharePendingId
+    sharePendingId,
+    loadAudioAssets,
+    onTranscribeVideo
 }: VideoHistoryPanelProps) {
     const [openCostDialogId, setOpenCostDialogId] = React.useState<string | null>(null);
     const [isTotalCostDialogOpen, setIsTotalCostDialogOpen] = React.useState(false);
@@ -136,9 +144,8 @@ export function VideoHistoryPanel({
     const [promptQuery, setPromptQuery] = React.useState('');
     const [isAssembleMode, setIsAssembleMode] = React.useState(false);
     const [selectedClipIds, setSelectedClipIds] = React.useState<string[]>([]);
-    const [isAssembling, setIsAssembling] = React.useState(false);
-    const [assembleProgress, setAssembleProgress] = React.useState<number | null>(null);
     const [assembleError, setAssembleError] = React.useState<string | null>(null);
+    const [isAssemblyEditorOpen, setIsAssemblyEditorOpen] = React.useState(false);
 
     /** Models actually present in history, for the filter row. */
     const modelsInHistory = React.useMemo(() => {
@@ -180,7 +187,7 @@ export function VideoHistoryPanel({
     const selectedSummary = selectedSizeLabel
         ? `${selectedItems.length} clips selected · ${selectedSizeLabel}`
         : `${selectedItems.length} clips selected`;
-    const canExportAssembly = selectedItems.length >= 2 && !hasMixedSelectedSizes && !isAssembling;
+    const canOpenAssemblyEditor = selectedItems.length >= 2 && !hasMixedSelectedSizes;
 
     const { totalCost, totalVideos, successfulVideos, failedVideos, billedVideos } = React.useMemo(() => {
         let cost = 0;
@@ -219,19 +226,16 @@ export function VideoHistoryPanel({
 
     const resetAssembleState = React.useCallback(() => {
         setSelectedClipIds([]);
-        setAssembleProgress(null);
         setAssembleError(null);
+        setIsAssemblyEditorOpen(false);
     }, []);
 
     const exitAssembleMode = React.useCallback(() => {
-        if (isAssembling) return;
         setIsAssembleMode(false);
         resetAssembleState();
-    }, [isAssembling, resetAssembleState]);
+    }, [resetAssembleState]);
 
     const toggleAssembleMode = React.useCallback(() => {
-        if (isAssembling) return;
-
         setIsAssembleMode((current) => {
             if (current) {
                 resetAssembleState();
@@ -241,7 +245,7 @@ export function VideoHistoryPanel({
 
             return !current;
         });
-    }, [isAssembling, resetAssembleState]);
+    }, [resetAssembleState]);
 
     React.useEffect(() => {
         setSelectedClipIds((current) => {
@@ -255,15 +259,15 @@ export function VideoHistoryPanel({
     }, [historyById, activeJobs]);
 
     React.useEffect(() => {
-        if (completedClipCount < 2 && isAssembleMode && !isAssembling) {
+        if (completedClipCount < 2 && isAssembleMode) {
             setIsAssembleMode(false);
             resetAssembleState();
         }
-    }, [completedClipCount, isAssembleMode, isAssembling, resetAssembleState]);
+    }, [completedClipCount, isAssembleMode, resetAssembleState]);
 
     const handleToggleClipSelection = React.useCallback(
         (item: VideoMetadata, isCompleted: boolean) => {
-            if (!isAssembleMode || !isCompleted || isAssembling) return;
+            if (!isAssembleMode || !isCompleted) return;
 
             setSelectedClipIds((current) => {
                 if (current.includes(item.id)) {
@@ -272,10 +276,9 @@ export function VideoHistoryPanel({
 
                 return [...current, item.id];
             });
-            setAssembleProgress(null);
             setAssembleError(null);
         },
-        [isAssembleMode, isAssembling]
+        [isAssembleMode]
     );
 
     const resolveClipBlob = React.useCallback(
@@ -298,7 +301,7 @@ export function VideoHistoryPanel({
         [getVideoSrc]
     );
 
-    const handleExportAssembly = React.useCallback(async () => {
+    const handleOpenAssemblyEditor = React.useCallback(() => {
         if (selectedItems.length < 2) {
             setAssembleError('Select at least two completed clips.');
             return;
@@ -309,38 +312,9 @@ export function VideoHistoryPanel({
             return;
         }
 
-        setIsAssembling(true);
         setAssembleError(null);
-        setAssembleProgress(0);
-
-        try {
-            const clips = await Promise.all(
-                selectedItems.map(async (item) => ({
-                    id: item.id,
-                    blob: await resolveClipBlob(item)
-                }))
-            );
-            const blob = await assembleClips(clips, setAssembleProgress);
-            const url = URL.createObjectURL(blob);
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-            const anchor = document.createElement('a');
-
-            try {
-                anchor.href = url;
-                anchor.download = `assembled-${timestamp}.mp4`;
-                document.body.appendChild(anchor);
-                anchor.click();
-            } finally {
-                document.body.removeChild(anchor);
-                setTimeout(() => URL.revokeObjectURL(url), 1000);
-            }
-        } catch (err) {
-            console.error('Error assembling clips:', err);
-            setAssembleError(err instanceof Error ? err.message : 'Failed to assemble clips.');
-        } finally {
-            setIsAssembling(false);
-        }
-    }, [hasMixedSelectedSizes, resolveClipBlob, selectedItems]);
+        setIsAssemblyEditorOpen(true);
+    }, [hasMixedSelectedSizes, selectedItems.length]);
 
     const handlePreviewEnter = React.useCallback((video: HTMLVideoElement) => {
         const tryPlay = () => {
@@ -383,6 +357,14 @@ export function VideoHistoryPanel({
 
     return (
         <Card className='flex h-full w-full flex-col overflow-hidden rounded-lg border border-white/10 bg-black'>
+            <AssemblyEditor
+                open={isAssemblyEditorOpen}
+                onOpenChange={setIsAssemblyEditorOpen}
+                items={selectedItems}
+                resolveClipBlob={resolveClipBlob}
+                loadAudioAssets={loadAudioAssets}
+                onTranscribeVideo={onTranscribeVideo}
+            />
             <CardHeader className='flex flex-row items-center justify-between gap-4 border-b border-white/10 px-4 py-3'>
                 <div className='flex items-center gap-2'>
                     <CardTitle className='text-lg font-medium text-white'>History</CardTitle>
@@ -450,7 +432,6 @@ export function VideoHistoryPanel({
                             variant='ghost'
                             size='sm'
                             onClick={toggleAssembleMode}
-                            disabled={isAssembling}
                             className={cn(
                                 'h-auto rounded-md px-2 py-1 text-white/60 hover:bg-white/10 hover:text-white',
                                 isAssembleMode && 'bg-white text-black hover:bg-white hover:text-black'
@@ -464,7 +445,6 @@ export function VideoHistoryPanel({
                             variant='ghost'
                             size='sm'
                             onClick={onClearHistory}
-                            disabled={isAssembling}
                             className='h-auto rounded-md px-2 py-1 text-white/60 hover:bg-white/10 hover:text-white'>
                             Clear
                         </Button>
@@ -860,19 +840,6 @@ export function VideoHistoryPanel({
                                                 Select completed clips in export order.
                                             </div>
                                         )}
-                                        {assembleProgress !== null && (
-                                            <div className='flex items-center gap-2 pt-1'>
-                                                <div className='h-1.5 w-full overflow-hidden rounded-full bg-white/10'>
-                                                    <div
-                                                        className='h-full rounded-full bg-white transition-all duration-200'
-                                                        style={{ width: `${Math.round(assembleProgress * 100)}%` }}
-                                                    />
-                                                </div>
-                                                <span className='w-9 text-right text-[11px] text-white/55'>
-                                                    {Math.round(assembleProgress * 100)}%
-                                                </span>
-                                            </div>
-                                        )}
                                     </div>
                                     <div className='flex shrink-0 items-center gap-2'>
                                         <Button
@@ -880,7 +847,6 @@ export function VideoHistoryPanel({
                                             size='sm'
                                             variant='ghost'
                                             onClick={exitAssembleMode}
-                                            disabled={isAssembling}
                                             className='h-8 rounded-md px-2 text-white/60 hover:bg-white/10 hover:text-white'>
                                             <X size={14} />
                                             Cancel
@@ -888,15 +854,11 @@ export function VideoHistoryPanel({
                                         <Button
                                             type='button'
                                             size='sm'
-                                            onClick={handleExportAssembly}
-                                            disabled={!canExportAssembly}
+                                            onClick={handleOpenAssemblyEditor}
+                                            disabled={!canOpenAssemblyEditor}
                                             className='h-8 rounded-md bg-white px-3 text-black hover:bg-white/90'>
-                                            {isAssembling ? (
-                                                <Loader2 size={14} className='animate-spin' />
-                                            ) : (
-                                                <Download size={14} />
-                                            )}
-                                            Export
+                                            <Download size={14} />
+                                            Edit & Export
                                         </Button>
                                     </div>
                                 </div>

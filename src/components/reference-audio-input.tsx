@@ -2,8 +2,12 @@
 
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import { ttsModel as loadTtsModel } from '@/lib/media-archive';
+import type { TtsVoice } from '@/lib/tts';
 import { cn } from '@/lib/utils';
-import { Link2, Loader2, Music, X } from 'lucide-react';
+import { Link2, Loader2, Mic2, Music, X } from 'lucide-react';
 import * as React from 'react';
 
 interface ReferenceAudioInputProps {
@@ -11,8 +15,12 @@ interface ReferenceAudioInputProps {
     onChange: (url: string) => void;
     /** Uploads a local file and resolves to its public URL. Absent = URL-only mode. */
     onUpload?: (file: File) => Promise<string>;
+    /** Generates speech, uploads it, and resolves to its public URL. */
+    onSynthesizeSpeech?: (text: string, voice: TtsVoice) => Promise<string>;
     disabled?: boolean;
 }
+
+const TTS_VOICES: TtsVoice[] = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'];
 
 function isHttpAudioUrl(url: string): boolean {
     try {
@@ -23,15 +31,41 @@ function isHttpAudioUrl(url: string): boolean {
     }
 }
 
-export function ReferenceAudioInput({ url, onChange, onUpload, disabled }: ReferenceAudioInputProps) {
+export function ReferenceAudioInput({
+    url,
+    onChange,
+    onUpload,
+    onSynthesizeSpeech,
+    disabled
+}: ReferenceAudioInputProps) {
     const fileInputRef = React.useRef<HTMLInputElement>(null);
     const [isUploading, setIsUploading] = React.useState(false);
     const [uploadError, setUploadError] = React.useState<string | null>(null);
     const [isDragOver, setIsDragOver] = React.useState(false);
     const [showUrlInput, setShowUrlInput] = React.useState(false);
     const [urlDraft, setUrlDraft] = React.useState('');
+    const [ttsConfigured, setTtsConfigured] = React.useState(false);
+    const [voiceoverText, setVoiceoverText] = React.useState('');
+    const [voiceoverVoice, setVoiceoverVoice] = React.useState<TtsVoice>('alloy');
+    const [isSynthesizing, setIsSynthesizing] = React.useState(false);
+    const [voiceoverError, setVoiceoverError] = React.useState<string | null>(null);
 
     const canUpload = Boolean(onUpload);
+    const canSynthesize = ttsConfigured && Boolean(onSynthesizeSpeech);
+
+    React.useEffect(() => {
+        let cancelled = false;
+
+        void loadTtsModel().then((model) => {
+            if (!cancelled) {
+                setTtsConfigured(Boolean(model));
+            }
+        });
+
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     const commitDraft = React.useCallback(
         (value?: string) => {
@@ -44,6 +78,7 @@ export function ReferenceAudioInput({ url, onChange, onUpload, disabled }: Refer
             onChange(draft);
             setUrlDraft('');
             setUploadError(null);
+            setVoiceoverError(null);
         },
         [urlDraft, onChange]
     );
@@ -56,6 +91,7 @@ export function ReferenceAudioInput({ url, onChange, onUpload, disabled }: Refer
             setUploadError(null);
             try {
                 onChange(await onUpload(file));
+                setVoiceoverError(null);
             } catch (err) {
                 setUploadError(err instanceof Error ? err.message : 'Upload failed.');
             } finally {
@@ -64,6 +100,29 @@ export function ReferenceAudioInput({ url, onChange, onUpload, disabled }: Refer
         },
         [onUpload, disabled, onChange]
     );
+
+    const handleGenerateVoiceover = React.useCallback(async () => {
+        if (!onSynthesizeSpeech || disabled || isSynthesizing) return;
+
+        const text = voiceoverText.trim();
+        if (!text) {
+            setVoiceoverError('Enter voiceover text.');
+            return;
+        }
+
+        setIsSynthesizing(true);
+        setVoiceoverError(null);
+        setUploadError(null);
+
+        try {
+            onChange(await onSynthesizeSpeech(text, voiceoverVoice));
+            setVoiceoverText('');
+        } catch (err) {
+            setVoiceoverError(err instanceof Error ? err.message : 'Voiceover generation failed.');
+        } finally {
+            setIsSynthesizing(false);
+        }
+    }, [disabled, isSynthesizing, onChange, onSynthesizeSpeech, voiceoverText, voiceoverVoice]);
 
     return (
         <div className='space-y-2'>
@@ -81,6 +140,7 @@ export function ReferenceAudioInput({ url, onChange, onUpload, disabled }: Refer
                             onClick={() => {
                                 onChange('');
                                 setUploadError(null);
+                                setVoiceoverError(null);
                             }}
                             disabled={disabled}
                             className='flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white/10 text-white/60 transition-colors hover:bg-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-40'
@@ -94,17 +154,24 @@ export function ReferenceAudioInput({ url, onChange, onUpload, disabled }: Refer
                     {canUpload && (
                         <div
                             role='button'
-                            tabIndex={disabled ? -1 : 0}
-                            onClick={() => !disabled && !isUploading && fileInputRef.current?.click()}
+                            tabIndex={disabled || isSynthesizing ? -1 : 0}
+                            onClick={() =>
+                                !disabled && !isUploading && !isSynthesizing && fileInputRef.current?.click()
+                            }
                             onKeyDown={(e) => {
-                                if ((e.key === 'Enter' || e.key === ' ') && !disabled && !isUploading) {
+                                if (
+                                    (e.key === 'Enter' || e.key === ' ') &&
+                                    !disabled &&
+                                    !isUploading &&
+                                    !isSynthesizing
+                                ) {
                                     e.preventDefault();
                                     fileInputRef.current?.click();
                                 }
                             }}
                             onDragOver={(e) => {
                                 e.preventDefault();
-                                if (!disabled) setIsDragOver(true);
+                                if (!disabled && !isSynthesizing) setIsDragOver(true);
                             }}
                             onDragLeave={() => setIsDragOver(false)}
                             onDrop={(e) => {
@@ -117,7 +184,7 @@ export function ReferenceAudioInput({ url, onChange, onUpload, disabled }: Refer
                                 isDragOver
                                     ? 'border-white/60 bg-white/10'
                                     : 'border-white/25 bg-black hover:border-white/40 hover:bg-white/5',
-                                (disabled || isUploading) && 'pointer-events-none opacity-50'
+                                (disabled || isUploading || isSynthesizing) && 'pointer-events-none opacity-50'
                             )}>
                             {isUploading ? (
                                 <>
@@ -145,6 +212,61 @@ export function ReferenceAudioInput({ url, onChange, onUpload, disabled }: Refer
                             e.target.value = '';
                         }}
                     />
+
+                    {canSynthesize && (
+                        <div className='rounded-md border border-white/10 bg-white/[0.03] p-3'>
+                            <div className='mb-2 flex items-center gap-2'>
+                                <Mic2 className='h-4 w-4 text-white/55' />
+                                <Label htmlFor='voiceover-text' className='text-xs font-medium text-white/70'>
+                                    Generate voiceover
+                                </Label>
+                            </div>
+                            <Textarea
+                                id='voiceover-text'
+                                value={voiceoverText}
+                                maxLength={500}
+                                rows={3}
+                                onChange={(event) => setVoiceoverText(event.target.value)}
+                                disabled={disabled || isSynthesizing}
+                                placeholder='Voiceover text'
+                                className='min-h-20 resize-none rounded-md border-white/15 bg-black/40 text-sm text-white placeholder:text-white/35 focus-visible:border-white/40 focus-visible:ring-white/20'
+                            />
+                            <div className='mt-2 flex flex-col gap-2 sm:flex-row'>
+                                <Select
+                                    value={voiceoverVoice}
+                                    onValueChange={(value) => setVoiceoverVoice(value as TtsVoice)}
+                                    disabled={disabled || isSynthesizing}>
+                                    <SelectTrigger className='h-9 border-white/15 bg-black/40 text-white focus:ring-white/20 sm:w-36'>
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent className='border-white/15 bg-neutral-950 text-white'>
+                                        {TTS_VOICES.map((voice) => (
+                                            <SelectItem key={voice} value={voice}>
+                                                {voice}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                <button
+                                    type='button'
+                                    onClick={() => void handleGenerateVoiceover()}
+                                    disabled={disabled || isSynthesizing || !voiceoverText.trim()}
+                                    className='inline-flex h-9 items-center justify-center gap-2 rounded-md border border-white/20 px-3 text-xs text-white/75 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-40'>
+                                    {isSynthesizing ? (
+                                        <Loader2 className='h-3.5 w-3.5 animate-spin' />
+                                    ) : (
+                                        <Mic2 className='h-3.5 w-3.5' />
+                                    )}
+                                    Generate
+                                </button>
+                            </div>
+                            <div className='mt-1 flex items-center justify-between gap-3 text-[10px] text-white/35'>
+                                <span>{voiceoverText.length}/500</span>
+                                {isSynthesizing && <span>Generating...</span>}
+                            </div>
+                            {voiceoverError && <p className='mt-2 text-xs text-red-400'>{voiceoverError}</p>}
+                        </div>
+                    )}
 
                     {canUpload && !showUrlInput ? (
                         <button
