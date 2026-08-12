@@ -28,6 +28,7 @@ import {
     Rocket,
     RotateCcw,
     Search,
+    Share2,
     Sparkles as SparklesIcon,
     StepForward,
     Trash2,
@@ -51,6 +52,9 @@ type VideoHistoryPanelProps = {
     onFinalizeItem?: (item: VideoMetadata) => void;
     /** 续片 — continue this completed video from its last frame. */
     onExtendItem?: (item: VideoMetadata) => void;
+    /** Share — create a public share page for this completed video. */
+    onShareItem?: (item: VideoMetadata) => void;
+    sharePendingId?: string | null;
 };
 
 /**
@@ -121,7 +125,9 @@ export function VideoHistoryPanel({
     onReuseItem,
     onRegenerateItem,
     onFinalizeItem,
-    onExtendItem
+    onExtendItem,
+    onShareItem,
+    sharePendingId
 }: VideoHistoryPanelProps) {
     const [openCostDialogId, setOpenCostDialogId] = React.useState<string | null>(null);
     const [isTotalCostDialogOpen, setIsTotalCostDialogOpen] = React.useState(false);
@@ -551,6 +557,7 @@ export function VideoHistoryPanel({
                                     const isDraft = item.draft === true || item.createParams?.draft === true;
                                     const selectionOrder = selectedClipIds.indexOf(item.id) + 1;
                                     const isSelectedForAssembly = selectionOrder > 0;
+                                    const isSharePending = sharePendingId === item.id;
 
                                     return (
                                         <div key={item.id} className='flex flex-col'>
@@ -758,7 +765,11 @@ export function VideoHistoryPanel({
                                                     <span>{item.model}</span>
                                                     <span>{item.size}</span>
                                                 </div>
-                                                {(onReuseItem || onRegenerateItem || onFinalizeItem || onExtendItem) &&
+                                                {(onReuseItem ||
+                                                    onRegenerateItem ||
+                                                    onFinalizeItem ||
+                                                    onExtendItem ||
+                                                    onShareItem) &&
                                                     !isProcessing &&
                                                     !isAssembleMode && (
                                                         <div className='mt-1.5 flex items-center gap-1'>
@@ -770,6 +781,29 @@ export function VideoHistoryPanel({
                                                                     className='flex flex-1 items-center justify-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white'>
                                                                     <PencilLine size={11} />
                                                                     Reuse
+                                                                </button>
+                                                            )}
+                                                            {onShareItem && isCompleted && (
+                                                                <button
+                                                                    type='button'
+                                                                    onClick={() => onShareItem(item)}
+                                                                    disabled={!item.storedUrl || isSharePending}
+                                                                    title={
+                                                                        item.storedUrl
+                                                                            ? 'Share this video'
+                                                                            : 'Archive to cloud first — wait a moment'
+                                                                    }
+                                                                    className={cn(
+                                                                        'flex flex-1 items-center justify-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white',
+                                                                        (!item.storedUrl || isSharePending) &&
+                                                                            'cursor-not-allowed opacity-40 hover:bg-white/10 hover:text-white/70'
+                                                                    )}>
+                                                                    {isSharePending ? (
+                                                                        <Loader2 size={11} className='animate-spin' />
+                                                                    ) : (
+                                                                        <Share2 size={11} />
+                                                                    )}
+                                                                    Share
                                                                 </button>
                                                             )}
                                                             {onExtendItem && isCompleted && (

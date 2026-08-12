@@ -44,6 +44,81 @@ export interface ArchivedMedia {
     cached: boolean;
 }
 
+export interface CreatedShare {
+    id: string;
+    url: string;
+}
+
+export interface FetchedShare {
+    prompt: string;
+    params: unknown;
+    title?: string;
+}
+
+export async function createShare(
+    input: { videoId: string; videoUrl: string; prompt: string; params: object; title?: string },
+    apiKey: string
+): Promise<CreatedShare> {
+    const workerUrl = await loadWorkerUrl();
+    if (!workerUrl) {
+        throw new Error('Sharing is not configured on this deployment.');
+    }
+
+    const res = await fetch(`${workerUrl}/share`, {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            video_id: input.videoId,
+            video_url: input.videoUrl,
+            prompt: input.prompt,
+            params: input.params,
+            ...(input.title ? { title: input.title } : {})
+        })
+    });
+    if (!res.ok) {
+        const detail = await res
+            .json()
+            .then((d: { error?: string }) => d.error)
+            .catch(() => undefined);
+        throw new Error(detail || `Share failed (${res.status}).`);
+    }
+
+    const data = (await res.json()) as { id?: string; url?: string };
+    if (!data.id || !data.url) {
+        throw new Error('Share creation returned no URL.');
+    }
+    return { id: data.id, url: data.url };
+}
+
+export async function fetchShare(id: string): Promise<FetchedShare | null> {
+    const workerUrl = await loadWorkerUrl();
+    if (!workerUrl) return null;
+
+    const safeId = id.trim();
+    if (!/^[0-9a-z]{8}$/.test(safeId)) return null;
+
+    const res = await fetch(`${workerUrl}/share/${encodeURIComponent(safeId)}.json`, {
+        cache: 'no-store'
+    });
+    if (res.status === 404) return null;
+    if (!res.ok) {
+        throw new Error(`Could not load shared settings (${res.status}).`);
+    }
+
+    const data = (await res.json()) as { prompt?: unknown; params?: unknown; title?: unknown };
+    if (typeof data.prompt !== 'string' || data.params === null || typeof data.params !== 'object') {
+        return null;
+    }
+    return {
+        prompt: data.prompt,
+        params: data.params,
+        ...(typeof data.title === 'string' && data.title ? { title: data.title } : {})
+    };
+}
+
 /**
  * Copies a finished video into R2. Best-effort: returns null on any failure so
  * callers keep the provider URL rather than surfacing an error — the video is

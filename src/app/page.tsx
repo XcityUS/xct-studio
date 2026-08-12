@@ -8,6 +8,15 @@ import { GallerySection } from '@/components/gallery/gallery-section';
 import { ImageStudio } from '@/components/image-studio';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { VideoHistoryPanel } from '@/components/video-history-panel';
 import { VideoOutput } from '@/components/video-output';
@@ -24,7 +33,9 @@ import { reconcilePreset } from '@/lib/gallery-preset';
 import { IMAGE_GENERATION_ENABLED, generateImages, type GeneratedImage, type ImageSizeId } from '@/lib/image-service';
 import {
     audioUrlToDataUri,
+    createShare,
     deleteUserAsset,
+    fetchShare,
     imageUrlToDataUri,
     listUserAssets,
     mediaArchiveEnabled,
@@ -42,6 +53,7 @@ import {
     DEFAULT_RATIO,
     DEFAULT_RESOLUTION,
     DEFAULT_SECONDS,
+    RATIOS,
     RESOLUTIONS,
     clampSeconds,
     formatSize,
@@ -56,7 +68,8 @@ import {
 import { captureVideoLastFrame, captureVideoPoster } from '@/lib/thumbnail';
 import { VideoService } from '@/lib/video-service';
 import { XCITY_SSO_ENABLED, xcityLoginHref } from '@/lib/xcity-sso';
-import type { VideoJob, VideoMetadata } from '@/types/video';
+import type { VideoJob, VideoJobCreate, VideoMetadata } from '@/types/video';
+import { Check, Copy, Loader2 } from 'lucide-react';
 import * as React from 'react';
 
 function fileNameWithoutExtension(fileName: string): string {
@@ -69,6 +82,81 @@ const MAX_REFERENCE_VIDEOS = 2;
 
 function isVideoResolution(value: string | undefined): value is VideoResolution {
     return Boolean(value && RESOLUTIONS.includes(value as VideoResolution));
+}
+
+function isVideoRatio(value: string | undefined): value is VideoRatio {
+    return Boolean(value && RATIOS.includes(value as VideoRatio));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isVideoJobCreateParams(value: unknown): value is VideoJobCreate {
+    if (!isRecord(value)) return false;
+    return (
+        typeof value.prompt === 'string' &&
+        typeof value.model === 'string' &&
+        Boolean(getSeedanceModel(value.model)) &&
+        typeof value.ratio === 'string' &&
+        isVideoRatio(value.ratio) &&
+        typeof value.resolution === 'string' &&
+        isVideoResolution(value.resolution) &&
+        typeof value.seconds === 'number' &&
+        typeof value.generate_audio === 'boolean'
+    );
+}
+
+function shareTitleFromPrompt(prompt: string): string {
+    const title = prompt.trim().replace(/\s+/g, ' ');
+    if (!title) return 'Xcity Studio video';
+    return title.length > 120 ? `${title.slice(0, 117)}...` : title;
+}
+
+function shareParamsToForm(prompt: string, params: unknown): { params: CreationFormData; adjusted: string[] } {
+    if (isVideoJobCreateParams(params)) {
+        const reconciled = reconcilePreset({ ...params, prompt });
+        return { params: reconciled, adjusted: reconciled.adjusted };
+    }
+
+    const record = isRecord(params) ? params : {};
+    const model =
+        typeof record.model === 'string' && getSeedanceModel(record.model)
+            ? (record.model as VideoModel)
+            : DEFAULT_MODEL;
+    const ratio = typeof record.ratio === 'string' && isVideoRatio(record.ratio) ? record.ratio : DEFAULT_RATIO;
+    const requestedResolution =
+        typeof record.resolution === 'string' && isVideoResolution(record.resolution)
+            ? record.resolution
+            : DEFAULT_RESOLUTION;
+    const resolution = modelSupportsResolution(model, requestedResolution) ? requestedResolution : DEFAULT_RESOLUTION;
+    const rawSeconds =
+        typeof record.seconds === 'number'
+            ? record.seconds
+            : typeof record.seconds === 'string'
+              ? Number(record.seconds)
+              : DEFAULT_SECONDS;
+    const seconds = clampSeconds(rawSeconds, model);
+    const seed = typeof record.seed === 'number' && Number.isFinite(record.seed) ? Math.trunc(record.seed) : undefined;
+    const adjusted = [
+        resolution !== requestedResolution ? `resolution → ${resolution}` : '',
+        seconds !== rawSeconds ? `duration → ${seconds}s` : ''
+    ].filter(Boolean);
+
+    return {
+        params: {
+            model,
+            prompt,
+            ratio,
+            resolution,
+            seconds,
+            generate_audio: typeof record.generate_audio === 'boolean' ? record.generate_audio : true,
+            camera_fixed: typeof record.camera_fixed === 'boolean' ? record.camera_fixed : false,
+            seed,
+            watermark: typeof record.watermark === 'boolean' ? record.watermark : false
+        },
+        adjusted
+    };
 }
 
 function bestSupportedResolution(model: VideoModel): VideoResolution {
@@ -90,6 +178,12 @@ export default function HomePage() {
     const [currentJobId, setCurrentJobId] = React.useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = React.useState(false);
     const [activeTab, setActiveTab] = React.useState<'video' | 'image' | 'assets'>('video');
+    const [shareNotice, setShareNotice] = React.useState<string | null>(null);
+    const [isShareDialogOpen, setIsShareDialogOpen] = React.useState(false);
+    const [shareDialogUrl, setShareDialogUrl] = React.useState('');
+    const [shareDialogError, setShareDialogError] = React.useState<string | null>(null);
+    const [sharingVideoId, setSharingVideoId] = React.useState<string | null>(null);
+    const [shareUrlCopied, setShareUrlCopied] = React.useState(false);
 
     // Creation form state
     const [createModel, setCreateModel] = React.useState<VideoModel>(DEFAULT_MODEL);
@@ -136,6 +230,49 @@ export default function HomePage() {
         setCreateWatermark(p.watermark ?? false);
         setError(p.adjusted.length ? `Adjusted for ${p.model}: ${p.adjusted.join(', ')}` : null);
         creationFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, []);
+
+    const loadedShareIdRef = React.useRef<string | null>(null);
+    React.useEffect(() => {
+        const url = new URL(window.location.href);
+        const shareId = url.searchParams.get('share')?.trim();
+        if (!shareId || loadedShareIdRef.current === shareId) return;
+        loadedShareIdRef.current = shareId;
+
+        url.searchParams.delete('share');
+        window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+
+        void (async () => {
+            try {
+                const share = await fetchShare(shareId);
+                if (!share) {
+                    setError('Shared settings were not found.');
+                    return;
+                }
+
+                const { params, adjusted } = shareParamsToForm(share.prompt, share.params);
+                setCreateModel(params.model);
+                setCreatePrompt(params.prompt);
+                setCreateRatio(params.ratio);
+                setCreateResolution(params.resolution);
+                setCreateSeconds(params.seconds);
+                setCreateAudio(params.generate_audio);
+                setCreateCameraFixed(params.camera_fixed ?? false);
+                setCreateReferenceUrls([]);
+                setCreateLastFrameUrl('');
+                setCreateReferenceAudioUrl('');
+                setCreateReferenceVideoUrls([]);
+                setCreateSeed(params.seed);
+                setCreateWatermark(params.watermark ?? false);
+                setActiveTab('video');
+                setShareNotice('Loaded shared settings — generate to recreate');
+                setError(adjusted.length ? `Adjusted shared settings: ${adjusted.join(', ')}` : null);
+                creationFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } catch (err) {
+                console.error('Error loading share:', err);
+                setError(err instanceof Error ? err.message : 'Could not load shared settings.');
+            }
+        })();
     }, []);
 
     const applyReferenceFrame = React.useCallback((item: GalleryItem, frameUrl: string) => {
@@ -498,6 +635,7 @@ export default function HomePage() {
 
     const handleCreateVideo = async (formData: CreationFormData) => {
         setError(null);
+        setShareNotice(null);
         setIsSubmitting(true);
 
         // Resolve the key at submit time — an SSO key that lands after this
@@ -737,6 +875,65 @@ export default function HomePage() {
             watermark: false
         };
     }, []);
+
+    const handleShareDialogOpenChange = React.useCallback((open: boolean) => {
+        setIsShareDialogOpen(open);
+        if (!open) {
+            setShareUrlCopied(false);
+        }
+    }, []);
+
+    const handleCopyShareUrl = React.useCallback(async () => {
+        if (!shareDialogUrl) return;
+        try {
+            await navigator.clipboard.writeText(shareDialogUrl);
+            setShareUrlCopied(true);
+            setTimeout(() => setShareUrlCopied(false), 2000);
+        } catch (err) {
+            console.error('Failed to copy share URL:', err);
+        }
+    }, [shareDialogUrl]);
+
+    const handleShareItem = React.useCallback(
+        async (item: VideoMetadata) => {
+            setIsShareDialogOpen(true);
+            setShareDialogUrl('');
+            setShareDialogError(null);
+            setShareUrlCopied(false);
+            setSharingVideoId(item.id);
+
+            if (!item.storedUrl) {
+                setShareDialogError('Archive to cloud first — wait a moment.');
+                setSharingVideoId(null);
+                return;
+            }
+
+            try {
+                const activeKey = await resolveKey();
+                if (!activeKey) {
+                    throw new Error('Sign in at xcity.ai (or set an API key) before sharing.');
+                }
+
+                const share = await createShare(
+                    {
+                        videoId: item.id,
+                        videoUrl: item.storedUrl,
+                        prompt: item.prompt,
+                        params: buildParamsFromItem(item),
+                        title: shareTitleFromPrompt(item.prompt)
+                    },
+                    activeKey
+                );
+                setShareDialogUrl(share.url);
+            } catch (err) {
+                console.error('Error creating share:', err);
+                setShareDialogError(err instanceof Error ? err.message : 'Failed to create share.');
+            } finally {
+                setSharingVideoId(null);
+            }
+        },
+        [buildParamsFromItem, resolveKey]
+    );
 
     /** 做同款 — fill the create form with an item's parameters. */
     const handleReuseItem = React.useCallback(
@@ -996,6 +1193,12 @@ export default function HomePage() {
 
     const videoTabContent = (
         <>
+            {shareNotice && (
+                <Alert className='border-white/15 bg-white/5 text-white'>
+                    <AlertTitle className='text-white'>Shared Settings</AlertTitle>
+                    <AlertDescription className='text-white/70'>{shareNotice}</AlertDescription>
+                </Alert>
+            )}
             <div className='grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-stretch'>
                 <div ref={creationFormRef} className='relative flex min-h-[600px] flex-col lg:col-span-1'>
                     <ApiKeyGate
@@ -1097,6 +1300,9 @@ export default function HomePage() {
                         onDownload={handleDownloadVideo}
                         onExtend={handleExtendCurrentVideo}
                         onFinalize={currentHistoryItemIsDraft ? handleFinalizeCurrentVideo : undefined}
+                        onShare={handleShareItem}
+                        shareItem={currentHistoryItem}
+                        isSharePending={Boolean(currentHistoryItem && sharingVideoId === currentHistoryItem.id)}
                     />
                 </div>
             </div>
@@ -1116,6 +1322,8 @@ export default function HomePage() {
                     onRegenerateItem={handleRegenerateItem}
                     onFinalizeItem={handleFinalizeItem}
                     onExtendItem={handleExtendVideo}
+                    onShareItem={handleShareItem}
+                    sharePendingId={sharingVideoId}
                 />
             </div>
         </>
@@ -1124,6 +1332,62 @@ export default function HomePage() {
     return (
         <main className='flex flex-col items-center bg-black p-4 text-white md:p-8 lg:p-12'>
             <ApiKeyDialog isOpen={isApiKeyDialogOpen} onOpenChange={setIsApiKeyDialogOpen} onSave={handleSaveApiKey} />
+            <Dialog open={isShareDialogOpen} onOpenChange={handleShareDialogOpenChange}>
+                <DialogContent className='border-neutral-700 bg-neutral-900 text-white sm:max-w-[460px]'>
+                    <DialogHeader>
+                        <DialogTitle className='text-white'>Share Video</DialogTitle>
+                        <DialogDescription className='text-neutral-400'>
+                            Anyone with this link can view the video and recreate its prompt settings.
+                        </DialogDescription>
+                    </DialogHeader>
+                    {sharingVideoId ? (
+                        <div className='flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/70'>
+                            <Loader2 className='h-4 w-4 animate-spin' />
+                            Creating share link...
+                        </div>
+                    ) : shareDialogError ? (
+                        <div className='rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200'>
+                            {shareDialogError}
+                        </div>
+                    ) : shareDialogUrl ? (
+                        <div className='space-y-3'>
+                            <Input
+                                readOnly
+                                value={shareDialogUrl}
+                                onFocus={(event) => event.currentTarget.select()}
+                                className='border-white/20 bg-black text-white'
+                                aria-label='Share URL'
+                            />
+                            <p className='text-xs text-neutral-400'>
+                                Recreate links load prompt and generation settings only. Reference media are not shared.
+                            </p>
+                        </div>
+                    ) : null}
+                    <DialogFooter>
+                        {shareDialogUrl && (
+                            <>
+                                <Button
+                                    type='button'
+                                    variant='secondary'
+                                    onClick={handleCopyShareUrl}
+                                    className='bg-white/10 text-white hover:bg-white/20'>
+                                    {shareUrlCopied ? (
+                                        <Check className='h-4 w-4' />
+                                    ) : (
+                                        <Copy className='h-4 w-4' />
+                                    )}
+                                    {shareUrlCopied ? 'Copied' : 'Copy'}
+                                </Button>
+                                <Button asChild className='bg-white text-black hover:bg-white/90'>
+                                    <a href={shareDialogUrl} target='_blank' rel='noreferrer'>
+                                        Open
+                                    </a>
+                                </Button>
+                            </>
+                        )}
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             <div className='w-full max-w-7xl space-y-6'>
                 {IMAGE_GENERATION_ENABLED || uploadEnabled ? (

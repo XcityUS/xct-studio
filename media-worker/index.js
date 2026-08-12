@@ -21,6 +21,16 @@
 // GETs, which then poison later fetches of the same URL (observed on /assets;
 // Ark's image download would hit the same trap after a delete + re-upload).
 const JSON_HEADERS = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' };
+const MAX_SHARE_PROMPT_CHARS = 4000;
+const MAX_SHARE_PARAMS_BYTES = 8 * 1024;
+const SHARE_ID_RE = /^[0-9a-z]{8}$/;
+const PRIVATE_REFERENCE_PARAM_KEYS = [
+    'input_reference_url',
+    'last_frame_url',
+    'reference_image_urls',
+    'reference_video_urls',
+    'reference_audio_url'
+];
 
 function corsHeaders(origin, env) {
     const allowed = (env.ALLOWED_ORIGINS || '')
@@ -70,6 +80,69 @@ async function sha256Hex(value) {
         .map((b) => b.toString(16).padStart(2, '0'))
         .join('')
         .slice(0, 32);
+}
+
+function isJsonObject(value) {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function utf8Bytes(value) {
+    return new TextEncoder().encode(value).byteLength;
+}
+
+function shareKey(id) {
+    return `share/${id}.json`;
+}
+
+function safeShareId(id) {
+    const value = typeof id === 'string' ? id.trim() : '';
+    return SHARE_ID_RE.test(value) ? value : null;
+}
+
+function randomShareId() {
+    const bytes = new Uint8Array(6);
+    crypto.getRandomValues(bytes);
+    let n = 0n;
+    for (const byte of bytes) {
+        n = (n << 8n) + BigInt(byte);
+    }
+    return (n % 2821109907456n).toString(36).padStart(8, '0');
+}
+
+function stripPrivateReferenceParams(params) {
+    const clean = { ...params };
+    for (const key of PRIVATE_REFERENCE_PARAM_KEYS) {
+        delete clean[key];
+    }
+    return clean;
+}
+
+function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, (char) => {
+        switch (char) {
+            case '&':
+                return '&amp;';
+            case '<':
+                return '&lt;';
+            case '>':
+                return '&gt;';
+            case '"':
+                return '&quot;';
+            case "'":
+                return '&#39;';
+            default:
+                return char;
+        }
+    });
+}
+
+function shareSetting(params, key) {
+    if (!isJsonObject(params)) return '';
+    const value = params[key];
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+        return String(value);
+    }
+    return '';
 }
 
 /** Video ids are gateway-issued base64; keep only what is safe in a path. */
@@ -258,6 +331,232 @@ async function handleAssetsDelete(request, env, cors) {
     return json({ ok: true, key }, 200, cors);
 }
 
+async function handleShareCreate(request, env, cors) {
+    const { owner, error } = await authOwner(request, env, cors);
+    if (error) return error;
+
+    let payload;
+    try {
+        payload = await request.json();
+    } catch {
+        return json({ error: 'invalid JSON body' }, 400, cors);
+    }
+
+    const origin = new URL(request.url).origin;
+    const videoId = typeof payload?.video_id === 'string' ? payload.video_id.trim() : '';
+    const videoUrl = typeof payload?.video_url === 'string' ? payload.video_url.trim() : '';
+    const prompt = payload?.prompt;
+    const title = payload?.title == null ? '' : payload.title;
+
+    if (!videoId || !videoUrl) {
+        return json({ error: 'video_id and video_url are required' }, 400, cors);
+    }
+    if (!videoUrl.startsWith(`${origin}/media/${owner}/`)) {
+        return json({ error: 'video_url is outside your hosted media namespace' }, 403, cors);
+    }
+    if (typeof prompt !== 'string') {
+        return json({ error: 'prompt must be a string' }, 400, cors);
+    }
+    if (prompt.length > MAX_SHARE_PROMPT_CHARS) {
+        return json({ error: `prompt is over the ${MAX_SHARE_PROMPT_CHARS} character limit` }, 413, cors);
+    }
+    if (!isJsonObject(payload?.params)) {
+        return json({ error: 'params must be a JSON object' }, 400, cors);
+    }
+    if (typeof title !== 'string') {
+        return json({ error: 'title must be a string' }, 400, cors);
+    }
+    if (title.length > 120) {
+        return json({ error: 'title is over the 120 character limit' }, 413, cors);
+    }
+
+    const params = stripPrivateReferenceParams(payload.params);
+    const paramsJson = JSON.stringify(params);
+    if (utf8Bytes(paramsJson) > MAX_SHARE_PARAMS_BYTES) {
+        return json({ error: 'params are over the 8 KB limit' }, 413, cors);
+    }
+
+    let id = '';
+    for (let attempt = 0; attempt < 5; attempt++) {
+        const candidate = randomShareId();
+        const existing = await env.XCITY_MEDIA.head(shareKey(candidate));
+        if (!existing) {
+            id = candidate;
+            break;
+        }
+    }
+    if (!id) {
+        return json({ error: 'could not allocate share id' }, 500, cors);
+    }
+
+    const record = {
+        id,
+        owner,
+        video_url: videoUrl,
+        prompt,
+        params,
+        title,
+        created_at: new Date().toISOString()
+    };
+
+    await env.XCITY_MEDIA.put(shareKey(id), JSON.stringify(record), {
+        httpMetadata: {
+            contentType: 'application/json',
+            cacheControl: 'no-store'
+        }
+    });
+
+    return json({ id, url: `${origin}/share/${id}` }, 200, cors);
+}
+
+async function readShareRecord(env, id) {
+    const safeId = safeShareId(id);
+    if (!safeId) return null;
+
+    const object = await env.XCITY_MEDIA.get(shareKey(safeId));
+    if (!object) return null;
+
+    const record = await object.json().catch(() => null);
+    if (!isJsonObject(record)) return null;
+    if (record.id !== safeId || typeof record.video_url !== 'string' || typeof record.prompt !== 'string') {
+        return null;
+    }
+    if (!isJsonObject(record.params)) {
+        return null;
+    }
+    return record;
+}
+
+function renderShareHtml(record, env) {
+    const title = record.title || 'Shared Xcity video';
+    const pageTitle = `${title} | Xcity Studio`;
+    const studioUrl = (env.STUDIO_URL || 'https://studio.xcity.ai').replace(/\/+$/, '');
+    const recreateUrl = `${studioUrl}/?share=${encodeURIComponent(record.id)}`;
+    const rows = [
+        ['Model', shareSetting(record.params, 'model')],
+        ['Ratio', shareSetting(record.params, 'ratio')],
+        ['Resolution', shareSetting(record.params, 'resolution')],
+        ['Seconds', shareSetting(record.params, 'seconds')]
+    ]
+        .filter(([, value]) => value)
+        .map(
+            ([label, value]) =>
+                `<tr><th scope="row">${escapeHtml(label)}</th><td>${escapeHtml(value)}</td></tr>`
+        )
+        .join('');
+
+    return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${escapeHtml(pageTitle)}</title>
+  <meta name="description" content="${escapeHtml(record.prompt.slice(0, 160))}">
+  <meta property="og:title" content="${escapeHtml(title)}">
+  <meta property="og:type" content="video.other">
+  <meta property="og:video" content="${escapeHtml(record.video_url)}">
+  <meta property="og:video:type" content="video/mp4">
+  <style>
+    :root { color-scheme: dark; background: #000; color: #fff; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: #000; color: #fff; }
+    main { width: min(960px, calc(100% - 32px)); margin: 0 auto; padding: 40px 0 56px; }
+    .top { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
+    .brand { color: rgba(255,255,255,.48); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
+    h1 { margin: 0 0 18px; font-size: clamp(28px, 5vw, 56px); line-height: 1; font-weight: 650; letter-spacing: 0; }
+    video { display: block; width: 100%; max-height: 72vh; border: 1px solid rgba(255,255,255,.16); border-radius: 8px; background: #050505; }
+    .panel { margin-top: 18px; border: 1px solid rgba(255,255,255,.12); border-radius: 8px; background: rgba(255,255,255,.04); padding: 16px; }
+    .label { margin: 0 0 8px; color: rgba(255,255,255,.52); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+    textarea { width: 100%; min-height: 128px; resize: vertical; border: 1px solid rgba(255,255,255,.14); border-radius: 6px; background: rgba(0,0,0,.6); color: rgba(255,255,255,.86); padding: 12px; font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,.10); text-align: left; vertical-align: top; }
+    th { width: 32%; color: rgba(255,255,255,.52); font-weight: 500; }
+    td { color: rgba(255,255,255,.86); }
+    tr:last-child th, tr:last-child td { border-bottom: 0; }
+    .cta { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; margin-top: 22px; border-radius: 6px; background: #fff; color: #000; padding: 0 18px; font-weight: 650; text-decoration: none; }
+    .meta { margin-top: 12px; color: rgba(255,255,255,.42); font-size: 12px; }
+    @media (max-width: 640px) { main { width: min(100% - 24px, 960px); padding-top: 24px; } .top { align-items: flex-start; flex-direction: column; } }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="top">
+      <div class="brand">Xcity Studio</div>
+      <a class="cta" href="${escapeHtml(recreateUrl)}">Recreate in Xcity Studio</a>
+    </div>
+    <h1>${escapeHtml(title)}</h1>
+    <video controls playsinline preload="metadata" src="${escapeHtml(record.video_url)}"></video>
+    <section class="panel" aria-labelledby="prompt-title">
+      <p class="label" id="prompt-title">Prompt</p>
+      <textarea readonly onclick="this.select()" aria-label="Prompt">${escapeHtml(record.prompt)}</textarea>
+    </section>
+    ${
+        rows
+            ? `<section class="panel" aria-labelledby="settings-title"><p class="label" id="settings-title">Settings</p><table><tbody>${rows}</tbody></table></section>`
+            : ''
+    }
+    <a class="cta" href="${escapeHtml(recreateUrl)}">Recreate in Xcity Studio</a>
+    <div class="meta">Shared ${escapeHtml(record.created_at || '')}</div>
+  </main>
+</body>
+</html>`;
+}
+
+async function handleSharePage(env, id) {
+    const record = await readShareRecord(env, id);
+    if (!record) {
+        return new Response('Not Found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+    }
+    return new Response(renderShareHtml(record, env), {
+        status: 200,
+        headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }
+    });
+}
+
+async function handleShareJson(env, id, cors) {
+    const safeId = safeShareId(id);
+    if (!safeId) {
+        return json({ error: 'not found' }, 404, cors);
+    }
+    const object = await env.XCITY_MEDIA.get(shareKey(safeId));
+    if (!object) {
+        return json({ error: 'not found' }, 404, cors);
+    }
+
+    const headers = new Headers(cors);
+    headers.set('Content-Type', 'application/json');
+    headers.set('Cache-Control', 'no-store');
+    return new Response(object.body, { status: 200, headers });
+}
+
+async function handleShareDelete(request, env, cors) {
+    const { owner, error } = await authOwner(request, env, cors);
+    if (error) return error;
+
+    let payload;
+    try {
+        payload = await request.json();
+    } catch {
+        return json({ error: 'invalid JSON body' }, 400, cors);
+    }
+
+    const id = safeShareId(payload?.id);
+    if (!id) {
+        return json({ error: 'id is required' }, 400, cors);
+    }
+
+    const record = await readShareRecord(env, id);
+    if (!record) {
+        return json({ error: 'not found' }, 404, cors);
+    }
+    if (record.owner !== owner) {
+        return json({ error: 'share is outside your namespace' }, 403, cors);
+    }
+
+    await env.XCITY_MEDIA.delete(shareKey(id));
+    return json({ ok: true, id }, 200, cors);
+}
+
 const MAX_STATE_BYTES = 2 * 1024 * 1024;
 
 function stateKey(owner) {
@@ -404,6 +703,9 @@ async function handleArchive(request, env, cors) {
 async function handleMedia(request, env, key, cors) {
     const notFoundHeaders = { ...cors, 'Cache-Control': 'no-store' };
     if (!key) return new Response('Not Found', { status: 404, headers: notFoundHeaders });
+    if (key.startsWith('share/')) {
+        return new Response('Not Found', { status: 404, headers: notFoundHeaders });
+    }
     if (/^(u|k)\/[^/]+\/state\//.test(key)) {
         return new Response('Not Found', { status: 404, headers: notFoundHeaders });
     }
@@ -459,12 +761,30 @@ export default {
             return handleAssetsDelete(request, env, cors);
         }
 
+        if (url.pathname === '/share' && request.method === 'POST') {
+            return handleShareCreate(request, env, cors);
+        }
+
+        if (url.pathname === '/share/delete' && request.method === 'POST') {
+            return handleShareDelete(request, env, cors);
+        }
+
         if (url.pathname === '/state' && request.method === 'GET') {
             return handleStateGet(request, env, cors);
         }
 
         if (url.pathname === '/state' && request.method === 'PUT') {
             return handleStatePut(request, env, cors);
+        }
+
+        const shareJsonMatch = url.pathname.match(/^\/share\/([0-9a-z]{8})\.json$/);
+        if (shareJsonMatch && request.method === 'GET') {
+            return handleShareJson(env, shareJsonMatch[1], cors);
+        }
+
+        const sharePageMatch = url.pathname.match(/^\/share\/([0-9a-z]{8})$/);
+        if (sharePageMatch && request.method === 'GET') {
+            return handleSharePage(env, sharePageMatch[1]);
         }
 
         if (url.pathname.startsWith('/media/')) {
