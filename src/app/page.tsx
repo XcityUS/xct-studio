@@ -3,6 +3,7 @@
 import { ApiKeyDialog } from '@/components/api-key-dialog';
 import { ApiKeyGate } from '@/components/api-key-gate';
 import { AssetsPanel } from '@/components/assets-panel';
+import { CommunityPanel } from '@/components/community-panel';
 import { CreationForm, type CreationFormData } from '@/components/creation-form';
 import { GallerySection } from '@/components/gallery/gallery-section';
 import { ImageStudio } from '@/components/image-studio';
@@ -35,11 +36,16 @@ import {
     audioUrlToDataUri,
     createShare,
     deleteUserAsset,
+    fetchCommunityList,
+    fetchCommunityQueue,
     fetchShare,
     imageUrlToDataUri,
     listUserAssets,
     mediaArchiveEnabled,
     mediaWorkerUrl,
+    publishToCommunity,
+    reviewCommunityItem,
+    type CommunityReviewAction,
     uploadReferenceAudio,
     uploadReferenceImage,
     uploadReferenceVideo,
@@ -79,6 +85,7 @@ function fileNameWithoutExtension(fileName: string): string {
 }
 
 const MAX_REFERENCE_VIDEOS = 2;
+type StudioTab = 'video' | 'image' | 'assets' | 'community';
 
 function isVideoResolution(value: string | undefined): value is VideoResolution {
     return Boolean(value && RESOLUTIONS.includes(value as VideoResolution));
@@ -177,13 +184,18 @@ export default function HomePage() {
     const [isApiKeyDialogOpen, setIsApiKeyDialogOpen] = React.useState(false);
     const [currentJobId, setCurrentJobId] = React.useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = React.useState(false);
-    const [activeTab, setActiveTab] = React.useState<'video' | 'image' | 'assets'>('video');
+    const [activeTab, setActiveTab] = React.useState<StudioTab>('video');
     const [shareNotice, setShareNotice] = React.useState<string | null>(null);
     const [isShareDialogOpen, setIsShareDialogOpen] = React.useState(false);
+    const [shareDialogId, setShareDialogId] = React.useState('');
     const [shareDialogUrl, setShareDialogUrl] = React.useState('');
     const [shareDialogError, setShareDialogError] = React.useState<string | null>(null);
     const [sharingVideoId, setSharingVideoId] = React.useState<string | null>(null);
     const [shareUrlCopied, setShareUrlCopied] = React.useState(false);
+    const [shareCommunityStatus, setShareCommunityStatus] = React.useState<'idle' | 'submitting' | 'submitted'>(
+        'idle'
+    );
+    const [shareCommunityError, setShareCommunityError] = React.useState<string | null>(null);
 
     // Creation form state
     const [createModel, setCreateModel] = React.useState<VideoModel>(DEFAULT_MODEL);
@@ -242,6 +254,38 @@ export default function HomePage() {
         creationFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, []);
 
+    const loadSharedSettings = React.useCallback(async (shareId: string) => {
+        try {
+            const share = await fetchShare(shareId);
+            if (!share) {
+                setError('Shared settings were not found.');
+                return;
+            }
+
+            const { params, adjusted } = shareParamsToForm(share.prompt, share.params);
+            setCreateModel(params.model);
+            setCreatePrompt(params.prompt);
+            setCreateRatio(params.ratio);
+            setCreateResolution(params.resolution);
+            setCreateSeconds(params.seconds);
+            setCreateAudio(params.generate_audio);
+            setCreateCameraFixed(params.camera_fixed ?? false);
+            setCreateReferenceUrls([]);
+            setCreateLastFrameUrl('');
+            setCreateReferenceAudioUrl('');
+            setCreateReferenceVideoUrls([]);
+            setCreateSeed(params.seed);
+            setCreateWatermark(params.watermark ?? false);
+            setActiveTab('video');
+            setShareNotice('Loaded shared settings — generate to recreate');
+            setError(adjusted.length ? `Adjusted shared settings: ${adjusted.join(', ')}` : null);
+            creationFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } catch (err) {
+            console.error('Error loading share:', err);
+            setError(err instanceof Error ? err.message : 'Could not load shared settings.');
+        }
+    }, []);
+
     const loadedShareIdRef = React.useRef<string | null>(null);
     React.useEffect(() => {
         const url = new URL(window.location.href);
@@ -251,39 +295,8 @@ export default function HomePage() {
 
         url.searchParams.delete('share');
         window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
-
-        void (async () => {
-            try {
-                const share = await fetchShare(shareId);
-                if (!share) {
-                    setError('Shared settings were not found.');
-                    return;
-                }
-
-                const { params, adjusted } = shareParamsToForm(share.prompt, share.params);
-                setCreateModel(params.model);
-                setCreatePrompt(params.prompt);
-                setCreateRatio(params.ratio);
-                setCreateResolution(params.resolution);
-                setCreateSeconds(params.seconds);
-                setCreateAudio(params.generate_audio);
-                setCreateCameraFixed(params.camera_fixed ?? false);
-                setCreateReferenceUrls([]);
-                setCreateLastFrameUrl('');
-                setCreateReferenceAudioUrl('');
-                setCreateReferenceVideoUrls([]);
-                setCreateSeed(params.seed);
-                setCreateWatermark(params.watermark ?? false);
-                setActiveTab('video');
-                setShareNotice('Loaded shared settings — generate to recreate');
-                setError(adjusted.length ? `Adjusted shared settings: ${adjusted.join(', ')}` : null);
-                creationFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            } catch (err) {
-                console.error('Error loading share:', err);
-                setError(err instanceof Error ? err.message : 'Could not load shared settings.');
-            }
-        })();
-    }, []);
+        void loadSharedSettings(shareId);
+    }, [loadSharedSettings]);
 
     const applyReferenceFrame = React.useCallback((item: GalleryItem, frameUrl: string) => {
         setCreateModel(item.params.model);
@@ -423,6 +436,34 @@ export default function HomePage() {
         }
         return listUserAssets(key);
     }, [resolveKey]);
+
+    const handleLoadCommunity = React.useCallback(() => {
+        return fetchCommunityList();
+    }, []);
+
+    const handleLoadCommunityQueue = React.useCallback(async () => {
+        const key = await resolveKey();
+        if (!key) return null;
+        return fetchCommunityQueue(key);
+    }, [resolveKey]);
+
+    const handleReviewCommunityItem = React.useCallback(
+        async (shareId: string, action: CommunityReviewAction) => {
+            const key = await resolveKey();
+            if (!key) {
+                throw new Error('Sign in at xcity.ai (or set an API key) to review community submissions.');
+            }
+            await reviewCommunityItem(shareId, action, key);
+        },
+        [resolveKey]
+    );
+
+    const handleCommunityRecreate = React.useCallback(
+        (shareId: string) => {
+            void loadSharedSettings(shareId);
+        },
+        [loadSharedSettings]
+    );
 
     const handleDeleteAsset = React.useCallback(
         async (assetKey: string) => {
@@ -890,6 +931,9 @@ export default function HomePage() {
         setIsShareDialogOpen(open);
         if (!open) {
             setShareUrlCopied(false);
+            setShareDialogId('');
+            setShareCommunityStatus('idle');
+            setShareCommunityError(null);
         }
     }, []);
 
@@ -904,12 +948,32 @@ export default function HomePage() {
         }
     }, [shareDialogUrl]);
 
+    const handleSubmitShareToCommunity = React.useCallback(async () => {
+        if (!shareDialogId) return;
+        setShareCommunityStatus('submitting');
+        setShareCommunityError(null);
+        try {
+            const activeKey = await resolveKey();
+            if (!activeKey) {
+                throw new Error('Sign in at xcity.ai (or set an API key) before submitting to community.');
+            }
+            await publishToCommunity(shareDialogId, activeKey);
+            setShareCommunityStatus('submitted');
+        } catch (err) {
+            setShareCommunityStatus('idle');
+            setShareCommunityError(err instanceof Error ? err.message : 'Community submission failed.');
+        }
+    }, [resolveKey, shareDialogId]);
+
     const handleShareItem = React.useCallback(
         async (item: VideoMetadata) => {
             setIsShareDialogOpen(true);
+            setShareDialogId('');
             setShareDialogUrl('');
             setShareDialogError(null);
             setShareUrlCopied(false);
+            setShareCommunityStatus('idle');
+            setShareCommunityError(null);
             setSharingVideoId(item.id);
 
             if (!item.storedUrl) {
@@ -934,6 +998,7 @@ export default function HomePage() {
                     },
                     activeKey
                 );
+                setShareDialogId(share.id);
                 setShareDialogUrl(share.url);
             } catch (err) {
                 console.error('Error creating share:', err);
@@ -1372,6 +1437,25 @@ export default function HomePage() {
                             <p className='text-xs text-neutral-400'>
                                 Recreate links load prompt and generation settings only. Reference media are not shared.
                             </p>
+                            {shareCommunityStatus === 'submitted' ? (
+                                <div className='flex items-center gap-2 rounded-md border border-green-500/25 bg-green-500/10 px-3 py-2 text-sm text-green-200'>
+                                    <Check className='h-4 w-4' />
+                                    Submitted for review ✓
+                                </div>
+                            ) : (
+                                <Button
+                                    type='button'
+                                    variant='secondary'
+                                    onClick={() => void handleSubmitShareToCommunity()}
+                                    disabled={shareCommunityStatus === 'submitting' || !shareDialogId}
+                                    className='w-full bg-white/10 text-white hover:bg-white/20'>
+                                    {shareCommunityStatus === 'submitting' && (
+                                        <Loader2 className='h-4 w-4 animate-spin' />
+                                    )}
+                                    Submit to community
+                                </Button>
+                            )}
+                            {shareCommunityError && <p className='text-xs text-red-300'>{shareCommunityError}</p>}
                         </div>
                     ) : null}
                     <DialogFooter>
@@ -1402,7 +1486,7 @@ export default function HomePage() {
 
             <div className='w-full max-w-7xl space-y-6'>
                 {IMAGE_GENERATION_ENABLED || uploadEnabled ? (
-                    <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'video' | 'image' | 'assets')}>
+                    <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as StudioTab)}>
                         <TabsList className='mb-4 border border-white/10 bg-white/5'>
                             <TabsTrigger
                                 value='video'
@@ -1421,6 +1505,13 @@ export default function HomePage() {
                                     value='assets'
                                     className='px-6 text-white/60 data-[state=active]:bg-white data-[state=active]:text-black'>
                                     Assets
+                                </TabsTrigger>
+                            )}
+                            {uploadEnabled && (
+                                <TabsTrigger
+                                    value='community'
+                                    className='px-6 text-white/60 data-[state=active]:bg-white data-[state=active]:text-black'>
+                                    Community
                                 </TabsTrigger>
                             )}
                         </TabsList>
@@ -1444,6 +1535,19 @@ export default function HomePage() {
                                         onUseAsReference={handleUseAssetAsReference}
                                         onUseAsReferenceVideo={handleUseAssetAsReferenceVideo}
                                         active={activeTab === 'assets'}
+                                    />
+                                </div>
+                            </TabsContent>
+                        )}
+                        {uploadEnabled && (
+                            <TabsContent value='community'>
+                                <div className='min-h-[450px]'>
+                                    <CommunityPanel
+                                        loadItems={handleLoadCommunity}
+                                        loadQueue={handleLoadCommunityQueue}
+                                        reviewItem={handleReviewCommunityItem}
+                                        onRecreate={handleCommunityRecreate}
+                                        active={activeTab === 'community'}
                                     />
                                 </div>
                             </TabsContent>

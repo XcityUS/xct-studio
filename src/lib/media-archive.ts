@@ -55,6 +55,33 @@ export interface FetchedShare {
     title?: string;
 }
 
+export type CommunityReviewAction = 'approve' | 'reject';
+export type CommunityPublishStatus = 'pending' | 'approved' | 'rejected';
+
+export interface CommunityListItem {
+    id: string;
+    title: string;
+    prompt: string;
+    video_url: string;
+    share_url: string;
+    params: {
+        model?: string;
+        ratio?: string;
+        resolution?: string;
+        seconds?: number | string;
+    };
+    created_at: string;
+}
+
+export interface CommunityQueueItem {
+    id: string;
+    title: string;
+    prompt: string;
+    video_url: string;
+    created_at: string;
+    owner: string;
+}
+
 export async function createShare(
     input: { videoId: string; videoUrl: string; prompt: string; params: object; title?: string },
     apiKey: string
@@ -117,6 +144,99 @@ export async function fetchShare(id: string): Promise<FetchedShare | null> {
         params: data.params,
         ...(typeof data.title === 'string' && data.title ? { title: data.title } : {})
     };
+}
+
+export async function publishToCommunity(shareId: string, apiKey: string): Promise<CommunityPublishStatus> {
+    const workerUrl = await loadWorkerUrl();
+    if (!workerUrl) {
+        throw new Error('Community publishing is not configured on this deployment.');
+    }
+
+    const res = await fetch(`${workerUrl}/community/publish`, {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ share_id: shareId })
+    });
+    if (!res.ok) {
+        const detail = await res
+            .json()
+            .then((d: { error?: string }) => d.error)
+            .catch(() => undefined);
+        throw new Error(detail || `Community publish failed (${res.status}).`);
+    }
+
+    const data = (await res.json()) as { status?: CommunityPublishStatus };
+    if (data.status !== 'pending' && data.status !== 'approved' && data.status !== 'rejected') {
+        throw new Error('Community publish returned no status.');
+    }
+    return data.status;
+}
+
+export async function fetchCommunityQueue(apiKey: string): Promise<CommunityQueueItem[] | null> {
+    const workerUrl = await loadWorkerUrl();
+    if (!workerUrl) return null;
+
+    const res = await fetch(`${workerUrl}/community/queue`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        cache: 'no-store'
+    });
+    if (res.status === 403) return null;
+    if (!res.ok) {
+        throw new Error(`Could not load review queue (${res.status}).`);
+    }
+    const data = (await res.json()) as { items?: CommunityQueueItem[] };
+    return data.items ?? [];
+}
+
+export async function reviewCommunityItem(
+    shareId: string,
+    action: CommunityReviewAction,
+    apiKey: string
+): Promise<CommunityPublishStatus> {
+    const workerUrl = await loadWorkerUrl();
+    if (!workerUrl) {
+        throw new Error('Community review is not configured on this deployment.');
+    }
+
+    const res = await fetch(`${workerUrl}/community/review`, {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ share_id: shareId, action })
+    });
+    if (!res.ok) {
+        const detail = await res
+            .json()
+            .then((d: { error?: string }) => d.error)
+            .catch(() => undefined);
+        throw new Error(detail || `Community review failed (${res.status}).`);
+    }
+
+    const data = (await res.json()) as { status?: CommunityPublishStatus };
+    if (data.status !== 'pending' && data.status !== 'approved' && data.status !== 'rejected') {
+        throw new Error('Community review returned no status.');
+    }
+    return data.status;
+}
+
+export async function fetchCommunityList(): Promise<CommunityListItem[]> {
+    const workerUrl = await loadWorkerUrl();
+    if (!workerUrl) return [];
+
+    const res = await fetch(`${workerUrl}/community/list`, { cache: 'no-store' });
+    if (!res.ok) {
+        throw new Error(`Could not load community videos (${res.status}).`);
+    }
+    const data = (await res.json()) as { items?: Omit<CommunityListItem, 'share_url'>[] };
+    return (data.items ?? []).map((item) => ({
+        ...item,
+        share_url: `${workerUrl}/share/${encodeURIComponent(item.id)}`
+    }));
 }
 
 /**

@@ -24,6 +24,7 @@ const JSON_HEADERS = { 'Content-Type': 'application/json', 'Cache-Control': 'no-
 const MAX_SHARE_PROMPT_CHARS = 4000;
 const MAX_SHARE_PARAMS_BYTES = 8 * 1024;
 const SHARE_ID_RE = /^[0-9a-z]{8}$/;
+const COMMUNITY_INDEX_KEY = 'community/index.json';
 const PRIVATE_REFERENCE_PARAM_KEYS = [
     'input_reference_url',
     'last_frame_url',
@@ -71,6 +72,14 @@ async function resolveOwner(bearer, env) {
     const userId = body?.info?.user_id;
     if (userId) return `u/${userId}`;
     return `k/${await sha256Hex(bearer)}`;
+}
+
+function isAdmin(owner, env) {
+    return (env.ADMIN_USER_IDS || '')
+        .split(',')
+        .map((id) => id.trim())
+        .filter(Boolean)
+        .some((id) => owner === `u/${id}`);
 }
 
 async function sha256Hex(value) {
@@ -143,6 +152,17 @@ function shareSetting(params, key) {
         return String(value);
     }
     return '';
+}
+
+function publicCommunityParams(params) {
+    if (!isJsonObject(params)) return {};
+    return ['model', 'ratio', 'resolution', 'seconds'].reduce((result, key) => {
+        const value = params[key];
+        if (typeof value === 'string' || typeof value === 'number') {
+            result[key] = value;
+        }
+        return result;
+    }, {});
 }
 
 /** Video ids are gateway-issued base64; keep only what is safe in a path. */
@@ -427,6 +447,208 @@ async function readShareRecord(env, id) {
     return record;
 }
 
+async function writeShareRecord(env, record) {
+    await env.XCITY_MEDIA.put(shareKey(record.id), JSON.stringify(record), {
+        httpMetadata: {
+            contentType: 'application/json',
+            cacheControl: 'no-store'
+        }
+    });
+}
+
+function normalizeCommunityIndex(value) {
+    if (!Array.isArray(value)) return [];
+    const seen = new Set();
+    const entries = [];
+    for (const entry of value) {
+        if (!isJsonObject(entry)) continue;
+        const id = safeShareId(entry.id);
+        const approvedAt = typeof entry.approved_at === 'string' ? entry.approved_at : '';
+        if (!id || !approvedAt || seen.has(id)) continue;
+        seen.add(id);
+        entries.push({ id, approved_at: approvedAt });
+    }
+    entries.sort((a, b) => b.approved_at.localeCompare(a.approved_at));
+    return entries;
+}
+
+async function readCommunityIndex(env) {
+    const object = await env.XCITY_MEDIA.get(COMMUNITY_INDEX_KEY);
+    if (!object) {
+        return { entries: [], etag: null };
+    }
+    const parsed = await object.json().catch(() => []);
+    return { entries: normalizeCommunityIndex(parsed), etag: etagFromIfMatch(object.httpEtag || '') };
+}
+
+async function updateCommunityIndex(env, update) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+        const { entries, etag } = await readCommunityIndex(env);
+        const next = normalizeCommunityIndex(update(entries));
+        const onlyIf = etag ? { etagMatches: etag } : { etagDoesNotExist: true };
+        const stored = await env.XCITY_MEDIA.put(COMMUNITY_INDEX_KEY, JSON.stringify(next), {
+            onlyIf,
+            httpMetadata: {
+                contentType: 'application/json',
+                cacheControl: 'no-store'
+            }
+        });
+        if (stored) return true;
+    }
+    return false;
+}
+
+async function handleCommunityPublish(request, env, cors) {
+    const { owner, error } = await authOwner(request, env, cors);
+    if (error) return error;
+
+    let payload;
+    try {
+        payload = await request.json();
+    } catch {
+        return json({ error: 'invalid JSON body' }, 400, cors);
+    }
+
+    const id = safeShareId(payload?.share_id);
+    if (!id) {
+        return json({ error: 'share_id is required' }, 400, cors);
+    }
+
+    const record = await readShareRecord(env, id);
+    if (!record) {
+        return json({ error: 'not found' }, 404, cors);
+    }
+    if (record.owner !== owner) {
+        return json({ error: 'share is outside your namespace' }, 403, cors);
+    }
+
+    const status = record.plaza === 'pending' || record.plaza === 'approved' ? record.plaza : 'pending';
+    if (record.plaza !== status) {
+        record.plaza = status;
+        await writeShareRecord(env, record);
+    }
+
+    return json({ status: record.plaza }, 200, cors);
+}
+
+async function handleCommunityQueue(request, env, cors) {
+    const { owner, error } = await authOwner(request, env, cors);
+    if (error) return error;
+    if (!isAdmin(owner, env)) {
+        return json({ error: 'admin access required' }, 403, cors);
+    }
+
+    const items = [];
+    let cursor;
+    let walked = 0;
+    while (walked < 500) {
+        const listed = await env.XCITY_MEDIA.list({
+            prefix: 'share/',
+            limit: Math.min(500 - walked, 1000),
+            cursor
+        });
+        for (const obj of listed.objects) {
+            walked++;
+            const match = obj.key.match(/^share\/([0-9a-z]{8})\.json$/);
+            if (!match) continue;
+            const record = await readShareRecord(env, match[1]);
+            if (record?.plaza !== 'pending') continue;
+            items.push({
+                id: record.id,
+                title: typeof record.title === 'string' ? record.title : '',
+                prompt: record.prompt,
+                video_url: record.video_url,
+                created_at: typeof record.created_at === 'string' ? record.created_at : '',
+                owner: record.owner
+            });
+        }
+        if (!listed.truncated) break;
+        cursor = listed.cursor;
+    }
+
+    items.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+    return json({ items }, 200, cors);
+}
+
+async function handleCommunityReview(request, env, cors) {
+    const { owner, error } = await authOwner(request, env, cors);
+    if (error) return error;
+    if (!isAdmin(owner, env)) {
+        return json({ error: 'admin access required' }, 403, cors);
+    }
+
+    let payload;
+    try {
+        payload = await request.json();
+    } catch {
+        return json({ error: 'invalid JSON body' }, 400, cors);
+    }
+
+    const id = safeShareId(payload?.share_id);
+    const action = payload?.action;
+    if (!id) {
+        return json({ error: 'share_id is required' }, 400, cors);
+    }
+    if (action !== 'approve' && action !== 'reject') {
+        return json({ error: 'action must be approve or reject' }, 400, cors);
+    }
+
+    const record = await readShareRecord(env, id);
+    if (!record) {
+        return json({ error: 'not found' }, 404, cors);
+    }
+
+    record.plaza = action === 'approve' ? 'approved' : 'rejected';
+    await writeShareRecord(env, record);
+
+    const approvedAt = new Date().toISOString();
+    const indexUpdated =
+        action === 'approve'
+            ? await updateCommunityIndex(env, (entries) => [
+                  { id, approved_at: approvedAt },
+                  ...entries.filter((entry) => entry.id !== id)
+              ])
+            : await updateCommunityIndex(env, (entries) => entries.filter((entry) => entry.id !== id));
+
+    if (!indexUpdated) {
+        return json({ error: 'community index changed on another request' }, 409, cors);
+    }
+
+    return json({ status: record.plaza }, 200, cors);
+}
+
+async function handleCommunityList(env, cors) {
+    const { entries } = await readCommunityIndex(env);
+    const items = [];
+    const staleIds = new Set();
+
+    for (const entry of entries.slice(0, 100)) {
+        const record = await readShareRecord(env, entry.id);
+        if (!record || record.plaza !== 'approved') {
+            staleIds.add(entry.id);
+            continue;
+        }
+        items.push({
+            id: record.id,
+            title: typeof record.title === 'string' ? record.title : '',
+            prompt: record.prompt,
+            video_url: record.video_url,
+            params: publicCommunityParams(record.params),
+            created_at: typeof record.created_at === 'string' ? record.created_at : ''
+        });
+    }
+
+    if (staleIds.size > 0) {
+        try {
+            await updateCommunityIndex(env, (current) => current.filter((entry) => !staleIds.has(entry.id)));
+        } catch (err) {
+            console.warn('Could not prune stale community index entries:', err);
+        }
+    }
+
+    return json({ items }, 200, cors);
+}
+
 function renderShareHtml(record, env) {
     const title = record.title || 'Shared Xcity video';
     const pageTitle = `${title} | Xcity Studio`;
@@ -706,6 +928,9 @@ async function handleMedia(request, env, key, cors) {
     if (key.startsWith('share/')) {
         return new Response('Not Found', { status: 404, headers: notFoundHeaders });
     }
+    if (key.startsWith('community/')) {
+        return new Response('Not Found', { status: 404, headers: notFoundHeaders });
+    }
     if (/^(u|k)\/[^/]+\/state\//.test(key)) {
         return new Response('Not Found', { status: 404, headers: notFoundHeaders });
     }
@@ -767,6 +992,22 @@ export default {
 
         if (url.pathname === '/share/delete' && request.method === 'POST') {
             return handleShareDelete(request, env, cors);
+        }
+
+        if (url.pathname === '/community/publish' && request.method === 'POST') {
+            return handleCommunityPublish(request, env, cors);
+        }
+
+        if (url.pathname === '/community/queue' && request.method === 'GET') {
+            return handleCommunityQueue(request, env, cors);
+        }
+
+        if (url.pathname === '/community/review' && request.method === 'POST') {
+            return handleCommunityReview(request, env, cors);
+        }
+
+        if (url.pathname === '/community/list' && request.method === 'GET') {
+            return handleCommunityList(env, cors);
         }
 
         if (url.pathname === '/state' && request.method === 'GET') {
