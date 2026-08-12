@@ -14,23 +14,42 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
-import {
-    CaptionBurnUnavailableError,
-    assembleClips,
-    burnCaptionsIntoVideo,
-    type AssembleClip
-} from '@/lib/assemble';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { CaptionBurnUnavailableError, assembleClips, type AssembleClip, type AssembleOptions } from '@/lib/assemble';
 import { segmentsToSrt, type CaptionSegment } from '@/lib/captions';
 import { transcribeModel as loadTranscribeModel, type UserAsset } from '@/lib/media-archive';
+import { buildFcp7Xml, type Fcp7XmlClip } from '@/lib/nle-export';
+import { parseSize, pixelDimensions, type VideoRatio } from '@/lib/seedance';
 import { getVideoDuration } from '@/lib/thumbnail';
 import { cn } from '@/lib/utils';
 import type { VideoMetadata } from '@/types/video';
-import { ArrowDown, ArrowUp, Captions, Download, Loader2, Music, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Captions, Crop, Download, FileCode2, Loader2, Music, Trash2 } from 'lucide-react';
 import * as React from 'react';
 
 const NONE_BGM_VALUE = '__none__';
 const DEFAULT_BGM_VOLUME = 60;
 const TIME_EPSILON = 0.001;
+const ORIGINAL_EXPORT_FORMAT = 'original';
+const CLOUD_XML_TOOLTIP = 'Archive to cloud first — XML references cloud URLs';
+
+type ExportFormatId = 'original' | 'vertical' | 'square' | 'widescreen';
+
+type ExportFormatOption = {
+    id: ExportFormatId;
+    label: string;
+    ratio?: VideoRatio;
+    reframe?: {
+        width: number;
+        height: number;
+    };
+};
+
+const EXPORT_FORMATS = [
+    { id: ORIGINAL_EXPORT_FORMAT, label: 'Original' },
+    { id: 'vertical', label: 'TikTok / Reels · 9:16', ratio: '9:16', reframe: { width: 1080, height: 1920 } },
+    { id: 'square', label: 'Square · 1:1', ratio: '1:1', reframe: { width: 1080, height: 1080 } },
+    { id: 'widescreen', label: 'Widescreen · 16:9', ratio: '16:9', reframe: { width: 1920, height: 1080 } }
+] as const satisfies readonly ExportFormatOption[];
 
 type AssemblyEditorProps = {
     open: boolean;
@@ -172,8 +191,20 @@ async function fetchBgmBlob(asset: UserAsset): Promise<Blob> {
     return new File([blob], `bgm.${extension}`, { type });
 }
 
+function timestampForFilename() {
+    return new Date().toISOString().replace(/[:.]/g, '-');
+}
+
 function exportBaseName() {
-    return `assembled-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+    return `assembled-${timestampForFilename()}`;
+}
+
+function timelineFileName() {
+    return `timeline-${timestampForFilename()}.xml`;
+}
+
+function exportFormatById(id: ExportFormatId): ExportFormatOption {
+    return EXPORT_FORMATS.find((format) => format.id === id) ?? EXPORT_FORMATS[0];
 }
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -193,6 +224,14 @@ function downloadBlob(blob: Blob, filename: string) {
 
 function downloadSrt(srt: string, filename: string) {
     downloadBlob(new Blob([srt], { type: 'application/x-subrip;charset=utf-8' }), filename);
+}
+
+function downloadXml(xml: string, filename: string) {
+    downloadBlob(new Blob([xml], { type: 'application/xml;charset=utf-8' }), filename);
+}
+
+function usesDefaultTrim(validation: ClipValidation, duration: number) {
+    return Math.abs(validation.inTime) <= TIME_EPSILON && Math.abs(validation.outTime - duration) <= TIME_EPSILON;
 }
 
 export function AssemblyEditor({
@@ -217,6 +256,7 @@ export function AssemblyEditor({
     const [captionsConfigured, setCaptionsConfigured] = React.useState(false);
     const [burnCaptions, setBurnCaptions] = React.useState(false);
     const [downloadSrtOnly, setDownloadSrtOnly] = React.useState(false);
+    const [exportFormat, setExportFormat] = React.useState<ExportFormatId>(ORIGINAL_EXPORT_FORMAT);
 
     React.useEffect(() => {
         if (!open) {
@@ -231,6 +271,7 @@ export function AssemblyEditor({
             setCaptionsConfigured(false);
             setBurnCaptions(false);
             setDownloadSrtOnly(false);
+            setExportFormat(ORIGINAL_EXPORT_FORMAT);
             return;
         }
 
@@ -377,8 +418,24 @@ export function AssemblyEditor({
         return audioAssets.find((asset) => asset.key === selectedBgmKey);
     }, [audioAssets, selectedBgmKey]);
 
+    const selectedExportFormat = React.useMemo(() => exportFormatById(exportFormat), [exportFormat]);
+    const parsedSourceSize = React.useMemo(() => {
+        const size = rows[0]?.item.size ?? items[0]?.size ?? '';
+        return parseSize(size);
+    }, [items, rows]);
+    const selectedReframe = React.useMemo(() => {
+        if (!selectedExportFormat.reframe) return undefined;
+        if (parsedSourceSize?.ratio && selectedExportFormat.ratio === parsedSourceSize.ratio) return undefined;
+
+        return {
+            width: selectedExportFormat.reframe.width,
+            height: selectedExportFormat.reframe.height
+        };
+    }, [parsedSourceSize, selectedExportFormat]);
+    const allRowsHaveCloudUrls = rows.length > 0 && rows.every((row) => Boolean(row.item.storedUrl));
     const captionsAvailable = captionsConfigured && Boolean(onTranscribeVideo);
     const canExport = !isLoadingClips && !isExporting && !firstClipError;
+    const canExportTimeline = canExport && allRowsHaveCloudUrls;
 
     const updateRow = React.useCallback((id: string, updates: Partial<Pick<ClipRow, 'inValue' | 'outValue'>>) => {
         setRows((current) => current.map((row) => (row.id === id ? { ...row, ...updates } : row)));
@@ -407,6 +464,26 @@ export function AssemblyEditor({
         [isExporting, onOpenChange]
     );
 
+    const buildAssemblyClips = React.useCallback((): AssembleClip[] => {
+        return rows.map((row) => {
+            const validation = validations.get(row.id);
+            if (!row.blob || typeof row.duration !== 'number' || !validation || validation.error) {
+                throw new Error('Assembly is not ready to export.');
+            }
+
+            return {
+                id: row.id,
+                blob: row.blob,
+                ...(usesDefaultTrim(validation, row.duration)
+                    ? {}
+                    : {
+                          inTime: validation.inTime,
+                          outTime: validation.outTime
+                      })
+            };
+        });
+    }, [rows, validations]);
+
     const handleExport = React.useCallback(async () => {
         if (!canExport) {
             setExportError(firstClipError || 'Assembly is not ready to export.');
@@ -419,45 +496,27 @@ export function AssemblyEditor({
         setExportNotice(null);
 
         try {
-            const clips: AssembleClip[] = rows.map((row) => {
-                const validation = validations.get(row.id);
-                if (!row.blob || !row.duration || !validation || validation.error) {
-                    throw new Error('Assembly is not ready to export.');
-                }
-
-                const usesDefaultTrim =
-                    Math.abs(validation.inTime) <= TIME_EPSILON &&
-                    Math.abs(validation.outTime - row.duration) <= TIME_EPSILON;
-
-                return {
-                    id: row.id,
-                    blob: row.blob,
-                    ...(usesDefaultTrim
-                        ? {}
-                        : {
-                              inTime: validation.inTime,
-                              outTime: validation.outTime
-                          })
-                };
-            });
-
+            const clips = buildAssemblyClips();
             const bgmBlob = selectedBgmAsset ? await fetchBgmBlob(selectedBgmAsset) : undefined;
+            const baseOptions: AssembleOptions | undefined = bgmBlob
+                ? {
+                      bgm: {
+                          blob: bgmBlob,
+                          volume: bgmVolume / 100
+                      }
+                  }
+                : undefined;
+            const finalOptions: AssembleOptions | undefined = selectedReframe
+                ? {
+                      ...(baseOptions ?? {}),
+                      reframe: selectedReframe
+                  }
+                : baseOptions;
             const wantsCaptions = captionsAvailable && (burnCaptions || downloadSrtOnly);
             const baseName = exportBaseName();
-            const output = await assembleClips(
-                clips,
-                bgmBlob
-                    ? {
-                          bgm: {
-                              blob: bgmBlob,
-                              volume: bgmVolume / 100
-                          }
-                      }
-                    : undefined,
-                wantsCaptions ? (progress) => setExportProgress(progress * 0.65) : setExportProgress
-            );
 
             if (!wantsCaptions) {
+                const output = await assembleClips(clips, finalOptions, setExportProgress);
                 downloadBlob(output, `${baseName}.mp4`);
                 onOpenChange(false);
                 return;
@@ -467,14 +526,21 @@ export function AssemblyEditor({
                 throw new Error('Auto-captioning is not configured on this deployment.');
             }
 
+            const transcriptionOutput = await assembleClips(clips, baseOptions, (progress) =>
+                setExportProgress(progress * 0.56)
+            );
+
             setExportProgress(0.68);
-            const srt = segmentsToSrt(await onTranscribeVideo(output));
+            const srt = segmentsToSrt(await onTranscribeVideo(transcriptionOutput));
             if (!srt.trim()) {
                 throw new Error('No speech was detected for captions.');
             }
             setExportProgress(0.74);
 
             if (downloadSrtOnly) {
+                const output = selectedReframe
+                    ? await assembleClips(clips, finalOptions, (progress) => setExportProgress(0.74 + progress * 0.26))
+                    : transcriptionOutput;
                 downloadBlob(output, `${baseName}.mp4`);
                 downloadSrt(srt, `${baseName}.srt`);
                 setExportProgress(1);
@@ -483,8 +549,13 @@ export function AssemblyEditor({
             }
 
             try {
-                const captionedOutput = await burnCaptionsIntoVideo(output, { srt }, (progress) =>
-                    setExportProgress(0.74 + progress * 0.26)
+                const captionedOutput = await assembleClips(
+                    clips,
+                    {
+                        ...(finalOptions ?? {}),
+                        captions: { srt }
+                    },
+                    (progress) => setExportProgress(0.74 + progress * 0.26)
                 );
                 downloadBlob(captionedOutput, `${baseName}.mp4`);
                 onOpenChange(false);
@@ -494,7 +565,10 @@ export function AssemblyEditor({
                 }
 
                 console.warn('Caption burn-in unavailable; exporting SRT sidecar instead.', err);
-                downloadBlob(output, `${baseName}.mp4`);
+                const fallbackOutput = selectedReframe
+                    ? await assembleClips(clips, finalOptions, (progress) => setExportProgress(0.74 + progress * 0.26))
+                    : transcriptionOutput;
+                downloadBlob(fallbackOutput, `${baseName}.mp4`);
                 downloadSrt(srt, `${baseName}.srt`);
                 setExportProgress(1);
                 setExportNotice('captions exported as .srt (burn-in unavailable)');
@@ -507,6 +581,7 @@ export function AssemblyEditor({
         }
     }, [
         bgmVolume,
+        buildAssemblyClips,
         burnCaptions,
         canExport,
         captionsAvailable,
@@ -514,10 +589,58 @@ export function AssemblyEditor({
         firstClipError,
         onOpenChange,
         onTranscribeVideo,
-        rows,
         selectedBgmAsset,
-        validations
+        selectedReframe
     ]);
+
+    const handleTimelineExport = React.useCallback(() => {
+        if (!canExportTimeline) {
+            setExportError(
+                allRowsHaveCloudUrls ? firstClipError || 'Assembly is not ready to export.' : CLOUD_XML_TOOLTIP
+            );
+            return;
+        }
+
+        setExportError(null);
+        setExportNotice(null);
+
+        try {
+            const parsedSize = parseSize(rows[0]?.item.size ?? '');
+            if (!parsedSize) {
+                throw new Error('Could not read clip size for XML export.');
+            }
+
+            const dimensions = pixelDimensions(parsedSize.ratio, parsedSize.resolution);
+            const clips: Fcp7XmlClip[] = rows.map((row) => {
+                const validation = validations.get(row.id);
+                const url = row.item.storedUrl;
+
+                if (!url || typeof row.duration !== 'number' || !validation || validation.error) {
+                    throw new Error('Assembly is not ready to export timeline XML.');
+                }
+
+                return {
+                    name: displayNameForClip(row.item),
+                    url,
+                    durationSeconds: row.duration,
+                    width: dimensions.width,
+                    height: dimensions.height,
+                    ...(usesDefaultTrim(validation, row.duration)
+                        ? {}
+                        : {
+                              inSeconds: validation.inTime,
+                              outSeconds: validation.outTime
+                          })
+                };
+            });
+
+            downloadXml(buildFcp7Xml(clips), timelineFileName());
+            setExportNotice('timeline exported as .xml');
+        } catch (err) {
+            console.error('Error exporting timeline XML:', err);
+            setExportError(err instanceof Error ? err.message : 'Failed to export timeline XML.');
+        }
+    }, [allRowsHaveCloudUrls, canExportTimeline, firstClipError, rows, validations]);
 
     return (
         <Dialog open={open} onOpenChange={handleDialogOpenChange}>
@@ -751,6 +874,48 @@ export function AssemblyEditor({
                             </div>
                         </div>
                     )}
+
+                    <div className='rounded-md border border-white/10 bg-white/[0.04] p-3'>
+                        <div className='grid gap-3 md:grid-cols-[minmax(0,1fr)_16rem] md:items-end'>
+                            <div className='flex items-start gap-2'>
+                                <Crop size={15} className='mt-0.5 text-white/60' />
+                                <div>
+                                    <h3 className='text-sm font-medium text-white'>Export</h3>
+                                    <p className='text-xs text-white/45'>
+                                        Source: {rows[0]?.item.size || items[0]?.size || 'Unknown size'}
+                                    </p>
+                                    {selectedReframe && (
+                                        <p className='mt-1 text-xs text-amber-200'>
+                                            Reframing re-encodes the film.
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className='space-y-2'>
+                                <Label htmlFor='assembly-export-format' className='text-xs text-white/60'>
+                                    Export format
+                                </Label>
+                                <Select
+                                    value={exportFormat}
+                                    onValueChange={(value) => setExportFormat(value as ExportFormatId)}
+                                    disabled={isExporting}>
+                                    <SelectTrigger
+                                        id='assembly-export-format'
+                                        className='h-9 w-full border-white/15 bg-black/40 text-white focus:ring-white/20'>
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent className='border-white/15 bg-neutral-950 text-white'>
+                                        {EXPORT_FORMATS.map((format) => (
+                                            <SelectItem key={format.id} value={format.id}>
+                                                {format.label}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <DialogFooter className='border-t border-white/10 bg-black/40 px-5 py-4 sm:items-center sm:justify-between'>
@@ -781,7 +946,7 @@ export function AssemblyEditor({
                             </div>
                         )}
                     </div>
-                    <div className='flex shrink-0 items-center gap-2'>
+                    <div className='flex shrink-0 flex-wrap items-center justify-end gap-2'>
                         <Button
                             type='button'
                             variant='ghost'
@@ -790,6 +955,37 @@ export function AssemblyEditor({
                             className='h-9 rounded-md px-3 text-white/60 hover:bg-white/10 hover:text-white'>
                             Cancel
                         </Button>
+                        {allRowsHaveCloudUrls ? (
+                            <Button
+                                type='button'
+                                variant='outline'
+                                onClick={handleTimelineExport}
+                                disabled={!canExportTimeline}
+                                title='Export timeline (.xml)'
+                                className='h-9 rounded-md border-white/15 bg-white/[0.04] px-3 text-white/75 hover:bg-white/10 hover:text-white disabled:bg-white/[0.04]'>
+                                <FileCode2 size={15} />
+                                Export timeline (.xml)
+                            </Button>
+                        ) : (
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <span className='inline-flex'>
+                                        <Button
+                                            type='button'
+                                            variant='outline'
+                                            disabled
+                                            title={CLOUD_XML_TOOLTIP}
+                                            className='h-9 rounded-md border-white/15 bg-white/[0.04] px-3 text-white/75 hover:bg-white/10 hover:text-white disabled:bg-white/[0.04]'>
+                                            <FileCode2 size={15} />
+                                            Export timeline (.xml)
+                                        </Button>
+                                    </span>
+                                </TooltipTrigger>
+                                <TooltipContent side='top' className='border border-white/20 bg-black text-white'>
+                                    {CLOUD_XML_TOOLTIP}
+                                </TooltipContent>
+                            </Tooltip>
+                        )}
                         <Button
                             type='button'
                             onClick={handleExport}

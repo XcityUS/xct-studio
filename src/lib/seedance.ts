@@ -116,6 +116,42 @@ export function parseSize(size: string): { ratio: VideoRatio; resolution: VideoR
     return ratio && resolution ? { ratio, resolution } : null;
 }
 
+const RESOLUTION_HEIGHTS: Record<VideoResolution, number> = {
+    '480p': 480,
+    '720p': 720,
+    '1080p': 1080,
+    '4K': 2160
+};
+
+const SIXTEEN_BY_NINE_DIMENSIONS: Record<VideoResolution, { width: number; height: number }> = {
+    '480p': { width: 854, height: 480 },
+    '720p': { width: 1280, height: 720 },
+    '1080p': { width: 1920, height: 1080 },
+    '4K': { width: 3840, height: 2160 }
+};
+
+function parseRatioParts(ratio: VideoRatio) {
+    const [widthPart, heightPart] = ratio.split(':').map(Number);
+    return { widthPart, heightPart };
+}
+
+function roundToEven(value: number) {
+    return Math.max(2, Math.round(value / 2) * 2);
+}
+
+export function pixelDimensions(ratio: VideoRatio, resolution: VideoResolution): { width: number; height: number } {
+    if (ratio === '16:9') {
+        return SIXTEEN_BY_NINE_DIMENSIONS[resolution];
+    }
+
+    const height = RESOLUTION_HEIGHTS[resolution];
+    const { widthPart, heightPart } = parseRatioParts(ratio);
+    return {
+        width: roundToEven((height * widthPart) / heightPart),
+        height
+    };
+}
+
 /** Reference-image cap for a model (1 = first-frame only). */
 export function maxReferenceImages(modelId: string): number {
     return getSeedanceModel(modelId)?.maxReferenceImages ?? 1;

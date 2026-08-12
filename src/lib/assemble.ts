@@ -5,7 +5,7 @@ const JOINED_FILE = 'joined.mp4';
 const OUTPUT_FILE = 'out.mp4';
 const CAPTION_INPUT_FILE = 'caption_input.mp4';
 const CAPTION_SRT_FILE = 'subs.srt';
-const CAPTION_OUTPUT_FILE = 'final.mp4';
+const FINAL_OUTPUT_FILE = 'final.mp4';
 
 export type AssembleClip = {
     id: string;
@@ -21,6 +21,10 @@ export type AssembleOptions = {
     };
     captions?: {
         srt: string;
+    };
+    reframe?: {
+        width: number;
+        height: number;
     };
 };
 
@@ -103,6 +107,19 @@ function hasCaptionSrt(opts: AssembleOptions | undefined): opts is AssembleOptio
     return Boolean(opts?.captions?.srt.trim());
 }
 
+function normalizeReframeTarget(target: AssembleOptions['reframe']) {
+    if (!target) return null;
+
+    const width = Math.round(target.width);
+    const height = Math.round(target.height);
+
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+        throw new Error('Invalid export format dimensions.');
+    }
+
+    return { width, height };
+}
+
 function getTrimTimes(clip: AssembleClip) {
     const inTime = clip.inTime ?? 0;
     const outTime = clip.outTime;
@@ -161,8 +178,32 @@ async function deleteIfExists(ffmpeg: FFmpegRuntime, file: string) {
     await ffmpeg.deleteFile(file).catch(() => undefined);
 }
 
-async function burnCaptionsFile(ffmpeg: FFmpegRuntime, inputFile: string, outputFile: string, srt: string) {
-    await ffmpeg.writeFile(CAPTION_SRT_FILE, new TextEncoder().encode(srt));
+function reframeFilters(target: { width: number; height: number }) {
+    const { width, height } = target;
+    return [
+        `crop=min(iw\\,ih*${width}/${height}):min(ih\\,iw*${height}/${width})`,
+        `scale=${width}:${height}`
+    ];
+}
+
+function subtitlesFilter() {
+    return "subtitles=subs.srt:force_style='FontName=Arial,FontSize=18,PrimaryColour=&Hffffff&,OutlineColour=&H80000000&,BorderStyle=1,Outline=1'";
+}
+
+async function reencodeVideoFile(
+    ffmpeg: FFmpegRuntime,
+    inputFile: string,
+    outputFile: string,
+    opts: {
+        captions?: { srt: string };
+        reframe?: { width: number; height: number };
+    }
+) {
+    const filters = [...(opts.reframe ? reframeFilters(opts.reframe) : []), ...(opts.captions ? [subtitlesFilter()] : [])];
+
+    if (opts.captions) {
+        await ffmpeg.writeFile(CAPTION_SRT_FILE, new TextEncoder().encode(opts.captions.srt));
+    }
     await deleteIfExists(ffmpeg, outputFile);
 
     try {
@@ -172,7 +213,7 @@ async function burnCaptionsFile(ffmpeg: FFmpegRuntime, inputFile: string, output
                 '-i',
                 inputFile,
                 '-vf',
-                "subtitles=subs.srt:force_style='FontName=Arial,FontSize=18,PrimaryColour=&Hffffff&,OutlineColour=&H80000000&,BorderStyle=1,Outline=1'",
+                filters.join(','),
                 '-c:v',
                 'libx264',
                 '-preset',
@@ -183,10 +224,13 @@ async function burnCaptionsFile(ffmpeg: FFmpegRuntime, inputFile: string, output
                 'copy',
                 outputFile
             ],
-            'FFmpeg caption burn-in'
+            opts.captions ? 'FFmpeg caption burn-in' : 'FFmpeg reframe'
         );
     } catch (error) {
-        throw new CaptionBurnUnavailableError(getReadableError(error));
+        if (opts.captions) {
+            throw new CaptionBurnUnavailableError(getReadableError(error));
+        }
+        throw error;
     }
 }
 
@@ -221,8 +265,8 @@ export async function burnCaptionsIntoVideo(
 
         await ffmpeg.writeFile(CAPTION_INPUT_FILE, await fetchFile(film));
         reportProgress(0.05);
-        await burnCaptionsFile(ffmpeg, CAPTION_INPUT_FILE, CAPTION_OUTPUT_FILE, captions.srt);
-        const output = await ffmpeg.readFile(CAPTION_OUTPUT_FILE);
+        await reencodeVideoFile(ffmpeg, CAPTION_INPUT_FILE, FINAL_OUTPUT_FILE, { captions });
+        const output = await ffmpeg.readFile(FINAL_OUTPUT_FILE);
         reportProgress(1);
         return createOutputBlob(output);
     } catch (error) {
@@ -238,7 +282,7 @@ export async function burnCaptionsIntoVideo(
         if (ffmpeg) {
             const loadedFFmpeg = ffmpeg;
             await Promise.allSettled(
-                [CAPTION_INPUT_FILE, CAPTION_SRT_FILE, CAPTION_OUTPUT_FILE].map((file) =>
+                [CAPTION_INPUT_FILE, CAPTION_SRT_FILE, FINAL_OUTPUT_FILE].map((file) =>
                     loadedFFmpeg.deleteFile(file)
                 )
             );
@@ -264,6 +308,8 @@ export async function assembleClips(
     const opts = typeof optsOrProgress === 'function' ? undefined : optsOrProgress;
     const onProgress = typeof optsOrProgress === 'function' ? optsOrProgress : maybeProgress;
     const shouldBurnCaptions = hasCaptionSrt(opts);
+    const reframeTarget = normalizeReframeTarget(opts?.reframe);
+    const needsFinalReencode = shouldBurnCaptions || Boolean(reframeTarget);
     const inputFiles = clips.map((_, index) => `${index}.mp4`);
     const trimmedFiles = clips.map((_, index) => `trimmed_${index}.mp4`);
     const bgmFile = opts?.bgm ? `bgm.${getAudioExtension(opts.bgm.blob)}` : null;
@@ -274,7 +320,8 @@ export async function assembleClips(
         JOINED_FILE,
         OUTPUT_FILE,
         ...(bgmFile ? [bgmFile] : []),
-        ...(shouldBurnCaptions ? [CAPTION_SRT_FILE, CAPTION_OUTPUT_FILE] : [])
+        ...(needsFinalReencode ? [FINAL_OUTPUT_FILE] : []),
+        ...(shouldBurnCaptions ? [CAPTION_SRT_FILE] : [])
     ];
     let ffmpeg: FFmpegRuntime | null = null;
     let progressHandler: ((event: FFmpegProgressEvent) => void) | null = null;
@@ -368,7 +415,7 @@ export async function assembleClips(
             await ffmpeg.writeFile(bgmFile, await fetchFile(opts.bgm.blob));
 
             const volume = formatFfmpegNumber(Math.max(0, opts.bgm.volume));
-            const bgmStageSpan = shouldBurnCaptions ? 0.2 : 0.4;
+            const bgmStageSpan = needsFinalReencode ? 0.2 : 0.4;
             const primaryArgs = [
                 '-i',
                 JOINED_FILE,
@@ -414,13 +461,16 @@ export async function assembleClips(
                 await deleteIfExists(ffmpeg, OUTPUT_FILE);
                 await execOrThrow(ffmpeg, fallbackArgs, 'FFmpeg BGM mix fallback');
             }
-            reportProgress(shouldBurnCaptions ? 0.8 : 1);
+            reportProgress(needsFinalReencode ? 0.8 : 1);
         }
 
-        if (shouldBurnCaptions) {
+        if (needsFinalReencode) {
             setProgressStage(opts?.bgm ? 0.8 : 0.6, opts?.bgm ? 0.2 : 0.4);
-            await burnCaptionsFile(ffmpeg, outputFile, CAPTION_OUTPUT_FILE, opts.captions.srt);
-            outputFile = CAPTION_OUTPUT_FILE;
+            await reencodeVideoFile(ffmpeg, outputFile, FINAL_OUTPUT_FILE, {
+                ...(shouldBurnCaptions ? { captions: opts.captions } : {}),
+                ...(reframeTarget ? { reframe: reframeTarget } : {})
+            });
+            outputFile = FINAL_OUTPUT_FILE;
             reportProgress(1);
         }
 
