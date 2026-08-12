@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
 import { Textarea } from '@/components/ui/textarea';
+import type { VideoCharacter } from '@/hooks/use-video-history';
 import { calculateVideoCost } from '@/lib/cost-utils';
 import { PROMPT_TEMPLATE_CATEGORIES, applyPromptTemplate } from '@/lib/prompt-templates';
 import {
@@ -54,6 +55,7 @@ type CreationFormProps = {
     setCameraFixed: React.Dispatch<React.SetStateAction<boolean>>;
     referenceUrls: string[];
     setReferenceUrls: React.Dispatch<React.SetStateAction<string[]>>;
+    characters: VideoCharacter[];
     lastFrameUrl: string;
     setLastFrameUrl: React.Dispatch<React.SetStateAction<string>>;
     referenceAudioUrl: string;
@@ -87,6 +89,12 @@ const RATIO_LABELS: Record<VideoRatio, string> = {
 const CAMERA_TEMPLATES = PROMPT_TEMPLATE_CATEGORIES.find((category) => category.id === 'camera')?.templates ?? [];
 type GenerationMode = 'draft' | 'final';
 
+function appendCharacterPromptLine(prompt: string, imageIndex: number, name: string): string {
+    const line = `[Image ${imageIndex}] is ${name}.`;
+    const trimmed = prompt.trimEnd();
+    return trimmed ? `${trimmed}\n${line}` : line;
+}
+
 export function CreationForm({
     onSubmit,
     isLoading,
@@ -106,6 +114,7 @@ export function CreationForm({
     setCameraFixed,
     referenceUrls,
     setReferenceUrls,
+    characters,
     lastFrameUrl,
     setLastFrameUrl,
     referenceAudioUrl,
@@ -142,6 +151,10 @@ export function CreationForm({
     const [generationMode, setGenerationMode] = React.useState<GenerationMode>(() =>
         modelSupportsResolution(model, '480p') ? 'draft' : 'final'
     );
+    const referenceLabels = React.useMemo(() => {
+        const labelsByUrl = new Map(characters.map((character) => [character.url, character.name]));
+        return referenceUrls.map((url) => labelsByUrl.get(url) ?? null);
+    }, [characters, referenceUrls]);
 
     React.useEffect(() => {
         if (!supportsDraftMode) {
@@ -175,6 +188,23 @@ export function CreationForm({
             setPromptBeforeOptimize(null);
         }
     };
+
+    const handleAttachCharacter = React.useCallback(
+        (character: VideoCharacter) => {
+            const name = character.name.trim();
+            if (!name) return;
+            const existingIndex = referenceUrls.indexOf(character.url);
+            if (existingIndex === -1 && referenceUrls.length >= refCap) return;
+
+            const imageIndex = existingIndex === -1 ? referenceUrls.length + 1 : existingIndex + 1;
+            if (existingIndex === -1) {
+                setReferenceUrls([...referenceUrls, character.url]);
+            }
+            setPrompt((current) => appendCharacterPromptLine(current, imageIndex, name));
+            setPromptBeforeOptimize(null);
+        },
+        [refCap, referenceUrls, setPrompt, setReferenceUrls]
+    );
 
     const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
@@ -326,6 +356,7 @@ export function CreationForm({
                         isOpen={isShotBuilderOpen}
                         onOpenChange={setIsShotBuilderOpen}
                         referenceCount={referenceUrls.length}
+                        referenceLabels={referenceLabels}
                         onApply={(nextPrompt) => {
                             setPrompt(nextPrompt);
                             setPromptBeforeOptimize(null);
@@ -531,6 +562,44 @@ export function CreationForm({
                             </div>
                         )}
                     </div>
+
+                    {characters.length > 0 && (
+                        <div className='space-y-2'>
+                            <div className='flex flex-wrap items-center gap-2'>
+                                <span className='text-sm text-white'>Characters:</span>
+                                <div className='flex min-w-0 flex-1 flex-wrap gap-1.5'>
+                                    {characters.map((character) => {
+                                        const isAttached = referenceUrls.includes(character.url);
+                                        const disabled = isLoading || (!isAttached && referenceUrls.length >= refCap);
+                                        return (
+                                            <button
+                                                key={character.id}
+                                                type='button'
+                                                title={
+                                                    disabled && !isAttached
+                                                        ? `Reference limit reached (${refCap})`
+                                                        : `Attach ${character.name}`
+                                                }
+                                                onClick={() => handleAttachCharacter(character)}
+                                                disabled={disabled}
+                                                className='inline-flex max-w-full items-center gap-1.5 rounded-full border border-white/15 bg-white/5 py-1 pr-2 pl-1 text-xs text-white/75 transition-colors hover:border-white/30 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-40'>
+                                                <span className='h-5 w-5 shrink-0 overflow-hidden rounded-full border border-white/15 bg-white/5'>
+                                                    {/* eslint-disable-next-line @next/next/no-img-element -- worker-hosted URL */}
+                                                    <img
+                                                        src={character.url}
+                                                        alt={character.name}
+                                                        loading='lazy'
+                                                        className='h-full w-full object-cover'
+                                                    />
+                                                </span>
+                                                <span className='max-w-32 truncate'>{character.name}</span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     <ReferenceImagesInput
                         urls={referenceUrls}

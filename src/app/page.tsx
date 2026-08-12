@@ -201,7 +201,17 @@ export default function HomePage() {
     const [createWatermark, setCreateWatermark] = React.useState(false);
 
     const { apiKey, keyRef, ssoStatus, ssoError, attemptSso, resolveKey, saveManualKey, invalidateKey } = useXcityKey();
-    const { history, isInitialLoad, addItem, updateItem, removeItem, clearAll } = useVideoHistory(resolveKey);
+    const {
+        history,
+        characters,
+        isInitialLoad,
+        addItem,
+        updateItem,
+        removeItem,
+        clearAll,
+        addCharacter,
+        removeCharacter
+    } = useVideoHistory(resolveKey);
     const { getVideoSrc, getThumbnailSrc, setRemoteSource, removeSource, clearAllSources, hasLocalCopy, hasSource } =
         useVideoSources();
 
@@ -1264,6 +1274,7 @@ export default function HomePage() {
                                 setCameraFixed={setCreateCameraFixed}
                                 referenceUrls={createReferenceUrls}
                                 setReferenceUrls={setCreateReferenceUrls}
+                                characters={characters}
                                 lastFrameUrl={createLastFrameUrl}
                                 setLastFrameUrl={setCreateLastFrameUrl}
                                 referenceAudioUrl={createReferenceAudioUrl}
@@ -1427,6 +1438,9 @@ export default function HomePage() {
                                     <AssetsPanel
                                         loadAssets={handleLoadAssets}
                                         deleteAsset={handleDeleteAsset}
+                                        characters={characters}
+                                        addCharacter={addCharacter}
+                                        removeCharacter={removeCharacter}
                                         onUseAsReference={handleUseAssetAsReference}
                                         onUseAsReferenceVideo={handleUseAssetAsReferenceVideo}
                                         active={activeTab === 'assets'}

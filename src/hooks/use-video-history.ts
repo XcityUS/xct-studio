@@ -8,11 +8,19 @@ import * as React from 'react';
 /** Kept under the historical name so existing users' history survives. */
 const STORAGE_KEY = 'soraVideoHistory';
 const UPDATED_AT_KEY = 'soraVideoHistoryUpdatedAt';
+const CHARACTERS_KEY = 'soraVideoCharacters';
 const SYNC_DEBOUNCE_MS = 3000;
+
+export type VideoCharacter = {
+    id: string;
+    name: string;
+    url: string;
+};
 
 interface HistoryDoc {
     updatedAt: number;
     history: VideoMetadata[];
+    characters: VideoCharacter[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -30,29 +38,64 @@ function readStoredUpdatedAt(): number {
     return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function parseCharacters(value: unknown): VideoCharacter[] {
+    if (!Array.isArray(value)) return [];
+    return value.flatMap((item) => {
+        if (
+            !isRecord(item) ||
+            typeof item.id !== 'string' ||
+            typeof item.name !== 'string' ||
+            typeof item.url !== 'string'
+        ) {
+            return [];
+        }
+        const id = item.id.trim();
+        const name = item.name.trim();
+        const url = item.url.trim();
+        if (!id || !name || !url) return [];
+        return [{ id, name, url }];
+    });
+}
+
 function parseHistoryDoc(value: unknown): HistoryDoc | null {
     if (!isRecord(value) || !Array.isArray(value.history)) return null;
     return {
         updatedAt: numberOrZero(value.updatedAt),
-        history: value.history as VideoMetadata[]
+        history: value.history as VideoMetadata[],
+        characters: parseCharacters(value.characters)
     };
+}
+
+function readStoredCharacters(): { characters: VideoCharacter[]; found: boolean } {
+    const raw = localStorage.getItem(CHARACTERS_KEY);
+    if (!raw) return { characters: [], found: false };
+    return { characters: parseCharacters(JSON.parse(raw) as unknown), found: true };
 }
 
 function readLocalHistory(): HistoryDoc {
     const storedUpdatedAt = readStoredUpdatedAt();
+    const storedCharacters = readStoredCharacters();
     const stored = localStorage.getItem(STORAGE_KEY);
     if (!stored) {
-        return { history: [], updatedAt: storedUpdatedAt };
+        return { history: [], updatedAt: storedUpdatedAt, characters: storedCharacters.characters };
     }
 
     const parsed = JSON.parse(stored) as unknown;
     if (Array.isArray(parsed)) {
-        return { history: parsed as VideoMetadata[], updatedAt: storedUpdatedAt };
+        return {
+            history: parsed as VideoMetadata[],
+            updatedAt: storedUpdatedAt,
+            characters: storedCharacters.characters
+        };
     }
 
     const doc = parseHistoryDoc(parsed);
     if (doc) {
-        return { history: doc.history, updatedAt: storedUpdatedAt || doc.updatedAt };
+        return {
+            history: doc.history,
+            updatedAt: storedUpdatedAt || doc.updatedAt,
+            characters: storedCharacters.found ? storedCharacters.characters : doc.characters
+        };
     }
 
     throw new Error('Invalid history data found in localStorage.');
@@ -61,6 +104,7 @@ function readLocalHistory(): HistoryDoc {
 function writeLocalHistory(doc: HistoryDoc) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(doc.history));
     localStorage.setItem(UPDATED_AT_KEY, String(doc.updatedAt));
+    localStorage.setItem(CHARACTERS_KEY, JSON.stringify(doc.characters));
 }
 
 /**
@@ -69,9 +113,11 @@ function writeLocalHistory(doc: HistoryDoc) {
  */
 export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
     const [history, setHistory] = React.useState<VideoMetadata[]>([]);
+    const [characters, setCharacters] = React.useState<VideoCharacter[]>([]);
     const [isInitialLoad, setIsInitialLoad] = React.useState(true);
 
     const historyRef = React.useRef<VideoMetadata[]>([]);
+    const charactersRef = React.useRef<VideoCharacter[]>([]);
     const updatedAtRef = React.useRef(0);
     const etagRef = React.useRef<string | null>(null);
     const resolveKeyRef = React.useRef(resolveKey);
@@ -81,6 +127,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
     const pushTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
     historyRef.current = history;
+    charactersRef.current = characters;
 
     React.useEffect(() => {
         resolveKeyRef.current = resolveKey;
@@ -92,11 +139,14 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
             const doc = readLocalHistory();
             updatedAtRef.current = doc.updatedAt;
             historyRef.current = doc.history;
+            charactersRef.current = doc.characters;
             setHistory(doc.history);
+            setCharacters(doc.characters);
         } catch (e) {
             console.error('Failed to load or parse history from localStorage:', e);
             localStorage.removeItem(STORAGE_KEY);
             localStorage.removeItem(UPDATED_AT_KEY);
+            localStorage.removeItem(CHARACTERS_KEY);
         }
         setIsInitialLoad(false);
     }, []);
@@ -106,18 +156,20 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
     React.useEffect(() => {
         if (!isInitialLoad) {
             try {
-                writeLocalHistory({ updatedAt: updatedAtRef.current, history });
+                writeLocalHistory({ updatedAt: updatedAtRef.current, history, characters });
             } catch (e) {
                 console.error('Failed to save history to localStorage:', e);
             }
         }
-    }, [history, isInitialLoad]);
+    }, [characters, history, isInitialLoad]);
 
     const applyCloudDoc = React.useCallback((doc: HistoryDoc) => {
         skipNextCloudPushRef.current = true;
         updatedAtRef.current = doc.updatedAt;
         historyRef.current = doc.history;
+        charactersRef.current = doc.characters;
         setHistory(doc.history);
+        setCharacters(doc.characters);
         try {
             writeLocalHistory(doc);
         } catch (e) {
@@ -147,7 +199,8 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
         etagRef.current = await pushCloudState(
             {
                 updatedAt: doc.updatedAt,
-                history: doc.history
+                history: doc.history,
+                characters: doc.characters
             },
             apiKey,
             etagRef.current
@@ -187,7 +240,11 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
                 const cloud = await fetchCloudState(key);
                 if (cancelled) return;
 
-                const localDoc = { updatedAt: updatedAtRef.current, history: historyRef.current };
+                const localDoc = {
+                    updatedAt: updatedAtRef.current,
+                    history: historyRef.current,
+                    characters: charactersRef.current
+                };
                 if (!cloud) {
                     await pushDocOrAdoptServer(key, localDoc);
                     return;
@@ -246,7 +303,8 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
 
                     await pushDocOrAdoptServer(key, {
                         updatedAt: updatedAtRef.current,
-                        history: historyRef.current
+                        history: historyRef.current,
+                        characters: charactersRef.current
                     });
                 } catch (err) {
                     console.warn('[history-sync] Could not save cloud history:', err);
@@ -260,7 +318,22 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
                 pushTimerRef.current = null;
             }
         };
-    }, [history, isInitialLoad, pushDocOrAdoptServer, resolveKey]);
+    }, [characters, history, isInitialLoad, pushDocOrAdoptServer, resolveKey]);
+
+    const mutateDoc = React.useCallback(
+        (update: (prev: { history: VideoMetadata[]; characters: VideoCharacter[] }) => {
+            history: VideoMetadata[];
+            characters: VideoCharacter[];
+        }) => {
+            const next = update({ history: historyRef.current, characters: charactersRef.current });
+            updatedAtRef.current = Date.now();
+            historyRef.current = next.history;
+            charactersRef.current = next.characters;
+            setHistory(next.history);
+            setCharacters(next.characters);
+        },
+        []
+    );
 
     const mutateHistory = React.useCallback((update: (prev: VideoMetadata[]) => VideoMetadata[]) => {
         const next = update(historyRef.current);
@@ -285,5 +358,41 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
         mutateHistory(() => []);
     }, [mutateHistory]);
 
-    return { history, isInitialLoad, addItem, updateItem, removeItem, clearAll };
+    const addCharacter = React.useCallback(
+        (character: VideoCharacter) => {
+            const name = character.name.trim();
+            const url = character.url.trim();
+            if (!character.id || !name || !url) return;
+            mutateDoc((prev) => ({
+                history: prev.history,
+                characters: [
+                    ...prev.characters.filter((existing) => existing.id !== character.id),
+                    { id: character.id, name, url }
+                ]
+            }));
+        },
+        [mutateDoc]
+    );
+
+    const removeCharacter = React.useCallback(
+        (id: string) => {
+            mutateDoc((prev) => ({
+                history: prev.history,
+                characters: prev.characters.filter((character) => character.id !== id)
+            }));
+        },
+        [mutateDoc]
+    );
+
+    return {
+        history,
+        characters,
+        isInitialLoad,
+        addItem,
+        updateItem,
+        removeItem,
+        clearAll,
+        addCharacter,
+        removeCharacter
+    };
 }
