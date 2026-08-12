@@ -3,6 +3,9 @@ const WASM_URL = '/ffmpeg/ffmpeg-core.wasm';
 const LIST_FILE = 'list.txt';
 const JOINED_FILE = 'joined.mp4';
 const OUTPUT_FILE = 'out.mp4';
+const CAPTION_INPUT_FILE = 'caption_input.mp4';
+const CAPTION_SRT_FILE = 'subs.srt';
+const CAPTION_OUTPUT_FILE = 'final.mp4';
 
 export type AssembleClip = {
     id: string;
@@ -16,6 +19,9 @@ export type AssembleOptions = {
         blob: Blob;
         volume: number;
     };
+    captions?: {
+        srt: string;
+    };
 };
 
 type FFmpegProgressEvent = {
@@ -24,6 +30,13 @@ type FFmpegProgressEvent = {
 };
 
 type ProgressCallback = (ratio: number) => void;
+
+export class CaptionBurnUnavailableError extends Error {
+    constructor(message = 'Caption burn-in is unavailable in this browser FFmpeg runtime.') {
+        super(message);
+        this.name = 'CaptionBurnUnavailableError';
+    }
+}
 
 type FFmpegRuntime = {
     load: (config: { coreURL: string; wasmURL: string }) => Promise<boolean>;
@@ -86,6 +99,10 @@ function hasRequestedTrim(clip: AssembleClip) {
     return (Number.isFinite(inTime) && inTime > 0) || Number.isFinite(clip.outTime);
 }
 
+function hasCaptionSrt(opts: AssembleOptions | undefined): opts is AssembleOptions & { captions: { srt: string } } {
+    return Boolean(opts?.captions?.srt.trim());
+}
+
 function getTrimTimes(clip: AssembleClip) {
     const inTime = clip.inTime ?? 0;
     const outTime = clip.outTime;
@@ -144,6 +161,91 @@ async function deleteIfExists(ffmpeg: FFmpegRuntime, file: string) {
     await ffmpeg.deleteFile(file).catch(() => undefined);
 }
 
+async function burnCaptionsFile(ffmpeg: FFmpegRuntime, inputFile: string, outputFile: string, srt: string) {
+    await ffmpeg.writeFile(CAPTION_SRT_FILE, new TextEncoder().encode(srt));
+    await deleteIfExists(ffmpeg, outputFile);
+
+    try {
+        await execOrThrow(
+            ffmpeg,
+            [
+                '-i',
+                inputFile,
+                '-vf',
+                "subtitles=subs.srt:force_style='FontName=Arial,FontSize=18,PrimaryColour=&Hffffff&,OutlineColour=&H80000000&,BorderStyle=1,Outline=1'",
+                '-c:v',
+                'libx264',
+                '-preset',
+                'veryfast',
+                '-crf',
+                '20',
+                '-c:a',
+                'copy',
+                outputFile
+            ],
+            'FFmpeg caption burn-in'
+        );
+    } catch (error) {
+        throw new CaptionBurnUnavailableError(getReadableError(error));
+    }
+}
+
+export async function burnCaptionsIntoVideo(
+    film: Blob,
+    captions: { srt: string },
+    onProgress?: ProgressCallback
+): Promise<Blob> {
+    let ffmpeg: FFmpegRuntime | null = null;
+    let progressHandler: ((event: FFmpegProgressEvent) => void) | null = null;
+    let lastProgress = 0;
+
+    const reportProgress = (ratio: number) => {
+        if (!onProgress) return;
+        const next = clampProgress(ratio);
+        if (next < lastProgress) return;
+        lastProgress = next;
+        onProgress(next);
+    };
+
+    try {
+        reportProgress(0);
+        const [{ fetchFile }, loadedFFmpeg] = await Promise.all([import('@ffmpeg/util'), getFFmpeg()]);
+        ffmpeg = loadedFFmpeg;
+
+        if (onProgress) {
+            progressHandler = ({ progress }) => {
+                reportProgress(progress);
+            };
+            ffmpeg.on('progress', progressHandler);
+        }
+
+        await ffmpeg.writeFile(CAPTION_INPUT_FILE, await fetchFile(film));
+        reportProgress(0.05);
+        await burnCaptionsFile(ffmpeg, CAPTION_INPUT_FILE, CAPTION_OUTPUT_FILE, captions.srt);
+        const output = await ffmpeg.readFile(CAPTION_OUTPUT_FILE);
+        reportProgress(1);
+        return createOutputBlob(output);
+    } catch (error) {
+        if (error instanceof CaptionBurnUnavailableError) {
+            throw error;
+        }
+        throw new CaptionBurnUnavailableError(getReadableError(error));
+    } finally {
+        if (ffmpeg && progressHandler) {
+            ffmpeg.off?.('progress', progressHandler);
+        }
+
+        if (ffmpeg) {
+            const loadedFFmpeg = ffmpeg;
+            await Promise.allSettled(
+                [CAPTION_INPUT_FILE, CAPTION_SRT_FILE, CAPTION_OUTPUT_FILE].map((file) =>
+                    loadedFFmpeg.deleteFile(file)
+                )
+            );
+        }
+    }
+}
+
 export async function assembleClips(clips: AssembleClip[], onProgress?: ProgressCallback): Promise<Blob>;
 export async function assembleClips(
     clips: AssembleClip[],
@@ -161,6 +263,7 @@ export async function assembleClips(
 
     const opts = typeof optsOrProgress === 'function' ? undefined : optsOrProgress;
     const onProgress = typeof optsOrProgress === 'function' ? optsOrProgress : maybeProgress;
+    const shouldBurnCaptions = hasCaptionSrt(opts);
     const inputFiles = clips.map((_, index) => `${index}.mp4`);
     const trimmedFiles = clips.map((_, index) => `trimmed_${index}.mp4`);
     const bgmFile = opts?.bgm ? `bgm.${getAudioExtension(opts.bgm.blob)}` : null;
@@ -170,7 +273,8 @@ export async function assembleClips(
         LIST_FILE,
         JOINED_FILE,
         OUTPUT_FILE,
-        ...(bgmFile ? [bgmFile] : [])
+        ...(bgmFile ? [bgmFile] : []),
+        ...(shouldBurnCaptions ? [CAPTION_SRT_FILE, CAPTION_OUTPUT_FILE] : [])
     ];
     let ffmpeg: FFmpegRuntime | null = null;
     let progressHandler: ((event: FFmpegProgressEvent) => void) | null = null;
@@ -259,11 +363,12 @@ export async function assembleClips(
         );
         reportProgress(0.6);
 
-        const outputFile = opts?.bgm && bgmFile ? OUTPUT_FILE : JOINED_FILE;
+        let outputFile = opts?.bgm && bgmFile ? OUTPUT_FILE : JOINED_FILE;
         if (opts?.bgm && bgmFile) {
             await ffmpeg.writeFile(bgmFile, await fetchFile(opts.bgm.blob));
 
             const volume = formatFfmpegNumber(Math.max(0, opts.bgm.volume));
+            const bgmStageSpan = shouldBurnCaptions ? 0.2 : 0.4;
             const primaryArgs = [
                 '-i',
                 JOINED_FILE,
@@ -301,7 +406,7 @@ export async function assembleClips(
                 OUTPUT_FILE
             ];
 
-            setProgressStage(0.6, 0.4);
+            setProgressStage(0.6, bgmStageSpan);
             try {
                 await execOrThrow(ffmpeg, primaryArgs, 'FFmpeg BGM mix');
             } catch (error) {
@@ -309,6 +414,13 @@ export async function assembleClips(
                 await deleteIfExists(ffmpeg, OUTPUT_FILE);
                 await execOrThrow(ffmpeg, fallbackArgs, 'FFmpeg BGM mix fallback');
             }
+            reportProgress(shouldBurnCaptions ? 0.8 : 1);
+        }
+
+        if (shouldBurnCaptions) {
+            setProgressStage(opts?.bgm ? 0.8 : 0.6, opts?.bgm ? 0.2 : 0.4);
+            await burnCaptionsFile(ffmpeg, outputFile, CAPTION_OUTPUT_FILE, opts.captions.srt);
+            outputFile = CAPTION_OUTPUT_FILE;
             reportProgress(1);
         }
 
@@ -316,6 +428,9 @@ export async function assembleClips(
         reportProgress(1);
         return createOutputBlob(output);
     } catch (error) {
+        if (error instanceof CaptionBurnUnavailableError) {
+            throw error;
+        }
         throw new Error(`Could not assemble clips: ${getReadableError(error)}`);
     } finally {
         if (ffmpeg && progressHandler) {

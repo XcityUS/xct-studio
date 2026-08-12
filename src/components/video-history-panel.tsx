@@ -14,6 +14,7 @@ import {
     DialogClose
 } from '@/components/ui/dialog';
 import { db } from '@/lib/db';
+import type { CaptionSegment } from '@/lib/captions';
 import type { UserAsset } from '@/lib/media-archive';
 import { cn } from '@/lib/utils';
 import type { VideoMetadata, VideoJob } from '@/types/video';
@@ -58,6 +59,8 @@ type VideoHistoryPanelProps = {
     sharePendingId?: string | null;
     /** Fetches user audio assets for the assembly editor's BGM picker. */
     loadAudioAssets?: () => Promise<UserAsset[]>;
+    /** Transcribes an assembled film for the assembly editor's captions flow. */
+    onTranscribeVideo?: (blob: Blob) => Promise<CaptionSegment[]>;
 };
 
 /**
@@ -131,7 +134,8 @@ export function VideoHistoryPanel({
     onExtendItem,
     onShareItem,
     sharePendingId,
-    loadAudioAssets
+    loadAudioAssets,
+    onTranscribeVideo
 }: VideoHistoryPanelProps) {
     const [openCostDialogId, setOpenCostDialogId] = React.useState<string | null>(null);
     const [isTotalCostDialogOpen, setIsTotalCostDialogOpen] = React.useState(false);
@@ -359,6 +363,7 @@ export function VideoHistoryPanel({
                 items={selectedItems}
                 resolveClipBlob={resolveClipBlob}
                 loadAudioAssets={loadAudioAssets}
+                onTranscribeVideo={onTranscribeVideo}
             />
             <CardHeader className='flex flex-row items-center justify-between gap-4 border-b border-white/10 px-4 py-3'>
                 <div className='flex items-center gap-2'>

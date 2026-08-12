@@ -16,16 +16,34 @@
 
 import { StateConflictError } from './errors';
 
-let workerUrlPromise: Promise<string> | null = null;
+type RuntimeConfig = {
+    mediaWorkerUrl: string;
+    transcribeModel: string;
+    ttsModel: string;
+};
+
+let runtimeConfigPromise: Promise<RuntimeConfig> | null = null;
+
+function normalizeRuntimeConfig(cfg: Partial<RuntimeConfig>): RuntimeConfig {
+    return {
+        mediaWorkerUrl: (cfg.mediaWorkerUrl || '').trim().replace(/\/+$/, ''),
+        transcribeModel: (cfg.transcribeModel || '').trim(),
+        ttsModel: (cfg.ttsModel || '').trim()
+    };
+}
+
+function loadRuntimeConfig(): Promise<RuntimeConfig> {
+    if (!runtimeConfigPromise) {
+        runtimeConfigPromise = fetch('/api/config')
+            .then((res) => (res.ok ? res.json() : {}))
+            .then((cfg: Partial<RuntimeConfig>) => normalizeRuntimeConfig(cfg))
+            .catch(() => normalizeRuntimeConfig({}));
+    }
+    return runtimeConfigPromise;
+}
 
 function loadWorkerUrl(): Promise<string> {
-    if (!workerUrlPromise) {
-        workerUrlPromise = fetch('/api/config')
-            .then((res) => (res.ok ? res.json() : { mediaWorkerUrl: '' }))
-            .then((cfg: { mediaWorkerUrl?: string }) => (cfg.mediaWorkerUrl || '').replace(/\/+$/, ''))
-            .catch(() => '');
-    }
-    return workerUrlPromise;
+    return loadRuntimeConfig().then((cfg) => cfg.mediaWorkerUrl);
 }
 
 /** Resolves once the runtime config says a media worker is configured. */
@@ -36,6 +54,16 @@ export async function mediaArchiveEnabled(): Promise<boolean> {
 /** Base worker URL ('' when unconfigured) — also serves the showcase gallery. */
 export async function mediaWorkerUrl(): Promise<string> {
     return loadWorkerUrl();
+}
+
+/** Gateway transcription model configured at runtime ('' when disabled). */
+export async function transcribeModel(): Promise<string> {
+    return loadRuntimeConfig().then((cfg) => cfg.transcribeModel);
+}
+
+/** Gateway TTS model configured at runtime ('' when disabled). */
+export async function ttsModel(): Promise<string> {
+    return loadRuntimeConfig().then((cfg) => cfg.ttsModel);
 }
 
 export interface ArchivedMedia {

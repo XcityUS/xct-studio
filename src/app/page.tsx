@@ -26,6 +26,7 @@ import { useVideoHistory } from '@/hooks/use-video-history';
 import { useVideoJobs, readPersistedActiveJobIds } from '@/hooks/use-video-jobs';
 import { useVideoSources } from '@/hooks/use-video-sources';
 import { useXcityKey } from '@/hooks/use-xcity-key';
+import { transcribeVideo, type CaptionSegment } from '@/lib/captions';
 import { calculateVideoCost } from '@/lib/cost-utils';
 import { db, type ImageRecord } from '@/lib/db';
 import { InvalidApiKeyError } from '@/lib/errors';
@@ -45,6 +46,8 @@ import {
     mediaWorkerUrl,
     publishToCommunity,
     reviewCommunityItem,
+    transcribeModel,
+    ttsModel,
     type CommunityReviewAction,
     type UserAsset,
     uploadReferenceAudio,
@@ -73,6 +76,7 @@ import {
     type VideoResolution
 } from '@/lib/seedance';
 import { captureVideoLastFrame, captureVideoPoster } from '@/lib/thumbnail';
+import { synthesizeSpeech, type TtsVoice } from '@/lib/tts';
 import { VideoService } from '@/lib/video-service';
 import { XCITY_SSO_ENABLED, xcityLoginHref } from '@/lib/xcity-sso';
 import type { VideoJob, VideoJobCreate, VideoMetadata } from '@/types/video';
@@ -83,6 +87,12 @@ function fileNameWithoutExtension(fileName: string): string {
     const clean = fileName.trim();
     const dot = clean.lastIndexOf('.');
     return dot > 0 ? clean.slice(0, dot) : clean;
+}
+
+function voiceoverAssetName(text: string): string {
+    const firstWords = text.trim().replace(/\s+/g, ' ').split(' ').slice(0, 5).join(' ');
+    const safeWords = firstWords.replace(/[\/\\?%*:|"<>]/g, '').slice(0, 60).trim();
+    return safeWords ? `voiceover-${safeWords}` : 'voiceover';
 }
 
 const MAX_REFERENCE_VIDEOS = 2;
@@ -371,6 +381,32 @@ export default function HomePage() {
         [resolveKey]
     );
 
+    const handleSynthesizeSpeech = React.useCallback(
+        async (text: string, voice: TtsVoice): Promise<string> => {
+            const key = await resolveKey();
+            if (!key) {
+                throw new Error('Sign in at xcity.ai (or set an API key) to generate voiceover.');
+            }
+
+            const model = await ttsModel();
+            if (!model) {
+                throw new Error('Voiceover generation is not configured on this deployment.');
+            }
+
+            const speech = await synthesizeSpeech(
+                text,
+                key,
+                model,
+                process.env.NEXT_PUBLIC_OPENAI_API_BASE_URL,
+                voice
+            );
+            const assetName = voiceoverAssetName(text);
+            const file = new File([speech], `${assetName}.mp3`, { type: 'audio/mpeg' });
+            return uploadReferenceAudio(file, key, assetName);
+        },
+        [resolveKey]
+    );
+
     const handleUploadVideo = React.useCallback(
         async (file: File): Promise<string> => {
             const key = await resolveKey();
@@ -524,6 +560,23 @@ export default function HomePage() {
                 throw new Error('Sign in at xcity.ai (or set an API key) to use script breakdown.');
             }
             return breakdownScript(script, key, process.env.NEXT_PUBLIC_OPENAI_API_BASE_URL);
+        },
+        [resolveKey]
+    );
+
+    const handleTranscribeVideo = React.useCallback(
+        async (blob: Blob): Promise<CaptionSegment[]> => {
+            const key = await resolveKey();
+            if (!key) {
+                throw new Error('Sign in at xcity.ai (or set an API key) to generate captions.');
+            }
+
+            const model = await transcribeModel();
+            if (!model) {
+                throw new Error('Auto-captioning is not configured on this deployment.');
+            }
+
+            return transcribeVideo(blob, key, model, process.env.NEXT_PUBLIC_OPENAI_API_BASE_URL);
         },
         [resolveKey]
     );
@@ -1361,6 +1414,7 @@ export default function HomePage() {
                                 setWatermark={setCreateWatermark}
                                 onUploadImage={uploadEnabled ? handleUploadImage : undefined}
                                 onUploadAudio={uploadEnabled ? handleUploadAudio : undefined}
+                                onSynthesizeSpeech={uploadEnabled ? handleSynthesizeSpeech : undefined}
                                 onUploadVideo={uploadEnabled ? handleUploadVideo : undefined}
                                 onOptimizePrompt={handleOptimizePrompt}
                                 onBreakdownScript={handleBreakdownScript}
@@ -1410,6 +1464,7 @@ export default function HomePage() {
                     onShareItem={handleShareItem}
                     sharePendingId={sharingVideoId}
                     loadAudioAssets={handleLoadAssemblyAudioAssets}
+                    onTranscribeVideo={handleTranscribeVideo}
                 />
             </div>
         </>

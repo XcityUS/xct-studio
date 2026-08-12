@@ -29,6 +29,7 @@ import {
     type VideoRatio,
     type VideoResolution
 } from '@/lib/seedance';
+import type { TtsVoice } from '@/lib/tts';
 import { cn } from '@/lib/utils';
 import type { VideoJobCreate } from '@/types/video';
 import { ChevronDown, Clapperboard, Lightbulb, Loader2, Sparkles, Undo2, Wand2 } from 'lucide-react';
@@ -70,6 +71,8 @@ type CreationFormProps = {
     onUploadImage?: (file: File) => Promise<string>;
     /** Uploads a local audio file, resolving to its public URL. Absent = URL-only mode. */
     onUploadAudio?: (file: File) => Promise<string>;
+    /** Generates speech, uploads it, and resolves to its public URL. */
+    onSynthesizeSpeech?: (text: string, voice: TtsVoice) => Promise<string>;
     /** Uploads a local video file, resolving to its public URL. Absent = URL-only mode. */
     onUploadVideo?: (file: File) => Promise<string>;
     /** Rewrites the prompt via the gateway's chat API. Absent = button hidden. */
@@ -127,6 +130,7 @@ export function CreationForm({
     setWatermark,
     onUploadImage,
     onUploadAudio,
+    onSynthesizeSpeech,
     onUploadVideo,
     onOptimizePrompt,
     onBreakdownScript
@@ -615,6 +619,7 @@ export function CreationForm({
                             url={referenceAudioUrl}
                             onChange={setReferenceAudioUrl}
                             onUpload={onUploadAudio}
+                            onSynthesizeSpeech={onSynthesizeSpeech}
                             disabled={isLoading}
                         />
                     )}

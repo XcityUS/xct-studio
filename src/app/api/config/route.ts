@@ -15,6 +15,8 @@ export function GET() {
     return NextResponse.json({
         mediaWorkerUrl: (process.env.MEDIA_WORKER_URL || process.env.NEXT_PUBLIC_MEDIA_WORKER_URL || '')
             .trim()
-            .replace(/\/+$/, '')
+            .replace(/\/+$/, ''),
+        transcribeModel: (process.env.TRANSCRIBE_MODEL || '').trim(),
+        ttsModel: (process.env.TTS_MODEL || '').trim()
     });
 }

@@ -9,16 +9,23 @@ import {
     DialogHeader,
     DialogTitle
 } from '@/components/ui/dialog';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
-import { assembleClips, type AssembleClip } from '@/lib/assemble';
-import type { UserAsset } from '@/lib/media-archive';
+import {
+    CaptionBurnUnavailableError,
+    assembleClips,
+    burnCaptionsIntoVideo,
+    type AssembleClip
+} from '@/lib/assemble';
+import { segmentsToSrt, type CaptionSegment } from '@/lib/captions';
+import { transcribeModel as loadTranscribeModel, type UserAsset } from '@/lib/media-archive';
 import { getVideoDuration } from '@/lib/thumbnail';
 import { cn } from '@/lib/utils';
 import type { VideoMetadata } from '@/types/video';
-import { ArrowDown, ArrowUp, Download, Loader2, Music, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Captions, Download, Loader2, Music, Trash2 } from 'lucide-react';
 import * as React from 'react';
 
 const NONE_BGM_VALUE = '__none__';
@@ -31,6 +38,7 @@ type AssemblyEditorProps = {
     items: VideoMetadata[];
     resolveClipBlob: (item: VideoMetadata) => Promise<Blob>;
     loadAudioAssets?: () => Promise<UserAsset[]>;
+    onTranscribeVideo?: (blob: Blob) => Promise<CaptionSegment[]>;
 };
 
 type ClipRow = {
@@ -164,14 +172,17 @@ async function fetchBgmBlob(asset: UserAsset): Promise<Blob> {
     return new File([blob], `bgm.${extension}`, { type });
 }
 
-function downloadAssembledBlob(blob: Blob) {
+function exportBaseName() {
+    return `assembled-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+}
+
+function downloadBlob(blob: Blob, filename: string) {
     const url = URL.createObjectURL(blob);
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const anchor = document.createElement('a');
 
     try {
         anchor.href = url;
-        anchor.download = `assembled-${timestamp}.mp4`;
+        anchor.download = filename;
         document.body.appendChild(anchor);
         anchor.click();
     } finally {
@@ -180,12 +191,17 @@ function downloadAssembledBlob(blob: Blob) {
     }
 }
 
+function downloadSrt(srt: string, filename: string) {
+    downloadBlob(new Blob([srt], { type: 'application/x-subrip;charset=utf-8' }), filename);
+}
+
 export function AssemblyEditor({
     open,
     onOpenChange,
     items,
     resolveClipBlob,
-    loadAudioAssets
+    loadAudioAssets,
+    onTranscribeVideo
 }: AssemblyEditorProps) {
     const [rows, setRows] = React.useState<ClipRow[]>([]);
     const [isLoadingClips, setIsLoadingClips] = React.useState(false);
@@ -197,6 +213,10 @@ export function AssemblyEditor({
     const [isExporting, setIsExporting] = React.useState(false);
     const [exportProgress, setExportProgress] = React.useState<number | null>(null);
     const [exportError, setExportError] = React.useState<string | null>(null);
+    const [exportNotice, setExportNotice] = React.useState<string | null>(null);
+    const [captionsConfigured, setCaptionsConfigured] = React.useState(false);
+    const [burnCaptions, setBurnCaptions] = React.useState(false);
+    const [downloadSrtOnly, setDownloadSrtOnly] = React.useState(false);
 
     React.useEffect(() => {
         if (!open) {
@@ -207,6 +227,10 @@ export function AssemblyEditor({
             setBgmVolume(DEFAULT_BGM_VOLUME);
             setExportProgress(null);
             setExportError(null);
+            setExportNotice(null);
+            setCaptionsConfigured(false);
+            setBurnCaptions(false);
+            setDownloadSrtOnly(false);
             return;
         }
 
@@ -214,6 +238,7 @@ export function AssemblyEditor({
         setIsLoadingClips(true);
         setExportProgress(null);
         setExportError(null);
+        setExportNotice(null);
         setRows(
             items.map((item) => ({
                 id: item.id,
@@ -268,6 +293,26 @@ export function AssemblyEditor({
             cancelled = true;
         };
     }, [items, open, resolveClipBlob]);
+
+    React.useEffect(() => {
+        if (!open) return;
+
+        let cancelled = false;
+        void loadTranscribeModel().then((model) => {
+            if (!cancelled) {
+                const configured = Boolean(model);
+                setCaptionsConfigured(configured);
+                if (!configured) {
+                    setBurnCaptions(false);
+                    setDownloadSrtOnly(false);
+                }
+            }
+        });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [open]);
 
     React.useEffect(() => {
         if (!open || !loadAudioAssets) return;
@@ -332,6 +377,7 @@ export function AssemblyEditor({
         return audioAssets.find((asset) => asset.key === selectedBgmKey);
     }, [audioAssets, selectedBgmKey]);
 
+    const captionsAvailable = captionsConfigured && Boolean(onTranscribeVideo);
     const canExport = !isLoadingClips && !isExporting && !firstClipError;
 
     const updateRow = React.useCallback((id: string, updates: Partial<Pick<ClipRow, 'inValue' | 'outValue'>>) => {
@@ -370,6 +416,7 @@ export function AssemblyEditor({
         setIsExporting(true);
         setExportProgress(0);
         setExportError(null);
+        setExportNotice(null);
 
         try {
             const clips: AssembleClip[] = rows.map((row) => {
@@ -395,6 +442,8 @@ export function AssemblyEditor({
             });
 
             const bgmBlob = selectedBgmAsset ? await fetchBgmBlob(selectedBgmAsset) : undefined;
+            const wantsCaptions = captionsAvailable && (burnCaptions || downloadSrtOnly);
+            const baseName = exportBaseName();
             const output = await assembleClips(
                 clips,
                 bgmBlob
@@ -405,17 +454,70 @@ export function AssemblyEditor({
                           }
                       }
                     : undefined,
-                setExportProgress
+                wantsCaptions ? (progress) => setExportProgress(progress * 0.65) : setExportProgress
             );
-            downloadAssembledBlob(output);
-            onOpenChange(false);
+
+            if (!wantsCaptions) {
+                downloadBlob(output, `${baseName}.mp4`);
+                onOpenChange(false);
+                return;
+            }
+
+            if (!onTranscribeVideo) {
+                throw new Error('Auto-captioning is not configured on this deployment.');
+            }
+
+            setExportProgress(0.68);
+            const srt = segmentsToSrt(await onTranscribeVideo(output));
+            if (!srt.trim()) {
+                throw new Error('No speech was detected for captions.');
+            }
+            setExportProgress(0.74);
+
+            if (downloadSrtOnly) {
+                downloadBlob(output, `${baseName}.mp4`);
+                downloadSrt(srt, `${baseName}.srt`);
+                setExportProgress(1);
+                onOpenChange(false);
+                return;
+            }
+
+            try {
+                const captionedOutput = await burnCaptionsIntoVideo(output, { srt }, (progress) =>
+                    setExportProgress(0.74 + progress * 0.26)
+                );
+                downloadBlob(captionedOutput, `${baseName}.mp4`);
+                onOpenChange(false);
+            } catch (err) {
+                if (!(err instanceof CaptionBurnUnavailableError)) {
+                    throw err;
+                }
+
+                console.warn('Caption burn-in unavailable; exporting SRT sidecar instead.', err);
+                downloadBlob(output, `${baseName}.mp4`);
+                downloadSrt(srt, `${baseName}.srt`);
+                setExportProgress(1);
+                setExportNotice('captions exported as .srt (burn-in unavailable)');
+            }
         } catch (err) {
             console.error('Error assembling clips:', err);
             setExportError(err instanceof Error ? err.message : 'Failed to assemble clips.');
         } finally {
             setIsExporting(false);
         }
-    }, [bgmVolume, canExport, firstClipError, onOpenChange, rows, selectedBgmAsset, validations]);
+    }, [
+        bgmVolume,
+        burnCaptions,
+        canExport,
+        captionsAvailable,
+        downloadSrtOnly,
+        firstClipError,
+        onOpenChange,
+        onTranscribeVideo,
+        rows,
+        selectedBgmAsset,
+        validations
+    ]);
 
     return (
         <Dialog open={open} onOpenChange={handleDialogOpenChange}>
@@ -596,6 +698,59 @@ export function AssemblyEditor({
                             </div>
                         </div>
                     </div>
+
+                    {captionsAvailable && (
+                        <div className='rounded-md border border-white/10 bg-white/[0.04] p-3'>
+                            <div className='mb-3 flex items-center gap-2'>
+                                <Captions size={15} className='text-white/60' />
+                                <div>
+                                    <h3 className='text-sm font-medium text-white'>Captions</h3>
+                                    <p className='text-xs text-white/45'>Language auto-detected.</p>
+                                </div>
+                            </div>
+
+                            <div className='space-y-3'>
+                                <Label
+                                    htmlFor='assembly-captions-burn'
+                                    className='flex cursor-pointer items-start gap-2 text-sm text-white/75'>
+                                    <Checkbox
+                                        id='assembly-captions-burn'
+                                        checked={burnCaptions}
+                                        onCheckedChange={(checked) => {
+                                            const enabled = checked === true;
+                                            setBurnCaptions(enabled);
+                                            if (enabled) setDownloadSrtOnly(false);
+                                        }}
+                                        disabled={isExporting}
+                                        className='mt-0.5 border-white/30 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black'
+                                    />
+                                    <span>
+                                        Auto-caption (burn into video)
+                                        <span className='mt-0.5 block text-xs text-white/40'>
+                                            Burning captions re-encodes the film.
+                                        </span>
+                                    </span>
+                                </Label>
+
+                                <Label
+                                    htmlFor='assembly-captions-srt'
+                                    className='flex cursor-pointer items-start gap-2 text-sm text-white/75'>
+                                    <Checkbox
+                                        id='assembly-captions-srt'
+                                        checked={downloadSrtOnly}
+                                        onCheckedChange={(checked) => {
+                                            const enabled = checked === true;
+                                            setDownloadSrtOnly(enabled);
+                                            if (enabled) setBurnCaptions(false);
+                                        }}
+                                        disabled={isExporting}
+                                        className='mt-0.5 border-white/30 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black'
+                                    />
+                                    <span>Download .srt only</span>
+                                </Label>
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 <DialogFooter className='border-t border-white/10 bg-black/40 px-5 py-4 sm:items-center sm:justify-between'>
@@ -605,6 +760,8 @@ export function AssemblyEditor({
                         </div>
                         {exportError ? (
                             <div className='text-xs text-red-300'>{exportError}</div>
+                        ) : exportNotice ? (
+                            <div className='text-xs text-amber-200'>{exportNotice}</div>
                         ) : firstClipError ? (
                             <div className='text-xs text-red-300'>{firstClipError}</div>
                         ) : (
