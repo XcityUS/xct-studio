@@ -13,7 +13,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
 import { Textarea } from '@/components/ui/textarea';
-import type { VideoCharacter } from '@/hooks/use-video-history';
+import type { VideoCharacter, VideoPortrait } from '@/hooks/use-video-history';
 import { calculateVideoCost } from '@/lib/cost-utils';
 import { PROMPT_TEMPLATE_CATEGORIES, applyPromptTemplate } from '@/lib/prompt-templates';
 import {
@@ -32,7 +32,7 @@ import {
 import type { TtsVoice } from '@/lib/tts';
 import { cn } from '@/lib/utils';
 import type { VideoJobCreate } from '@/types/video';
-import { ChevronDown, Clapperboard, Lightbulb, Loader2, Sparkles, Undo2, Wand2 } from 'lucide-react';
+import { ChevronDown, Clapperboard, Lightbulb, Loader2, ShieldCheck, Sparkles, Undo2, Wand2 } from 'lucide-react';
 import * as React from 'react';
 
 export type CreationFormData = VideoJobCreate;
@@ -57,6 +57,7 @@ type CreationFormProps = {
     referenceUrls: string[];
     setReferenceUrls: React.Dispatch<React.SetStateAction<string[]>>;
     characters: VideoCharacter[];
+    portraits: VideoPortrait[];
     lastFrameUrl: string;
     setLastFrameUrl: React.Dispatch<React.SetStateAction<string>>;
     referenceAudioUrl: string;
@@ -98,6 +99,10 @@ function appendCharacterPromptLine(prompt: string, imageIndex: number, name: str
     return trimmed ? `${trimmed}\n${line}` : line;
 }
 
+function portraitReferenceUrl(assetId: string): string {
+    return `asset://${assetId}`;
+}
+
 export function CreationForm({
     onSubmit,
     isLoading,
@@ -118,6 +123,7 @@ export function CreationForm({
     referenceUrls,
     setReferenceUrls,
     characters,
+    portraits,
     lastFrameUrl,
     setLastFrameUrl,
     referenceAudioUrl,
@@ -156,9 +162,12 @@ export function CreationForm({
         modelSupportsResolution(model, '480p') ? 'draft' : 'final'
     );
     const referenceLabels = React.useMemo(() => {
-        const labelsByUrl = new Map(characters.map((character) => [character.url, character.name]));
+        const labelsByUrl = new Map<string, string>([
+            ...characters.map((character) => [character.url, character.name] as const),
+            ...portraits.map((portrait) => [portraitReferenceUrl(portrait.assetId), portrait.name] as const)
+        ]);
         return referenceUrls.map((url) => labelsByUrl.get(url) ?? null);
-    }, [characters, referenceUrls]);
+    }, [characters, portraits, referenceUrls]);
 
     React.useEffect(() => {
         if (!supportsDraftMode) {
@@ -203,6 +212,24 @@ export function CreationForm({
             const imageIndex = existingIndex === -1 ? referenceUrls.length + 1 : existingIndex + 1;
             if (existingIndex === -1) {
                 setReferenceUrls([...referenceUrls, character.url]);
+            }
+            setPrompt((current) => appendCharacterPromptLine(current, imageIndex, name));
+            setPromptBeforeOptimize(null);
+        },
+        [refCap, referenceUrls, setPrompt, setReferenceUrls]
+    );
+
+    const handleAttachPortrait = React.useCallback(
+        (portrait: VideoPortrait) => {
+            const name = portrait.name.trim();
+            const referenceUrl = portraitReferenceUrl(portrait.assetId.trim());
+            if (!name || referenceUrl === 'asset://') return;
+            const existingIndex = referenceUrls.indexOf(referenceUrl);
+            if (existingIndex === -1 && referenceUrls.length >= refCap) return;
+
+            const imageIndex = existingIndex === -1 ? referenceUrls.length + 1 : existingIndex + 1;
+            if (existingIndex === -1) {
+                setReferenceUrls([...referenceUrls, referenceUrl]);
             }
             setPrompt((current) => appendCharacterPromptLine(current, imageIndex, name));
             setPromptBeforeOptimize(null);
@@ -597,6 +624,39 @@ export function CreationForm({
                                                     />
                                                 </span>
                                                 <span className='max-w-32 truncate'>{character.name}</span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {portraits.length > 0 && (
+                        <div className='space-y-2'>
+                            <div className='flex flex-wrap items-center gap-2'>
+                                <span className='text-sm text-white'>Verified people:</span>
+                                <div className='flex min-w-0 flex-1 flex-wrap gap-1.5'>
+                                    {portraits.map((portrait) => {
+                                        const referenceUrl = portraitReferenceUrl(portrait.assetId);
+                                        const isAttached = referenceUrls.includes(referenceUrl);
+                                        const disabled = isLoading || (!isAttached && referenceUrls.length >= refCap);
+                                        return (
+                                            <button
+                                                key={portrait.assetId}
+                                                type='button'
+                                                title={
+                                                    disabled && !isAttached
+                                                        ? `Reference limit reached (${refCap})`
+                                                        : `Attach ${portrait.name}`
+                                                }
+                                                onClick={() => handleAttachPortrait(portrait)}
+                                                disabled={disabled}
+                                                className='inline-flex max-w-full items-center gap-1.5 rounded-full border border-emerald-400/25 bg-emerald-400/[0.06] py-1 pr-2 pl-1 text-xs text-white/80 transition-colors hover:border-emerald-300/50 hover:bg-emerald-400/[0.1] hover:text-white disabled:cursor-not-allowed disabled:opacity-40'>
+                                                <span className='flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden rounded-full border border-emerald-300/30 bg-emerald-300/10'>
+                                                    <ShieldCheck className='h-3 w-3 text-emerald-300' />
+                                                </span>
+                                                <span className='max-w-32 truncate'>{portrait.name}</span>
                                             </button>
                                         );
                                     })}

@@ -9,6 +9,7 @@ import * as React from 'react';
 const STORAGE_KEY = 'soraVideoHistory';
 const UPDATED_AT_KEY = 'soraVideoHistoryUpdatedAt';
 const CHARACTERS_KEY = 'soraVideoCharacters';
+const PORTRAITS_KEY = 'soraVideoPortraits';
 const SYNC_DEBOUNCE_MS = 3000;
 
 export type VideoCharacter = {
@@ -17,10 +18,18 @@ export type VideoCharacter = {
     url: string;
 };
 
+export type VideoPortrait = {
+    assetId: string;
+    groupId: string;
+    name: string;
+    thumbUrl: string;
+};
+
 interface HistoryDoc {
     updatedAt: number;
     history: VideoMetadata[];
     characters: VideoCharacter[];
+    portraits: VideoPortrait[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -57,12 +66,34 @@ function parseCharacters(value: unknown): VideoCharacter[] {
     });
 }
 
+function parsePortraits(value: unknown): VideoPortrait[] {
+    if (!Array.isArray(value)) return [];
+    return value.flatMap((item) => {
+        if (
+            !isRecord(item) ||
+            typeof item.assetId !== 'string' ||
+            typeof item.groupId !== 'string' ||
+            typeof item.name !== 'string' ||
+            typeof item.thumbUrl !== 'string'
+        ) {
+            return [];
+        }
+        const assetId = item.assetId.trim();
+        const groupId = item.groupId.trim();
+        const name = item.name.trim();
+        const thumbUrl = item.thumbUrl.trim();
+        if (!assetId || !groupId || !name || !thumbUrl) return [];
+        return [{ assetId, groupId, name, thumbUrl }];
+    });
+}
+
 function parseHistoryDoc(value: unknown): HistoryDoc | null {
     if (!isRecord(value) || !Array.isArray(value.history)) return null;
     return {
         updatedAt: numberOrZero(value.updatedAt),
         history: value.history as VideoMetadata[],
-        characters: parseCharacters(value.characters)
+        characters: parseCharacters(value.characters),
+        portraits: parsePortraits(value.portraits)
     };
 }
 
@@ -72,12 +103,24 @@ function readStoredCharacters(): { characters: VideoCharacter[]; found: boolean 
     return { characters: parseCharacters(JSON.parse(raw) as unknown), found: true };
 }
 
+function readStoredPortraits(): { portraits: VideoPortrait[]; found: boolean } {
+    const raw = localStorage.getItem(PORTRAITS_KEY);
+    if (!raw) return { portraits: [], found: false };
+    return { portraits: parsePortraits(JSON.parse(raw) as unknown), found: true };
+}
+
 function readLocalHistory(): HistoryDoc {
     const storedUpdatedAt = readStoredUpdatedAt();
     const storedCharacters = readStoredCharacters();
+    const storedPortraits = readStoredPortraits();
     const stored = localStorage.getItem(STORAGE_KEY);
     if (!stored) {
-        return { history: [], updatedAt: storedUpdatedAt, characters: storedCharacters.characters };
+        return {
+            history: [],
+            updatedAt: storedUpdatedAt,
+            characters: storedCharacters.characters,
+            portraits: storedPortraits.portraits
+        };
     }
 
     const parsed = JSON.parse(stored) as unknown;
@@ -85,7 +128,8 @@ function readLocalHistory(): HistoryDoc {
         return {
             history: parsed as VideoMetadata[],
             updatedAt: storedUpdatedAt,
-            characters: storedCharacters.characters
+            characters: storedCharacters.characters,
+            portraits: storedPortraits.portraits
         };
     }
 
@@ -94,7 +138,8 @@ function readLocalHistory(): HistoryDoc {
         return {
             history: doc.history,
             updatedAt: storedUpdatedAt || doc.updatedAt,
-            characters: storedCharacters.found ? storedCharacters.characters : doc.characters
+            characters: storedCharacters.found ? storedCharacters.characters : doc.characters,
+            portraits: storedPortraits.found ? storedPortraits.portraits : doc.portraits
         };
     }
 
@@ -105,6 +150,7 @@ function writeLocalHistory(doc: HistoryDoc) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(doc.history));
     localStorage.setItem(UPDATED_AT_KEY, String(doc.updatedAt));
     localStorage.setItem(CHARACTERS_KEY, JSON.stringify(doc.characters));
+    localStorage.setItem(PORTRAITS_KEY, JSON.stringify(doc.portraits));
 }
 
 /**
@@ -114,10 +160,12 @@ function writeLocalHistory(doc: HistoryDoc) {
 export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
     const [history, setHistory] = React.useState<VideoMetadata[]>([]);
     const [characters, setCharacters] = React.useState<VideoCharacter[]>([]);
+    const [portraits, setPortraits] = React.useState<VideoPortrait[]>([]);
     const [isInitialLoad, setIsInitialLoad] = React.useState(true);
 
     const historyRef = React.useRef<VideoMetadata[]>([]);
     const charactersRef = React.useRef<VideoCharacter[]>([]);
+    const portraitsRef = React.useRef<VideoPortrait[]>([]);
     const updatedAtRef = React.useRef(0);
     const etagRef = React.useRef<string | null>(null);
     const resolveKeyRef = React.useRef(resolveKey);
@@ -128,6 +176,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
 
     historyRef.current = history;
     charactersRef.current = characters;
+    portraitsRef.current = portraits;
 
     React.useEffect(() => {
         resolveKeyRef.current = resolveKey;
@@ -140,13 +189,16 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
             updatedAtRef.current = doc.updatedAt;
             historyRef.current = doc.history;
             charactersRef.current = doc.characters;
+            portraitsRef.current = doc.portraits;
             setHistory(doc.history);
             setCharacters(doc.characters);
+            setPortraits(doc.portraits);
         } catch (e) {
             console.error('Failed to load or parse history from localStorage:', e);
             localStorage.removeItem(STORAGE_KEY);
             localStorage.removeItem(UPDATED_AT_KEY);
             localStorage.removeItem(CHARACTERS_KEY);
+            localStorage.removeItem(PORTRAITS_KEY);
         }
         setIsInitialLoad(false);
     }, []);
@@ -156,20 +208,22 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
     React.useEffect(() => {
         if (!isInitialLoad) {
             try {
-                writeLocalHistory({ updatedAt: updatedAtRef.current, history, characters });
+                writeLocalHistory({ updatedAt: updatedAtRef.current, history, characters, portraits });
             } catch (e) {
                 console.error('Failed to save history to localStorage:', e);
             }
         }
-    }, [characters, history, isInitialLoad]);
+    }, [characters, history, isInitialLoad, portraits]);
 
     const applyCloudDoc = React.useCallback((doc: HistoryDoc) => {
         skipNextCloudPushRef.current = true;
         updatedAtRef.current = doc.updatedAt;
         historyRef.current = doc.history;
         charactersRef.current = doc.characters;
+        portraitsRef.current = doc.portraits;
         setHistory(doc.history);
         setCharacters(doc.characters);
+        setPortraits(doc.portraits);
         try {
             writeLocalHistory(doc);
         } catch (e) {
@@ -200,7 +254,8 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
             {
                 updatedAt: doc.updatedAt,
                 history: doc.history,
-                characters: doc.characters
+                characters: doc.characters,
+                portraits: doc.portraits
             },
             apiKey,
             etagRef.current
@@ -243,7 +298,8 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
                 const localDoc = {
                     updatedAt: updatedAtRef.current,
                     history: historyRef.current,
-                    characters: charactersRef.current
+                    characters: charactersRef.current,
+                    portraits: portraitsRef.current
                 };
                 if (!cloud) {
                     await pushDocOrAdoptServer(key, localDoc);
@@ -304,7 +360,8 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
                     await pushDocOrAdoptServer(key, {
                         updatedAt: updatedAtRef.current,
                         history: historyRef.current,
-                        characters: charactersRef.current
+                        characters: charactersRef.current,
+                        portraits: portraitsRef.current
                     });
                 } catch (err) {
                     console.warn('[history-sync] Could not save cloud history:', err);
@@ -318,19 +375,30 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
                 pushTimerRef.current = null;
             }
         };
-    }, [characters, history, isInitialLoad, pushDocOrAdoptServer, resolveKey]);
+    }, [characters, history, isInitialLoad, portraits, pushDocOrAdoptServer, resolveKey]);
 
     const mutateDoc = React.useCallback(
-        (update: (prev: { history: VideoMetadata[]; characters: VideoCharacter[] }) => {
+        (update: (prev: {
             history: VideoMetadata[];
             characters: VideoCharacter[];
+            portraits: VideoPortrait[];
         }) => {
-            const next = update({ history: historyRef.current, characters: charactersRef.current });
+            history: VideoMetadata[];
+            characters: VideoCharacter[];
+            portraits: VideoPortrait[];
+        }) => {
+            const next = update({
+                history: historyRef.current,
+                characters: charactersRef.current,
+                portraits: portraitsRef.current
+            });
             updatedAtRef.current = Date.now();
             historyRef.current = next.history;
             charactersRef.current = next.characters;
+            portraitsRef.current = next.portraits;
             setHistory(next.history);
             setCharacters(next.characters);
+            setPortraits(next.portraits);
         },
         []
     );
@@ -365,6 +433,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
             if (!character.id || !name || !url) return;
             mutateDoc((prev) => ({
                 history: prev.history,
+                portraits: prev.portraits,
                 characters: [
                     ...prev.characters.filter((existing) => existing.id !== character.id),
                     { id: character.id, name, url }
@@ -378,7 +447,38 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
         (id: string) => {
             mutateDoc((prev) => ({
                 history: prev.history,
+                portraits: prev.portraits,
                 characters: prev.characters.filter((character) => character.id !== id)
+            }));
+        },
+        [mutateDoc]
+    );
+
+    const addPortrait = React.useCallback(
+        (portrait: VideoPortrait) => {
+            const assetId = portrait.assetId.trim();
+            const groupId = portrait.groupId.trim();
+            const name = portrait.name.trim();
+            const thumbUrl = portrait.thumbUrl.trim();
+            if (!assetId || !groupId || !name || !thumbUrl) return;
+            mutateDoc((prev) => ({
+                history: prev.history,
+                characters: prev.characters,
+                portraits: [
+                    ...prev.portraits.filter((existing) => existing.assetId !== assetId),
+                    { assetId, groupId, name, thumbUrl }
+                ]
+            }));
+        },
+        [mutateDoc]
+    );
+
+    const removePortrait = React.useCallback(
+        (assetId: string) => {
+            mutateDoc((prev) => ({
+                history: prev.history,
+                characters: prev.characters,
+                portraits: prev.portraits.filter((portrait) => portrait.assetId !== assetId)
             }));
         },
         [mutateDoc]
@@ -387,12 +487,15 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
     return {
         history,
         characters,
+        portraits,
         isInitialLoad,
         addItem,
         updateItem,
         removeItem,
         clearAll,
         addCharacter,
-        removeCharacter
+        removeCharacter,
+        addPortrait,
+        removePortrait
     };
 }

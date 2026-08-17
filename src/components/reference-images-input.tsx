@@ -3,7 +3,7 @@
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
-import { ImagePlus, Link2, Loader2, X } from 'lucide-react';
+import { ImagePlus, Link2, Loader2, ShieldCheck, X } from 'lucide-react';
 import * as React from 'react';
 
 interface ReferenceImagesInputProps {
@@ -27,6 +27,20 @@ function isHttpImageUrl(url: string): boolean {
     } catch {
         return false;
     }
+}
+
+function isAssetReferenceUrl(url: string): boolean {
+    const value = url.trim();
+    return value.startsWith('asset://') && value.length > 'asset://'.length;
+}
+
+function isReferenceImageUrl(url: string): boolean {
+    return isHttpImageUrl(url) || isAssetReferenceUrl(url);
+}
+
+function assetReferenceLabel(url: string): string {
+    const assetId = url.trim().replace(/^asset:\/\//, '');
+    return assetId.length > 8 ? assetId.slice(-8) : assetId;
 }
 
 type LastFrameSlotProps = {
@@ -246,7 +260,7 @@ export function ReferenceImagesInput({
         (added: string[]) => {
             const cleaned = added
                 .map((u) => u.trim())
-                .filter(isHttpImageUrl);
+                .filter(isReferenceImageUrl);
             if (!cleaned.length) return;
             const next = [...urls, ...cleaned.filter((u) => !urls.includes(u))].slice(0, maxImages);
             onChange(next);
@@ -317,16 +331,27 @@ export function ReferenceImagesInput({
                         <div
                             key={`${url}-${i}`}
                             className='relative h-16 w-16 overflow-hidden rounded-md border border-white/20 bg-white/5'>
-                            {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary worker/external URL */}
-                            <img
-                                src={url}
-                                alt={`Reference ${i + 1}`}
-                                title={url}
-                                className='h-full w-full object-cover'
-                                onError={(e) => {
-                                    (e.target as HTMLImageElement).style.visibility = 'hidden';
-                                }}
-                            />
+                            {isAssetReferenceUrl(url) ? (
+                                <div
+                                    title={url}
+                                    className='flex h-full w-full flex-col items-center justify-center gap-1 bg-emerald-400/[0.06] px-1 text-center'>
+                                    <ShieldCheck className='h-5 w-5 text-emerald-300' />
+                                    <span className='max-w-full truncate font-mono text-[10px] text-emerald-100/80'>
+                                        {assetReferenceLabel(url)}
+                                    </span>
+                                </div>
+                            ) : (
+                                // eslint-disable-next-line @next/next/no-img-element -- arbitrary worker/external URL
+                                <img
+                                    src={url}
+                                    alt={`Reference ${i + 1}`}
+                                    title={url}
+                                    className='h-full w-full object-cover'
+                                    onError={(e) => {
+                                        (e.target as HTMLImageElement).style.visibility = 'hidden';
+                                    }}
+                                />
+                            )}
                             <span className='absolute bottom-0 left-0 rounded-tr bg-black/70 px-1 text-[10px] text-white/80'>
                                 {i + 1}
                             </span>
@@ -423,7 +448,7 @@ export function ReferenceImagesInput({
                         <div className='flex gap-2'>
                             <Input
                                 type='url'
-                                placeholder='https://…/image.png'
+                                placeholder='https://…/image.png or asset://…'
                                 value={urlDraft}
                                 onChange={(e) => setUrlDraft(e.target.value)}
                                 onKeyDown={(e) => {

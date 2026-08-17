@@ -37,6 +37,14 @@ Deployed on Railway at studio.xcity.ai; media worker on Cloudflare (R2).
   that hands Ark a self-hosted URL will fail; Base64 is officially supported
   (ModelArk doc 1520757). History stores URLs only — data URIs would blow the
   localStorage quota.
+- **Real-person reference images must be verified assets.** BytePlus rejects
+  raw real-person images (`InputImageSensitiveContentDetected`). The fix is the
+  private real-human asset library: H5 liveness verification → Asset Group →
+  CreateAsset (face-matched) → reference `asset://<id>`. Those calls use
+  account AK/SK (BytePlus OpenAPI, `src/lib/server/byteplus-openapi.ts` +
+  /api/portrait/* routes — env BYTEPLUS_AK/SK, ARK_PROJECT_NAME must match the
+  tokenhub Ark endpoint's project). `asset://` reference entries skip rebase,
+  Base64 inlining, and preflight — passed through verbatim.
 - **First-frame mode must omit `ratio`** (BytePlus TaskTypeConstraint: the
   output ratio follows the image). Multi-reference mode (2+ images, `role:
   reference_image`, Seedance 2.0/2.5 accept 1–9) keeps `ratio`. Exactly one

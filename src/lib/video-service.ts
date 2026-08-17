@@ -153,6 +153,17 @@ export class VideoService {
             if (code === 'invalid_api_key') {
                 throw new InvalidApiKeyError(gatewayMessage);
             }
+            if (
+                status === 400 &&
+                typeof gatewayMessage === 'string' &&
+                gatewayMessage.includes('InputImageSensitiveContentDetected')
+            ) {
+                throw new Error(
+                    'BytePlus blocked a reference image that appears to contain a real person. ' +
+                        'Verify the person in Assets → Verified people, then use the verified asset instead. ' +
+                        `(${gatewayMessage})`
+                );
+            }
             // 404 = model unknown to the gateway; 400 only counts when the
             // body specifically blames the model name (a plain 400 is usually
             // a provider param rejection — e.g. "parameter ratio is not
