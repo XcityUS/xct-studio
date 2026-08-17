@@ -17,6 +17,7 @@ export function GET() {
             .trim()
             .replace(/\/+$/, ''),
         transcribeModel: (process.env.TRANSCRIBE_MODEL || '').trim(),
-        ttsModel: (process.env.TTS_MODEL || '').trim()
+        ttsModel: (process.env.TTS_MODEL || '').trim(),
+        portraitEnabled: Boolean(process.env.BYTEPLUS_AK && process.env.BYTEPLUS_SK)
     });
 }

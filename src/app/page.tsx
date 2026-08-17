@@ -44,6 +44,7 @@ import {
     listUserAssets,
     mediaArchiveEnabled,
     mediaWorkerUrl,
+    portraitEnabled as loadPortraitEnabled,
     publishToCommunity,
     reviewCommunityItem,
     transcribeModel,
@@ -57,6 +58,12 @@ import {
 } from '@/lib/media-archive';
 import { estimateVideoProgress } from '@/lib/progress';
 import { optimizePrompt } from '@/lib/prompt-optimizer';
+import {
+    createPortraitAsset,
+    createPortraitSession,
+    getPortraitAsset,
+    listPortraitGroups
+} from '@/lib/portrait';
 import { breakdownScript } from '@/lib/script-breakdown';
 import {
     DEFAULT_MODEL,
@@ -97,6 +104,11 @@ function voiceoverAssetName(text: string): string {
 
 const MAX_REFERENCE_VIDEOS = 2;
 type StudioTab = 'video' | 'image' | 'assets' | 'community';
+
+function isAssetReferenceUrl(url: string): boolean {
+    const value = url.trim();
+    return value.startsWith('asset://') && value.length > 'asset://'.length;
+}
 
 function isVideoResolution(value: string | undefined): value is VideoResolution {
     return Boolean(value && RESOLUTIONS.includes(value as VideoResolution));
@@ -227,13 +239,16 @@ export default function HomePage() {
     const {
         history,
         characters,
+        portraits,
         isInitialLoad,
         addItem,
         updateItem,
         removeItem,
         clearAll,
         addCharacter,
-        removeCharacter
+        removeCharacter,
+        addPortrait,
+        removePortrait
     } = useVideoHistory(resolveKey);
     const { getVideoSrc, getThumbnailSrc, setRemoteSource, removeSource, clearAllSources, hasLocalCopy, hasSource } =
         useVideoSources();
@@ -355,8 +370,10 @@ export default function HomePage() {
     // Local image upload is only offered when a media worker is configured
     // (checked at runtime via /api/config).
     const [uploadEnabled, setUploadEnabled] = React.useState(false);
+    const [isPortraitEnabled, setIsPortraitEnabled] = React.useState(false);
     React.useEffect(() => {
         void mediaArchiveEnabled().then(setUploadEnabled);
+        void loadPortraitEnabled().then(setIsPortraitEnabled);
     }, []);
 
     const handleUploadImage = React.useCallback(
@@ -467,12 +484,54 @@ export default function HomePage() {
     );
 
     const handleLoadAssets = React.useCallback(async () => {
+        if (!uploadEnabled) return [];
         const key = await resolveKey();
         if (!key) {
             throw new Error('Sign in at xcity.ai (or set an API key) to view your assets.');
         }
         return listUserAssets(key);
+    }, [resolveKey, uploadEnabled]);
+
+    const handleStartPortraitSession = React.useCallback(
+        async (origin: string) => {
+            const key = await resolveKey();
+            if (!key) {
+                throw new Error('Sign in at xcity.ai (or set an API key) before verifying a person.');
+            }
+            return createPortraitSession(origin, key);
+        },
+        [resolveKey]
+    );
+
+    const handleLoadPortraitGroups = React.useCallback(async () => {
+        const key = await resolveKey();
+        if (!key) {
+            throw new Error('Sign in at xcity.ai (or set an API key) to view verified people.');
+        }
+        return (await listPortraitGroups(key)).groups;
     }, [resolveKey]);
+
+    const handleCreatePortraitAsset = React.useCallback(
+        async (input: { groupId: string; url: string; name: string }) => {
+            const key = await resolveKey();
+            if (!key) {
+                throw new Error('Sign in at xcity.ai (or set an API key) before adding a verified photo.');
+            }
+            return createPortraitAsset(input, key);
+        },
+        [resolveKey]
+    );
+
+    const handleGetPortraitAsset = React.useCallback(
+        async (assetId: string) => {
+            const key = await resolveKey();
+            if (!key) {
+                throw new Error('Sign in at xcity.ai (or set an API key) to check verified photo status.');
+            }
+            return getPortraitAsset(assetId, key);
+        },
+        [resolveKey]
+    );
 
     const handleLoadAssemblyAudioAssets = React.useCallback(async (): Promise<UserAsset[]> => {
         const key = await resolveKey();
@@ -769,6 +828,7 @@ export default function HomePage() {
         // worker moved to a custom domain — rebase legacy links (history
         // reuse, stale form state) onto the current origin.
         const rebase = (url: string): string => {
+            if (isAssetReferenceUrl(url)) return url;
             try {
                 const u = new URL(url);
                 if (
@@ -817,6 +877,10 @@ export default function HomePage() {
             const inlined: string[] = [];
             for (let i = 0; i < refUrls.length; i++) {
                 const url = refUrls[i];
+                if (isAssetReferenceUrl(url)) {
+                    inlined.push(url);
+                    continue;
+                }
                 const isWorkerHosted = Boolean(workerBase && url.startsWith(workerBase));
                 const dataUri = url.startsWith('data:') ? url : await imageUrlToDataUri(url);
                 if (!dataUri) {
@@ -1402,6 +1466,7 @@ export default function HomePage() {
                                 referenceUrls={createReferenceUrls}
                                 setReferenceUrls={setCreateReferenceUrls}
                                 characters={characters}
+                                portraits={portraits}
                                 lastFrameUrl={createLastFrameUrl}
                                 setLastFrameUrl={setCreateLastFrameUrl}
                                 referenceAudioUrl={createReferenceAudioUrl}
@@ -1550,7 +1615,7 @@ export default function HomePage() {
             </Dialog>
 
             <div className='w-full max-w-7xl space-y-6'>
-                {IMAGE_GENERATION_ENABLED || uploadEnabled ? (
+                {IMAGE_GENERATION_ENABLED || uploadEnabled || isPortraitEnabled ? (
                     <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as StudioTab)}>
                         <TabsList className='mb-4 border border-white/10 bg-white/5'>
                             <TabsTrigger
@@ -1565,7 +1630,7 @@ export default function HomePage() {
                                     Image
                                 </TabsTrigger>
                             )}
-                            {uploadEnabled && (
+                            {(uploadEnabled || isPortraitEnabled) && (
                                 <TabsTrigger
                                     value='assets'
                                     className='px-6 text-white/60 data-[state=active]:bg-white data-[state=active]:text-black'>
@@ -1588,7 +1653,7 @@ export default function HomePage() {
                                 <ImageStudio onGenerate={handleGenerateImages} onAnimate={handleAnimateImage} />
                             </TabsContent>
                         )}
-                        {uploadEnabled && (
+                        {(uploadEnabled || isPortraitEnabled) && (
                             <TabsContent value='assets'>
                                 <div className='min-h-[450px]'>
                                     <AssetsPanel
@@ -1597,6 +1662,14 @@ export default function HomePage() {
                                         characters={characters}
                                         addCharacter={addCharacter}
                                         removeCharacter={removeCharacter}
+                                        portraitEnabled={isPortraitEnabled}
+                                        portraits={portraits}
+                                        addPortrait={addPortrait}
+                                        removePortrait={removePortrait}
+                                        startPortraitSession={handleStartPortraitSession}
+                                        loadPortraitGroups={handleLoadPortraitGroups}
+                                        createPortraitAsset={handleCreatePortraitAsset}
+                                        getPortraitAsset={handleGetPortraitAsset}
                                         onUseAsReference={handleUseAssetAsReference}
                                         onUseAsReferenceVideo={handleUseAssetAsReferenceVideo}
                                         active={activeTab === 'assets'}

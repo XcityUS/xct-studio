@@ -12,9 +12,10 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import type { VideoCharacter } from '@/hooks/use-video-history';
+import type { VideoCharacter, VideoPortrait } from '@/hooks/use-video-history';
 import type { UserAsset } from '@/lib/media-archive';
-import { Check, Copy, ImagePlus, Loader2, Music, RefreshCw, Trash2, UserPlus, Video } from 'lucide-react';
+import type { PortraitAsset, PortraitGroup, PortraitSession } from '@/lib/portrait';
+import { Check, Copy, ImagePlus, Loader2, Music, RefreshCw, ShieldCheck, Trash2, UserPlus, Video } from 'lucide-react';
 import * as React from 'react';
 
 type AssetsPanelProps = {
@@ -24,6 +25,14 @@ type AssetsPanelProps = {
     characters: VideoCharacter[];
     addCharacter: (character: VideoCharacter) => void;
     removeCharacter: (id: string) => void;
+    portraitEnabled: boolean;
+    portraits: VideoPortrait[];
+    addPortrait: (portrait: VideoPortrait) => void;
+    removePortrait: (assetId: string) => void;
+    startPortraitSession: (origin: string) => Promise<PortraitSession>;
+    loadPortraitGroups: () => Promise<PortraitGroup[]>;
+    createPortraitAsset: (input: { groupId: string; url: string; name: string }) => Promise<{ assetId: string }>;
+    getPortraitAsset: (assetId: string) => Promise<PortraitAsset>;
     /** Loads an image asset into the video form's reference list. */
     onUseAsReference: (url: string) => void;
     /** Loads a video asset into the video form's reference video list. */
@@ -46,6 +55,14 @@ function defaultCharacterName(asset: UserAsset): string {
         .replace(/\.[^.]+$/, '')
         .replace(/[-_]+/g, ' ')
         .trim() || 'Character';
+}
+
+function shortAssetId(assetId: string): string {
+    return assetId.length > 8 ? assetId.slice(-8) : assetId;
+}
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function CopyUrlButton({ url }: { url: string }) {
@@ -81,6 +98,14 @@ export function AssetsPanel({
     characters,
     addCharacter,
     removeCharacter,
+    portraitEnabled,
+    portraits,
+    addPortrait,
+    removePortrait,
+    startPortraitSession,
+    loadPortraitGroups,
+    createPortraitAsset,
+    getPortraitAsset,
     onUseAsReference,
     onUseAsReferenceVideo,
     active
@@ -91,6 +116,13 @@ export function AssetsPanel({
     const [kindFilter, setKindFilter] = React.useState<'all' | 'image' | 'audio' | 'video'>('all');
     const [characterAsset, setCharacterAsset] = React.useState<UserAsset | null>(null);
     const [characterName, setCharacterName] = React.useState('');
+    const [portraitGroups, setPortraitGroups] = React.useState<PortraitGroup[] | null>(null);
+    const [isLoadingPortraitGroups, setIsLoadingPortraitGroups] = React.useState(false);
+    const [isStartingPortraitSession, setIsStartingPortraitSession] = React.useState(false);
+    const [portraitError, setPortraitError] = React.useState<string | null>(null);
+    const [portraitNotice, setPortraitNotice] = React.useState<string | null>(null);
+    const [addingPortraitGroupId, setAddingPortraitGroupId] = React.useState<string | null>(null);
+    const [portraitDrafts, setPortraitDrafts] = React.useState<Record<string, { assetKey: string; name: string }>>({});
 
     const refresh = React.useCallback(async () => {
         setIsLoading(true);
@@ -104,6 +136,19 @@ export function AssetsPanel({
         }
     }, [loadAssets]);
 
+    const refreshPortraitGroups = React.useCallback(async () => {
+        if (!portraitEnabled) return;
+        setIsLoadingPortraitGroups(true);
+        setPortraitError(null);
+        try {
+            setPortraitGroups(await loadPortraitGroups());
+        } catch (err) {
+            setPortraitError(err instanceof Error ? err.message : 'Could not load verified people.');
+        } finally {
+            setIsLoadingPortraitGroups(false);
+        }
+    }, [loadPortraitGroups, portraitEnabled]);
+
     // First fetch happens when the tab first becomes visible.
     const fetchedRef = React.useRef(false);
     React.useEffect(() => {
@@ -112,6 +157,14 @@ export function AssetsPanel({
             void refresh();
         }
     }, [active, refresh]);
+
+    const fetchedPortraitGroupsRef = React.useRef(false);
+    React.useEffect(() => {
+        if (active && portraitEnabled && !fetchedPortraitGroupsRef.current) {
+            fetchedPortraitGroupsRef.current = true;
+            void refreshPortraitGroups();
+        }
+    }, [active, portraitEnabled, refreshPortraitGroups]);
 
     const handleDelete = async (asset: UserAsset) => {
         if (!confirm(`Delete this ${asset.kind} from cloud storage? Links to it will stop working.`)) return;
@@ -141,6 +194,87 @@ export function AssetsPanel({
         if (!name) return;
         addCharacter({ id: crypto.randomUUID(), name, url: characterAsset.url });
         handleCharacterDialogOpenChange(false);
+    };
+
+    const imageAssets = React.useMemo(() => (assets ?? []).filter((asset) => asset.kind === 'image'), [assets]);
+
+    const updatePortraitDraft = React.useCallback(
+        (groupId: string, patch: Partial<{ assetKey: string; name: string }>) => {
+            setPortraitDrafts((prev) => ({
+                ...prev,
+                [groupId]: {
+                    assetKey: prev[groupId]?.assetKey ?? '',
+                    name: prev[groupId]?.name ?? '',
+                    ...patch
+                }
+            }));
+        },
+        []
+    );
+
+    const handleStartPortraitSession = async () => {
+        setIsStartingPortraitSession(true);
+        setPortraitError(null);
+        setPortraitNotice(null);
+        try {
+            const session = await startPortraitSession(window.location.origin);
+            window.open(session.h5Link, '_blank', 'noopener,noreferrer');
+            setPortraitNotice('Complete verification in the opened page, then return.');
+        } catch (err) {
+            setPortraitError(err instanceof Error ? err.message : 'Could not start verification.');
+        } finally {
+            setIsStartingPortraitSession(false);
+        }
+    };
+
+    const waitForPortraitAsset = React.useCallback(
+        async (assetId: string) => {
+            const startedAt = Date.now();
+            let lastStatus = '';
+            while (Date.now() - startedAt <= 120_000) {
+                const asset = await getPortraitAsset(assetId);
+                lastStatus = asset.status;
+                if (asset.status === 'Active') return;
+                if (asset.status === 'Failed') {
+                    throw new Error('BytePlus rejected this verified photo.');
+                }
+                await sleep(3000);
+            }
+            throw new Error(
+                lastStatus
+                    ? `Verified photo is still ${lastStatus.toLowerCase()}. Try again in a moment.`
+                    : 'Verified photo processing timed out.'
+            );
+        },
+        [getPortraitAsset]
+    );
+
+    const handleAddPortraitAsset = async (groupId: string) => {
+        const draft = portraitDrafts[groupId];
+        const selected = imageAssets.find((asset) => asset.key === draft?.assetKey);
+        if (!selected) {
+            setPortraitError('Choose an image asset first.');
+            return;
+        }
+
+        const name = draft?.name.trim() || defaultCharacterName(selected);
+        setAddingPortraitGroupId(groupId);
+        setPortraitError(null);
+        setPortraitNotice(null);
+        try {
+            const { assetId } = await createPortraitAsset({ groupId, url: selected.url, name });
+            await waitForPortraitAsset(assetId);
+            addPortrait({ assetId, groupId, name, thumbUrl: selected.url });
+            setPortraitNotice('Verified photo added.');
+            setPortraitDrafts((prev) => ({
+                ...prev,
+                [groupId]: { assetKey: '', name: '' }
+            }));
+        } catch (err) {
+            setPortraitError(err instanceof Error ? err.message : 'Could not add verified photo.');
+        } finally {
+            setAddingPortraitGroupId(null);
+        }
     };
 
     const visible = (assets ?? []).filter((a) => kindFilter === 'all' || a.kind === kindFilter);
@@ -205,6 +339,163 @@ export function AssetsPanel({
             </CardHeader>
             <CardContent className='flex-grow overflow-y-auto p-4'>
                 {error && <p className='mb-3 text-sm text-red-400'>{error}</p>}
+
+                {portraitEnabled && (
+                    <div className='mb-4 space-y-3 border-b border-white/10 pb-4'>
+                        <div className='flex flex-wrap items-center justify-between gap-2'>
+                            <h3 className='text-xs font-medium text-white/50'>Verified people</h3>
+                            <div className='flex items-center gap-1.5'>
+                                <Button
+                                    type='button'
+                                    variant='ghost'
+                                    size='sm'
+                                    onClick={() => void refreshPortraitGroups()}
+                                    disabled={isLoadingPortraitGroups}
+                                    className='h-auto rounded-md px-2 py-1 text-white/50 hover:bg-white/10 hover:text-white'>
+                                    <RefreshCw
+                                        size={13}
+                                        className={isLoadingPortraitGroups ? 'animate-spin' : undefined}
+                                    />
+                                    <span className='ml-1'>Refresh</span>
+                                </Button>
+                                <Button
+                                    type='button'
+                                    size='sm'
+                                    onClick={() => void handleStartPortraitSession()}
+                                    disabled={isStartingPortraitSession}
+                                    className='h-auto bg-white px-2 py-1 text-xs text-black hover:bg-white/90 disabled:bg-white/40'>
+                                    {isStartingPortraitSession ? (
+                                        <Loader2 className='h-3 w-3 animate-spin' />
+                                    ) : (
+                                        <ShieldCheck className='h-3 w-3' />
+                                    )}
+                                    Verify a real person
+                                </Button>
+                            </div>
+                        </div>
+
+                        {portraitNotice && <p className='text-xs text-emerald-300'>{portraitNotice}</p>}
+                        {portraitError && <p className='text-xs text-red-400'>{portraitError}</p>}
+
+                        {portraits.length > 0 && (
+                            <div className='flex gap-2 overflow-x-auto pb-1'>
+                                {portraits.map((portrait) => (
+                                    <div
+                                        key={portrait.assetId}
+                                        className='flex shrink-0 items-center gap-2 rounded-md border border-emerald-400/25 bg-emerald-400/[0.06] px-2 py-1.5'>
+                                        <div className='h-7 w-7 overflow-hidden rounded border border-white/15 bg-white/5'>
+                                            {/* eslint-disable-next-line @next/next/no-img-element -- worker-hosted URL */}
+                                            <img
+                                                src={portrait.thumbUrl}
+                                                alt={portrait.name}
+                                                loading='lazy'
+                                                className='h-full w-full object-cover'
+                                            />
+                                        </div>
+                                        <div className='min-w-0'>
+                                            <div className='max-w-32 truncate text-xs text-white/85'>
+                                                {portrait.name}
+                                            </div>
+                                            <div className='flex items-center gap-1 text-[10px] text-emerald-300/80'>
+                                                <ShieldCheck className='h-2.5 w-2.5' />
+                                                Verified
+                                            </div>
+                                        </div>
+                                        <button
+                                            type='button'
+                                            title='Remove verified photo'
+                                            aria-label={`Remove verified photo ${portrait.name}`}
+                                            onClick={() => removePortrait(portrait.assetId)}
+                                            className='rounded p-1 text-white/45 transition-colors hover:bg-white/10 hover:text-white'>
+                                            <Trash2 className='h-3 w-3' />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {isLoadingPortraitGroups && portraitGroups === null ? (
+                            <div className='flex items-center gap-2 text-xs text-white/40'>
+                                <Loader2 className='h-3 w-3 animate-spin' />
+                                Loading verified groups…
+                            </div>
+                        ) : portraitGroups && portraitGroups.length > 0 ? (
+                            <div className='space-y-2'>
+                                {portraitGroups.map((group) => {
+                                    const draft = portraitDrafts[group.id] ?? { assetKey: '', name: '' };
+                                    const isAdding = addingPortraitGroupId === group.id;
+                                    return (
+                                        <div
+                                            key={group.id}
+                                            className='space-y-2 rounded-md border border-white/10 bg-white/[0.03] p-2'>
+                                            <div className='flex items-center justify-between gap-2'>
+                                                <div className='flex min-w-0 items-center gap-1.5 text-xs text-white/70'>
+                                                    <ShieldCheck className='h-3.5 w-3.5 shrink-0 text-emerald-300' />
+                                                    <span className='truncate'>Group {shortAssetId(group.id)}</span>
+                                                </div>
+                                                <span className='text-[10px] text-white/35'>{group.name}</span>
+                                            </div>
+                                            <div className='grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(8rem,12rem)_auto]'>
+                                                <select
+                                                    aria-label='Image asset'
+                                                    value={draft.assetKey}
+                                                    onChange={(event) => {
+                                                        const asset = imageAssets.find(
+                                                            (candidate) => candidate.key === event.target.value
+                                                        );
+                                                        updatePortraitDraft(group.id, {
+                                                            assetKey: event.target.value,
+                                                            name: draft.name || (asset ? defaultCharacterName(asset) : '')
+                                                        });
+                                                    }}
+                                                    disabled={isAdding || imageAssets.length === 0}
+                                                    className='h-8 min-w-0 rounded-md border border-white/20 bg-black px-2 text-xs text-white disabled:opacity-40'>
+                                                    <option value=''>Choose image asset</option>
+                                                    {imageAssets.map((asset) => (
+                                                        <option key={asset.key} value={asset.key}>
+                                                            {asset.name || defaultCharacterName(asset)}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                                <Input
+                                                    value={draft.name}
+                                                    onChange={(event) =>
+                                                        updatePortraitDraft(group.id, { name: event.target.value })
+                                                    }
+                                                    placeholder='Name'
+                                                    disabled={isAdding}
+                                                    className='h-8 rounded-md border border-white/20 bg-black text-xs text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
+                                                />
+                                                <Button
+                                                    type='button'
+                                                    size='sm'
+                                                    onClick={() => void handleAddPortraitAsset(group.id)}
+                                                    disabled={isAdding || !draft.assetKey}
+                                                    className='h-8 bg-white text-xs text-black hover:bg-white/90 disabled:bg-white/40'>
+                                                    {isAdding ? (
+                                                        <Loader2 className='h-3 w-3 animate-spin' />
+                                                    ) : (
+                                                        <ImagePlus className='h-3 w-3' />
+                                                    )}
+                                                    Add verified photo
+                                                </Button>
+                                            </div>
+                                            {imageAssets.length === 0 && (
+                                                <p className='text-[10px] text-white/35'>
+                                                    Upload or save an image asset first.
+                                                </p>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <p className='text-xs text-white/40'>
+                                No verified groups yet. Complete verification, then refresh.
+                            </p>
+                        )}
+                    </div>
+                )}
 
                 {characters.length > 0 && (
                     <div className='mb-4 space-y-2'>
