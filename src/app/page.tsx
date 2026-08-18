@@ -23,7 +23,7 @@ import { VideoHistoryPanel } from '@/components/video-history-panel';
 import { VideoOutput } from '@/components/video-output';
 import { useMediaArchive } from '@/hooks/use-media-archive';
 import { useVideoHistory } from '@/hooks/use-video-history';
-import { useVideoJobs, readPersistedActiveJobIds } from '@/hooks/use-video-jobs';
+import { useVideoJobs } from '@/hooks/use-video-jobs';
 import { useVideoSources } from '@/hooks/use-video-sources';
 import { useXcityKey } from '@/hooks/use-xcity-key';
 import { transcribeVideo, type CaptionSegment } from '@/lib/captions';
@@ -778,17 +778,28 @@ export default function HomePage() {
         }
     });
 
-    // Resume in-flight jobs after a page refresh.
+    // Resume polling for every in-flight history item — including ones
+    // created on another device (cloud-synced) or before a crash. The gateway
+    // retrieve is stateless, so an id is all it takes: stale tasks resolve to
+    // their terminal status (or 404 → failed) on the first poll. Runs on
+    // every history change because the cloud pull can land after boot; a ref
+    // dedupes so each id is only restored once per session. Gated on a
+    // resolved key: resuming before the SSO key arrives would make the first
+    // poll throw InvalidApiKeyError and pop the key dialog uninvited.
+    const resumedIdsRef = React.useRef<Set<string>>(new Set());
     React.useEffect(() => {
-        if (isInitialLoad || history.length === 0) return;
+        if (isInitialLoad || !apiKey) return;
 
-        const persistedIds = readPersistedActiveJobIds();
         const processingItems = history.filter(
-            (item) => item.status === 'processing' && persistedIds.includes(item.id)
+            (item) =>
+                item.status === 'processing' &&
+                !resumedIdsRef.current.has(item.id) &&
+                !activeJobs.has(item.id)
         );
         if (processingItems.length === 0) return;
 
-        console.log(`Resuming ${processingItems.length} active job(s)`);
+        for (const item of processingItems) resumedIdsRef.current.add(item.id);
+        console.log(`Resuming ${processingItems.length} in-flight job(s)`);
         restoreJobs(
             processingItems.map(
                 (item): VideoJob => ({
@@ -805,8 +816,7 @@ export default function HomePage() {
                 })
             )
         );
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isInitialLoad]);
+    }, [isInitialLoad, apiKey, history, activeJobs, restoreJobs]);
 
     const handleCreateVideo = async (formData: CreationFormData) => {
         setError(null);
