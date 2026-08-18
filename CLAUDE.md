@@ -19,11 +19,15 @@ Deployed on Railway at studio.xcity.ai; media worker on Cloudflare (R2).
   SDK helpers: the typed `videos.create` switches to multipart when
   `input_reference` is present (gateway wants a URL string), and typed
   `videos.retrieve` drops `output_url` — the provider CDN link we play from.
-- **Ark CDN links expire in 24 h** and attach a beat *after* the job first
-  reports completed. Playback prefers: local blob → R2 `storedUrl` → freshly
-  re-read `output_url`. Archiving is reconciliation from history (any completed
-  item without `storedUrl`), with exponential backoff — never a completion
-  callback.
+- **Ark CDN links expire 24 h after COMPLETION and re-reads do NOT re-sign**
+  (verified 2026-08-18: retrieve returns the same aging URL; past 24 h the
+  bytes are unreachable via API even though the task record lives 7 days).
+  The link also attaches minutes *after* long jobs first report completed.
+  Playback prefers: local blob → R2 `storedUrl` → re-read `output_url`.
+  Archiving is reconciliation from history (any completed item without
+  `storedUrl`), with backoff — and it MUST succeed within the 24 h window
+  or the video is gone; the studio must be opened at least once in that
+  window.
 - **Object URLs are created only in effects** (`use-video-sources`,
   `useImageObjectUrls`) and revoked on removal/unmount. Never call
   `URL.createObjectURL` during render.
