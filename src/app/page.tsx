@@ -654,12 +654,15 @@ export default function HomePage() {
         async (job: VideoJob) => {
             console.log(`Downloading video for job: ${job.id}`);
 
-            // Ark attaches the CDN link a beat AFTER the job first reports
-            // completed — a single immediate re-read usually comes back empty
-            // and the preview then hangs forever. Poll with backoff (~1 min
-            // window) until the link shows up.
+            // Ark attaches the CDN link AFTER the job first reports completed,
+            // and the gap scales with the render: short clips take seconds,
+            // 30s/4K takes minutes of post-processing. Poll with backoff for
+            // ~1 min on short clips, ~6 min for clips longer than 12s.
             let sourceUrl = job.output_url;
-            const retryDelaysMs = [2_000, 4_000, 8_000, 16_000, 30_000];
+            const isLongClip = Number(job.seconds) > 12;
+            const retryDelaysMs = isLongClip
+                ? [2_000, 4_000, 8_000, 16_000, 30_000, 60_000, 60_000, 60_000, 60_000, 60_000]
+                : [2_000, 4_000, 8_000, 16_000, 30_000];
             for (const delay of retryDelaysMs) {
                 if (sourceUrl) break;
                 await new Promise((resolve) => setTimeout(resolve, delay));

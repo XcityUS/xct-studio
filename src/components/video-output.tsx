@@ -288,7 +288,10 @@ export function VideoOutput({
                             <Loader2 className='mb-4 h-12 w-12 animate-spin text-white/60' />
                         )}
                         <p className='text-white/60'>Video ready — loading preview…</p>
-                        <p className='mt-2 text-sm text-white/40'>Fetching the finished video from the gateway</p>
+                        <p className='mt-2 text-sm text-white/40'>
+                            Fetching the finished video from the gateway — long clips (30s / 4K) can take a few
+                            minutes of provider post-processing before the link appears
+                        </p>
                     </div>
                 )}
 

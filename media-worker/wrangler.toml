@@ -27,8 +27,9 @@ LITELLM_BASE_URL = "https://tokenhub.xcity.one"
 ALLOWED_ORIGINS = "https://studio.xcity.ai,https://chat.xcity.ai,https://xcity.ai"
 STUDIO_URL = "https://studio.xcity.ai"
 ADMIN_USER_IDS = ""
-# Refuse to copy anything larger than this (bytes). 12s of 1080p Seedance is
-# well under 100 MB; the cap is a runaway guard, not a product limit.
-MAX_BYTES = "209715200"
+# Refuse to copy anything larger than this (bytes). A 30s 4K Seedance 2.5
+# clip can pass 150 MB, so the guard sits at 500 MB — still a runaway guard,
+# not a product limit.
+MAX_BYTES = "524288000"
 # Cap for POST /upload reference images (bytes). 10 MB.
 MAX_UPLOAD_BYTES = "10485760"

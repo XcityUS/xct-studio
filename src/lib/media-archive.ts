@@ -293,7 +293,10 @@ export async function archiveVideo(videoId: string, sourceUrl: string, apiKey: s
             body: JSON.stringify({ video_id: videoId, source_url: sourceUrl })
         });
         if (!res.ok) {
-            console.warn(`[media-archive] ${videoId} failed: ${res.status}`);
+            // The body says WHY (host not allowed, over the size cap, auth) —
+            // without it these silent nulls are undebuggable in the field.
+            const detail = await res.text().catch(() => '');
+            console.warn(`[media-archive] ${videoId} failed: ${res.status} ${detail.slice(0, 300)}`);
             return null;
         }
         const data = (await res.json()) as { url?: string; bytes?: number | null; cached?: boolean };
