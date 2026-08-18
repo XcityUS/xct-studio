@@ -871,9 +871,14 @@ async function handleArchive(request, env, cors) {
         return json({ error: 'source_url is not a valid URL' }, 400, cors);
     }
     // Only copy from the provider's own storage — this endpoint must not become
-    // an open proxy that fetches arbitrary hosts on our behalf.
-    if (source.protocol !== 'https:' || !/(^|\.)volces\.com$/.test(source.hostname)) {
-        return json({ error: 'source_url host is not allowed' }, 400, cors);
+    // an open proxy that fetches arbitrary hosts on our behalf. Ark serves
+    // output from volces.com (CN infra) and bytepluses.com/byteplus.com
+    // (international) depending on model/pipeline.
+    if (
+        source.protocol !== 'https:' ||
+        !/(^|\.)(volces\.com|bytepluses\.com|byteplus\.com)$/.test(source.hostname)
+    ) {
+        return json({ error: `source_url host is not allowed (${source.hostname})` }, 400, cors);
     }
 
     const owner = await resolveOwner(bearer, env);

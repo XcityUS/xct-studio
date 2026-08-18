@@ -5,8 +5,12 @@ import type { VideoService } from '@/lib/video-service';
 import type { VideoMetadata } from '@/types/video';
 import * as React from 'react';
 
-const MAX_ATTEMPTS = 5;
+// 8 attempts with backoff capped at 5 min ≈ a 25-minute window — long
+// clips (30s/4K) can take several minutes of provider post-processing
+// before the CDN link exists, and the old 15-minute window gave up on them.
+const MAX_ATTEMPTS = 8;
 const BASE_BACKOFF_MS = 30_000;
+const MAX_BACKOFF_MS = 300_000;
 
 interface ArchiveAttemptState {
     attempts: number;
@@ -116,7 +120,7 @@ export function useMediaArchive({ history, enabled, service, resolveKey, onArchi
                     const attempts = (prev?.attempts ?? 0) + 1;
                     attemptsRef.current.set(due.id, {
                         attempts,
-                        nextAt: Date.now() + BASE_BACKOFF_MS * 2 ** (attempts - 1)
+                        nextAt: Date.now() + Math.min(BASE_BACKOFF_MS * 2 ** (attempts - 1), MAX_BACKOFF_MS)
                     });
                 }
                 busyRef.current = false;
