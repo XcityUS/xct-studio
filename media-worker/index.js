@@ -165,11 +165,17 @@ function publicCommunityParams(params) {
     }, {});
 }
 
-/** Video ids are gateway-issued base64; keep only what is safe in a path. */
-function safeVideoId(id) {
-    return String(id)
-        .replace(/[^A-Za-z0-9._-]/g, '')
-        .slice(0, 120);
+/**
+ * Video ids are gateway-issued base64; keep only what is safe in a path.
+ * The encoded ids run ~150 chars and DIFFER ONLY IN THE TAIL (provider +
+ * model prefix is identical), so a plain 120-char slice collided every
+ * same-model archive onto one R2 key, overwriting each other. Long ids get
+ * a hash suffix of the full value to stay unique.
+ */
+async function safeVideoId(id) {
+    const sanitized = String(id).replace(/[^A-Za-z0-9._-]/g, '');
+    if (sanitized.length <= 120) return sanitized;
+    return `${sanitized.slice(0, 120)}-${(await sha256Hex(sanitized)).slice(0, 12)}`;
 }
 
 /** Upload types accepted for reference media. */
@@ -858,7 +864,7 @@ async function handleArchive(request, env, cors) {
         return json({ error: 'invalid JSON body' }, 400, cors);
     }
 
-    const videoId = safeVideoId(payload?.video_id || '');
+    const videoId = await safeVideoId(payload?.video_id || '');
     const sourceUrl = payload?.source_url;
     if (!videoId || !sourceUrl) {
         return json({ error: 'video_id and source_url are required' }, 400, cors);
