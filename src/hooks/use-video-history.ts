@@ -1,6 +1,14 @@
 'use client';
 
 import { StateConflictError } from '@/lib/errors';
+import {
+    mergeDocs,
+    sameDocContent,
+    withTombstones,
+    type HistoryDoc,
+    type VideoCharacter,
+    type VideoPortrait
+} from '@/lib/history-merge';
 import { fetchCloudState, mediaArchiveEnabled, pushCloudState } from '@/lib/media-archive';
 import type { VideoMetadata } from '@/types/video';
 import * as React from 'react';
@@ -10,27 +18,10 @@ const STORAGE_KEY = 'soraVideoHistory';
 const UPDATED_AT_KEY = 'soraVideoHistoryUpdatedAt';
 const CHARACTERS_KEY = 'soraVideoCharacters';
 const PORTRAITS_KEY = 'soraVideoPortraits';
+const DELETED_IDS_KEY = 'soraVideoDeletedIds';
 const SYNC_DEBOUNCE_MS = 3000;
 
-export type VideoCharacter = {
-    id: string;
-    name: string;
-    url: string;
-};
-
-export type VideoPortrait = {
-    assetId: string;
-    groupId: string;
-    name: string;
-    thumbUrl: string;
-};
-
-interface HistoryDoc {
-    updatedAt: number;
-    history: VideoMetadata[];
-    characters: VideoCharacter[];
-    portraits: VideoPortrait[];
-}
+export type { VideoCharacter, VideoPortrait } from '@/lib/history-merge';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
@@ -87,13 +78,19 @@ function parsePortraits(value: unknown): VideoPortrait[] {
     });
 }
 
+function parseDeletedIds(value: unknown): string[] {
+    if (!Array.isArray(value)) return [];
+    return value.filter((id): id is string => typeof id === 'string' && id.length > 0);
+}
+
 function parseHistoryDoc(value: unknown): HistoryDoc | null {
     if (!isRecord(value) || !Array.isArray(value.history)) return null;
     return {
         updatedAt: numberOrZero(value.updatedAt),
         history: value.history as VideoMetadata[],
         characters: parseCharacters(value.characters),
-        portraits: parsePortraits(value.portraits)
+        portraits: parsePortraits(value.portraits),
+        deletedIds: parseDeletedIds(value.deletedIds)
     };
 }
 
@@ -101,6 +98,12 @@ function readStoredCharacters(): { characters: VideoCharacter[]; found: boolean 
     const raw = localStorage.getItem(CHARACTERS_KEY);
     if (!raw) return { characters: [], found: false };
     return { characters: parseCharacters(JSON.parse(raw) as unknown), found: true };
+}
+
+function readStoredDeletedIds(): string[] {
+    const raw = localStorage.getItem(DELETED_IDS_KEY);
+    if (!raw) return [];
+    return parseDeletedIds(JSON.parse(raw) as unknown);
 }
 
 function readStoredPortraits(): { portraits: VideoPortrait[]; found: boolean } {
@@ -113,13 +116,15 @@ function readLocalHistory(): HistoryDoc {
     const storedUpdatedAt = readStoredUpdatedAt();
     const storedCharacters = readStoredCharacters();
     const storedPortraits = readStoredPortraits();
+    const storedDeletedIds = readStoredDeletedIds();
     const stored = localStorage.getItem(STORAGE_KEY);
     if (!stored) {
         return {
             history: [],
             updatedAt: storedUpdatedAt,
             characters: storedCharacters.characters,
-            portraits: storedPortraits.portraits
+            portraits: storedPortraits.portraits,
+            deletedIds: storedDeletedIds
         };
     }
 
@@ -129,7 +134,8 @@ function readLocalHistory(): HistoryDoc {
             history: parsed as VideoMetadata[],
             updatedAt: storedUpdatedAt,
             characters: storedCharacters.characters,
-            portraits: storedPortraits.portraits
+            portraits: storedPortraits.portraits,
+            deletedIds: storedDeletedIds
         };
     }
 
@@ -139,7 +145,8 @@ function readLocalHistory(): HistoryDoc {
             history: doc.history,
             updatedAt: storedUpdatedAt || doc.updatedAt,
             characters: storedCharacters.found ? storedCharacters.characters : doc.characters,
-            portraits: storedPortraits.found ? storedPortraits.portraits : doc.portraits
+            portraits: storedPortraits.found ? storedPortraits.portraits : doc.portraits,
+            deletedIds: storedDeletedIds.length ? storedDeletedIds : doc.deletedIds
         };
     }
 
@@ -151,6 +158,7 @@ function writeLocalHistory(doc: HistoryDoc) {
     localStorage.setItem(UPDATED_AT_KEY, String(doc.updatedAt));
     localStorage.setItem(CHARACTERS_KEY, JSON.stringify(doc.characters));
     localStorage.setItem(PORTRAITS_KEY, JSON.stringify(doc.portraits));
+    localStorage.setItem(DELETED_IDS_KEY, JSON.stringify(doc.deletedIds));
 }
 
 /**
@@ -167,6 +175,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
     const charactersRef = React.useRef<VideoCharacter[]>([]);
     const portraitsRef = React.useRef<VideoPortrait[]>([]);
     const updatedAtRef = React.useRef(0);
+    const deletedIdsRef = React.useRef<string[]>([]);
     const etagRef = React.useRef<string | null>(null);
     const resolveKeyRef = React.useRef(resolveKey);
     const didBootSyncRef = React.useRef(false);
@@ -182,11 +191,24 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
         resolveKeyRef.current = resolveKey;
     }, [resolveKey]);
 
+    /** The doc as this device currently sees it. */
+    const localDoc = React.useCallback(
+        (): HistoryDoc => ({
+            updatedAt: updatedAtRef.current,
+            history: historyRef.current,
+            characters: charactersRef.current,
+            portraits: portraitsRef.current,
+            deletedIds: deletedIdsRef.current
+        }),
+        []
+    );
+
     // Load once on mount
     React.useEffect(() => {
         try {
             const doc = readLocalHistory();
             updatedAtRef.current = doc.updatedAt;
+            deletedIdsRef.current = doc.deletedIds;
             historyRef.current = doc.history;
             charactersRef.current = doc.characters;
             portraitsRef.current = doc.portraits;
@@ -199,6 +221,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
             localStorage.removeItem(UPDATED_AT_KEY);
             localStorage.removeItem(CHARACTERS_KEY);
             localStorage.removeItem(PORTRAITS_KEY);
+            localStorage.removeItem(DELETED_IDS_KEY);
         }
         setIsInitialLoad(false);
     }, []);
@@ -208,7 +231,13 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
     React.useEffect(() => {
         if (!isInitialLoad) {
             try {
-                writeLocalHistory({ updatedAt: updatedAtRef.current, history, characters, portraits });
+                writeLocalHistory({
+                    updatedAt: updatedAtRef.current,
+                    history,
+                    characters,
+                    portraits,
+                    deletedIds: deletedIdsRef.current
+                });
             } catch (e) {
                 console.error('Failed to save history to localStorage:', e);
             }
@@ -218,6 +247,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
     const applyCloudDoc = React.useCallback((doc: HistoryDoc) => {
         skipNextCloudPushRef.current = true;
         updatedAtRef.current = doc.updatedAt;
+        deletedIdsRef.current = doc.deletedIds;
         historyRef.current = doc.history;
         charactersRef.current = doc.characters;
         portraitsRef.current = doc.portraits;
@@ -231,7 +261,15 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
         }
     }, []);
 
-    const adoptServerState = React.useCallback(
+    const pushDocRef = React.useRef<((apiKey: string, doc: HistoryDoc) => Promise<void>) | null>(null);
+
+    /**
+     * Someone else wrote the doc since we last read it: merge their version
+     * with ours and push the union back once. Adopting the server doc as-is
+     * (the old behavior) silently deleted anything created on this device
+     * since the last successful push.
+     */
+    const mergeWithServerState = React.useCallback(
         async (apiKey: string) => {
             const cloud = await fetchCloudState(apiKey);
             if (!cloud) {
@@ -239,14 +277,23 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
                 return;
             }
             etagRef.current = cloud.etag;
-            const doc = parseHistoryDoc(cloud.doc);
-            if (!doc) {
+            const cloudDoc = parseHistoryDoc(cloud.doc);
+            if (!cloudDoc) {
                 console.warn('[history-sync] Ignoring invalid cloud history document.');
                 return;
             }
-            applyCloudDoc(doc);
+            const merged = mergeDocs(localDoc(), cloudDoc);
+            applyCloudDoc(merged);
+            if (sameDocContent(merged, cloudDoc)) return;
+            try {
+                // Single retry — never recurse, a push storm is worse than a
+                // late sync.
+                await pushDocRef.current?.(apiKey, merged);
+            } catch (err) {
+                console.warn('[history-sync] Could not push merged history:', err);
+            }
         },
-        [applyCloudDoc]
+        [applyCloudDoc, localDoc]
     );
 
     const pushDoc = React.useCallback(async (apiKey: string, doc: HistoryDoc) => {
@@ -255,27 +302,30 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
                 updatedAt: doc.updatedAt,
                 history: doc.history,
                 characters: doc.characters,
-                portraits: doc.portraits
+                portraits: doc.portraits,
+                deletedIds: doc.deletedIds
             },
             apiKey,
             etagRef.current
         );
     }, []);
 
-    const pushDocOrAdoptServer = React.useCallback(
+    pushDocRef.current = pushDoc;
+
+    const pushDocOrMerge = React.useCallback(
         async (apiKey: string, doc: HistoryDoc) => {
             try {
                 await pushDoc(apiKey, doc);
             } catch (err) {
                 if (err instanceof StateConflictError) {
-                    console.warn('[history-sync] Cloud history changed on another device; using server state.');
-                    await adoptServerState(apiKey);
+                    console.warn('[history-sync] Cloud history changed elsewhere; merging.');
+                    await mergeWithServerState(apiKey);
                     return;
                 }
                 console.warn('[history-sync] Could not save cloud history:', err);
             }
         },
-        [adoptServerState, pushDoc]
+        [mergeWithServerState, pushDoc]
     );
 
     // One-shot boot reconciliation. Local state is usable immediately; cloud
@@ -295,14 +345,9 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
                 const cloud = await fetchCloudState(key);
                 if (cancelled) return;
 
-                const localDoc = {
-                    updatedAt: updatedAtRef.current,
-                    history: historyRef.current,
-                    characters: charactersRef.current,
-                    portraits: portraitsRef.current
-                };
+                const mine = localDoc();
                 if (!cloud) {
-                    await pushDocOrAdoptServer(key, localDoc);
+                    await pushDocOrMerge(key, mine);
                     return;
                 }
 
@@ -313,13 +358,12 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
                     return;
                 }
 
-                if (cloudDoc.updatedAt > localDoc.updatedAt) {
-                    applyCloudDoc(cloudDoc);
-                    return;
-                }
-
-                if (localDoc.updatedAt > cloudDoc.updatedAt) {
-                    await pushDocOrAdoptServer(key, localDoc);
+                // Union both sides rather than picking a winner: a device that
+                // was offline still holds videos the cloud has never seen.
+                const merged = mergeDocs(mine, cloudDoc);
+                applyCloudDoc(merged);
+                if (!sameDocContent(merged, cloudDoc)) {
+                    await pushDocOrMerge(key, merged);
                 }
             } catch (err) {
                 console.warn('[history-sync] Could not reconcile cloud history:', err);
@@ -329,7 +373,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
         return () => {
             cancelled = true;
         };
-    }, [applyCloudDoc, isInitialLoad, pushDocOrAdoptServer, resolveKey]);
+    }, [applyCloudDoc, isInitialLoad, localDoc, pushDocOrMerge, resolveKey]);
 
     // Debounced cloud push after user/local mutations. The first loaded state
     // and server-applied states are handled by boot reconciliation, not here.
@@ -357,12 +401,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
                     const key = await resolveKeyRef.current?.();
                     if (!key) return;
 
-                    await pushDocOrAdoptServer(key, {
-                        updatedAt: updatedAtRef.current,
-                        history: historyRef.current,
-                        characters: charactersRef.current,
-                        portraits: portraitsRef.current
-                    });
+                    await pushDocOrMerge(key, localDoc());
                 } catch (err) {
                     console.warn('[history-sync] Could not save cloud history:', err);
                 }
@@ -375,7 +414,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
                 pushTimerRef.current = null;
             }
         };
-    }, [characters, history, isInitialLoad, portraits, pushDocOrAdoptServer, resolveKey]);
+    }, [characters, history, isInitialLoad, localDoc, portraits, pushDocOrMerge, resolveKey]);
 
     const mutateDoc = React.useCallback(
         (update: (prev: {
@@ -403,6 +442,11 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
         []
     );
 
+    /** Records ids as deleted so the removal survives a merge with another device. */
+    const tombstone = React.useCallback((ids: string[]) => {
+        if (ids.length) deletedIdsRef.current = withTombstones(deletedIdsRef.current, ids);
+    }, []);
+
     const mutateHistory = React.useCallback((update: (prev: VideoMetadata[]) => VideoMetadata[]) => {
         const next = update(historyRef.current);
         updatedAtRef.current = Date.now();
@@ -410,21 +454,32 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
         setHistory(next);
     }, []);
 
-    const addItem = React.useCallback((item: VideoMetadata) => {
-        mutateHistory((prev) => [item, ...prev]);
-    }, [mutateHistory]);
+    const addItem = React.useCallback(
+        (item: VideoMetadata) => {
+            // Re-adding an id the user once deleted must clear its tombstone,
+            // or the next merge would delete it again.
+            deletedIdsRef.current = deletedIdsRef.current.filter((id) => id !== item.id);
+            mutateHistory((prev) => [item, ...prev]);
+        },
+        [mutateHistory]
+    );
 
     const updateItem = React.useCallback((id: string, patch: Partial<VideoMetadata>) => {
         mutateHistory((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
     }, [mutateHistory]);
 
-    const removeItem = React.useCallback((id: string) => {
-        mutateHistory((prev) => prev.filter((item) => item.id !== id));
-    }, [mutateHistory]);
+    const removeItem = React.useCallback(
+        (id: string) => {
+            tombstone([id]);
+            mutateHistory((prev) => prev.filter((item) => item.id !== id));
+        },
+        [mutateHistory, tombstone]
+    );
 
     const clearAll = React.useCallback(() => {
+        tombstone(historyRef.current.map((item) => item.id));
         mutateHistory(() => []);
-    }, [mutateHistory]);
+    }, [mutateHistory, tombstone]);
 
     const addCharacter = React.useCallback(
         (character: VideoCharacter) => {
@@ -445,13 +500,14 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
 
     const removeCharacter = React.useCallback(
         (id: string) => {
+            tombstone([id]);
             mutateDoc((prev) => ({
                 history: prev.history,
                 portraits: prev.portraits,
                 characters: prev.characters.filter((character) => character.id !== id)
             }));
         },
-        [mutateDoc]
+        [mutateDoc, tombstone]
     );
 
     const addPortrait = React.useCallback(
@@ -475,13 +531,14 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
 
     const removePortrait = React.useCallback(
         (assetId: string) => {
+            tombstone([assetId]);
             mutateDoc((prev) => ({
                 history: prev.history,
                 characters: prev.characters,
                 portraits: prev.portraits.filter((portrait) => portrait.assetId !== assetId)
             }));
         },
-        [mutateDoc]
+        [mutateDoc, tombstone]
     );
 
     return {
