@@ -6,8 +6,6 @@ import type { VideoJob } from '@/types/video';
 import * as React from 'react';
 
 const POLL_INTERVAL_MS = 5_000;
-/** Kept under the historical name so in-flight jobs survive the refactor. */
-const ACTIVE_JOBS_STORAGE_KEY = 'activeVideoJobs';
 
 interface VideoJobCallbacks {
     /** Progress/status tick for a still-running job. */
@@ -23,28 +21,12 @@ function isTerminal(job: VideoJob) {
     return job.status === 'completed' || job.status === 'failed';
 }
 
-function persistActiveJobIds(jobs: Map<string, VideoJob>) {
-    // Terminal jobs stay in the map as display entries for the output panel —
-    // only genuinely in-flight ids belong in the resume list.
-    const activeIds = Array.from(jobs.entries())
-        .filter(([id, job]) => !id.startsWith('temp_') && !isTerminal(job))
-        .map(([id]) => id);
-    localStorage.setItem(ACTIVE_JOBS_STORAGE_KEY, JSON.stringify(activeIds));
-}
-
-export function readPersistedActiveJobIds(): string[] {
-    try {
-        const ids = JSON.parse(localStorage.getItem(ACTIVE_JOBS_STORAGE_KEY) || '[]');
-        return Array.isArray(ids) ? ids : [];
-    } catch {
-        return [];
-    }
-}
-
 /**
  * Owns the set of in-flight jobs and the single polling interval that watches
  * them. `temp_`-prefixed ids are optimistic placeholders shown before the
- * gateway assigns a real id — they are never polled or persisted.
+ * gateway assigns a real id — they are never polled. Resume is driven from
+ * cloud-synced history (page.tsx restores every 'processing' item), so no
+ * local persistence of active ids is needed anymore.
  *
  * The poll loop reads everything through refs (jobs, service, callbacks), so
  * it always sees current state without the interval being torn down and
@@ -78,9 +60,7 @@ export function useVideoJobs(service: VideoService, callbacks: VideoJobCallbacks
 
     const addJob = React.useCallback((job: VideoJob) => {
         setActiveJobs((prev) => {
-            const next = new Map(prev).set(job.id, job);
-            if (!job.id.startsWith('temp_')) persistActiveJobIds(next);
-            return next;
+            return new Map(prev).set(job.id, job);
         });
     }, []);
 
@@ -90,7 +70,6 @@ export function useVideoJobs(service: VideoService, callbacks: VideoJobCallbacks
             const next = new Map(prev);
             next.delete(tempId);
             next.set(job.id, job);
-            persistActiveJobIds(next);
             return next;
         });
     }, []);
@@ -100,7 +79,6 @@ export function useVideoJobs(service: VideoService, callbacks: VideoJobCallbacks
             if (!prev.has(id)) return prev;
             const next = new Map(prev);
             next.delete(id);
-            persistActiveJobIds(next);
             return next;
         });
     }, []);
@@ -117,7 +95,6 @@ export function useVideoJobs(service: VideoService, callbacks: VideoJobCallbacks
 
     const clearJobs = React.useCallback(() => {
         setActiveJobs(new Map());
-        persistActiveJobIds(new Map());
     }, []);
 
     const pollAllJobs = React.useCallback(async () => {
@@ -147,7 +124,6 @@ export function useVideoJobs(service: VideoService, callbacks: VideoJobCallbacks
                     setActiveJobs((prev) => {
                         const next = new Map(prev);
                         next.set(jobId, merged);
-                        persistActiveJobIds(next);
                         return next;
                     });
                     if (merged.status === 'completed') {
@@ -169,6 +145,22 @@ export function useVideoJobs(service: VideoService, callbacks: VideoJobCallbacks
                     clearJobs();
                     callbacksRef.current.onInvalidKey();
                     return;
+                }
+                if ((err as { status?: number }).status === 404) {
+                    // The task record no longer exists (Ark keeps them ~7
+                    // days) — terminal, or this id would poll forever.
+                    const failed: VideoJob = {
+                        ...knownJob,
+                        status: 'failed',
+                        error: { message: 'Job not found on the gateway — the task record likely expired.' }
+                    };
+                    setActiveJobs((prev) => {
+                        const next = new Map(prev);
+                        next.set(jobId, failed);
+                        return next;
+                    });
+                    callbacksRef.current.onFailed(failed);
+                    continue;
                 }
                 console.error(`Error polling job ${jobId}:`, err);
                 // Keep polling the other jobs.
