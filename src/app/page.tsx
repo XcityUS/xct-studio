@@ -29,7 +29,7 @@ import { useXcityKey } from '@/hooks/use-xcity-key';
 import { transcribeVideo, type CaptionSegment } from '@/lib/captions';
 import { calculateVideoCost } from '@/lib/cost-utils';
 import { db, type ImageRecord } from '@/lib/db';
-import { InvalidApiKeyError } from '@/lib/errors';
+import { InvalidApiKeyError, RealPersonImageError } from '@/lib/errors';
 import type { GalleryItem } from '@/lib/gallery';
 import { reconcilePreset } from '@/lib/gallery-preset';
 import { IMAGE_GENERATION_ENABLED, generateImages, type GeneratedImage, type ImageSizeId } from '@/lib/image-service';
@@ -61,6 +61,7 @@ import { optimizePrompt } from '@/lib/prompt-optimizer';
 import {
     createPortraitAsset,
     createPortraitSession,
+    fetchPortraitStatus,
     getPortraitAsset,
     listPortraitGroups
 } from '@/lib/portrait';
@@ -532,6 +533,14 @@ export default function HomePage() {
         },
         [resolveKey]
     );
+
+    const handleGetPortraitStatus = React.useCallback(async () => {
+        const key = await resolveKey();
+        if (!key) {
+            throw new Error('Sign in at xcity.ai (or set an API key) to check the setup.');
+        }
+        return fetchPortraitStatus(key);
+    }, [resolveKey]);
 
     const handleLoadAssemblyAudioAssets = React.useCallback(async (): Promise<UserAsset[]> => {
         const key = await resolveKey();
@@ -1033,6 +1042,17 @@ export default function HomePage() {
             console.error('Error creating video:', err);
             if (err instanceof InvalidApiKeyError) {
                 handleInvalidApiKey(err.message);
+            } else if (err instanceof RealPersonImageError) {
+                // Only point at the verification flow when this deployment
+                // actually has it — otherwise the advice names a hidden tab.
+                const canVerify = isPortraitEnabled || (await loadPortraitEnabled());
+                setError(
+                    canVerify
+                        ? 'BytePlus blocked a reference image that appears to contain a real person. Open Assets → Verified people, verify that person once, then attach the verified photo instead of the raw image. ' +
+                              `(${err.providerMessage})`
+                        : 'BytePlus blocks reference images that appear to contain a real person. Using real people requires the verified-people library, which is not enabled on this deployment — ask the Xcity admin to enable it, or use a reference image without an identifiable person. ' +
+                              `(${err.providerMessage})`
+                );
             } else {
                 setError(err instanceof Error ? err.message : 'An unexpected error occurred.');
             }
@@ -1683,6 +1703,7 @@ export default function HomePage() {
                                         loadPortraitGroups={handleLoadPortraitGroups}
                                         createPortraitAsset={handleCreatePortraitAsset}
                                         getPortraitAsset={handleGetPortraitAsset}
+                                        getPortraitStatus={handleGetPortraitStatus}
                                         onUseAsReference={handleUseAssetAsReference}
                                         onUseAsReferenceVideo={handleUseAssetAsReferenceVideo}
                                         active={activeTab === 'assets'}

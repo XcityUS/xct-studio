@@ -30,7 +30,10 @@ export function jsonError(error: string, status: number): NextResponse {
     return NextResponse.json({ error }, { status });
 }
 
-export async function requirePortraitRoute(request: Request): Promise<PortraitRouteGate> {
+export async function requirePortraitRoute(
+    request: Request,
+    options: { allowUnconfigured?: boolean } = {}
+): Promise<PortraitRouteGate> {
     const authHeader = request.headers.get('authorization') || '';
     const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
     if (!bearer) {
@@ -57,7 +60,7 @@ export async function requirePortraitRoute(request: Request): Promise<PortraitRo
         return { response: jsonError('invalid or unauthorized key', 401) };
     }
 
-    if (!byteplusPortraitConfigured()) {
+    if (!options.allowUnconfigured && !byteplusPortraitConfigured()) {
         return { response: jsonError('portrait library not configured', 503) };
     }
 

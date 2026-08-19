@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { VideoCharacter, VideoPortrait } from '@/hooks/use-video-history';
 import type { UserAsset } from '@/lib/media-archive';
-import type { PortraitAsset, PortraitGroup, PortraitSession } from '@/lib/portrait';
+import type { PortraitAsset, PortraitGroup, PortraitSession, PortraitStatus } from '@/lib/portrait';
 import { Check, Copy, ImagePlus, Loader2, Music, RefreshCw, ShieldCheck, Trash2, UserPlus, Video } from 'lucide-react';
 import * as React from 'react';
 
@@ -33,6 +33,8 @@ type AssetsPanelProps = {
     loadPortraitGroups: () => Promise<PortraitGroup[]>;
     createPortraitAsset: (input: { groupId: string; url: string; name: string }) => Promise<{ assetId: string }>;
     getPortraitAsset: (assetId: string) => Promise<PortraitAsset>;
+    /** Operator self-test of the real-human library configuration. */
+    getPortraitStatus: () => Promise<PortraitStatus>;
     /** Loads an image asset into the video form's reference list. */
     onUseAsReference: (url: string) => void;
     /** Loads a video asset into the video form's reference video list. */
@@ -106,6 +108,7 @@ export function AssetsPanel({
     loadPortraitGroups,
     createPortraitAsset,
     getPortraitAsset,
+    getPortraitStatus,
     onUseAsReference,
     onUseAsReferenceVideo,
     active
@@ -123,6 +126,25 @@ export function AssetsPanel({
     const [portraitNotice, setPortraitNotice] = React.useState<string | null>(null);
     const [addingPortraitGroupId, setAddingPortraitGroupId] = React.useState<string | null>(null);
     const [portraitDrafts, setPortraitDrafts] = React.useState<Record<string, { assetKey: string; name: string }>>({});
+    const [portraitStatus, setPortraitStatus] = React.useState<string | null>(null);
+    const [isCheckingPortraitSetup, setIsCheckingPortraitSetup] = React.useState(false);
+
+    const checkPortraitSetup = React.useCallback(async () => {
+        setIsCheckingPortraitSetup(true);
+        setPortraitStatus(null);
+        try {
+            const status = await getPortraitStatus();
+            setPortraitStatus(
+                status.ok
+                    ? `Ready — BytePlus accepted the account keys (project "${status.projectName}").`
+                    : `Not usable: ${status.error ?? 'unknown error'}`
+            );
+        } catch (err) {
+            setPortraitStatus(err instanceof Error ? err.message : 'Setup check failed.');
+        } finally {
+            setIsCheckingPortraitSetup(false);
+        }
+    }, [getPortraitStatus]);
 
     const refresh = React.useCallback(async () => {
         setIsLoading(true);
@@ -340,11 +362,38 @@ export function AssetsPanel({
             <CardContent className='flex-grow overflow-y-auto p-4'>
                 {error && <p className='mb-3 text-sm text-red-400'>{error}</p>}
 
+                {!portraitEnabled && (
+                    <div className='mb-4 space-y-2 border-b border-white/10 pb-4'>
+                        <h3 className='text-xs font-medium text-white/50'>Verified people</h3>
+                        <p className='text-xs text-white/40'>
+                            BytePlus rejects reference images containing an identifiable real person. Verifying
+                            people once (consent + face match) unlocks them — that library is not enabled on this
+                            deployment yet. Ask the Xcity admin to enable it, or use reference images without a
+                            recognizable person.
+                        </p>
+                        <button
+                            type='button'
+                            onClick={() => void checkPortraitSetup()}
+                            disabled={isCheckingPortraitSetup}
+                            className='text-xs text-white/40 underline transition-colors hover:text-white/70 disabled:opacity-50'>
+                            {isCheckingPortraitSetup ? 'Checking…' : 'Check setup'}
+                        </button>
+                        {portraitStatus && <p className='text-xs text-white/50'>{portraitStatus}</p>}
+                    </div>
+                )}
+
                 {portraitEnabled && (
                     <div className='mb-4 space-y-3 border-b border-white/10 pb-4'>
                         <div className='flex flex-wrap items-center justify-between gap-2'>
                             <h3 className='text-xs font-medium text-white/50'>Verified people</h3>
                             <div className='flex items-center gap-1.5'>
+                                <button
+                                    type='button'
+                                    onClick={() => void checkPortraitSetup()}
+                                    disabled={isCheckingPortraitSetup}
+                                    className='rounded-md px-2 py-1 text-xs text-white/40 transition-colors hover:bg-white/10 hover:text-white/70 disabled:opacity-50'>
+                                    {isCheckingPortraitSetup ? 'Checking…' : 'Check setup'}
+                                </button>
                                 <Button
                                     type='button'
                                     variant='ghost'
@@ -375,6 +424,7 @@ export function AssetsPanel({
                         </div>
 
                         {portraitNotice && <p className='text-xs text-emerald-300'>{portraitNotice}</p>}
+                        {portraitStatus && <p className='text-xs text-white/50'>{portraitStatus}</p>}
                         {portraitError && <p className='text-xs text-red-400'>{portraitError}</p>}
 
                         {portraits.length > 0 && (
