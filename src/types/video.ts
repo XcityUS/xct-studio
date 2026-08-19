@@ -53,6 +53,8 @@ export type VideoMetadata = {
     finalResolution?: string;
     remix_of?: string;
     status?: 'processing' | 'completed' | 'failed';
+    /** True when finished media bytes are no longer reachable from provider storage. */
+    mediaExpired?: boolean;
     error?: string;
     progress?: number;
 };

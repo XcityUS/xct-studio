@@ -48,11 +48,29 @@ export function useVideoSources() {
         }
 
         for (const rec of allDbVideos) {
-            if (!urls.has(rec.id)) {
-                urls.set(rec.id, {
-                    video: rec.blob ? URL.createObjectURL(rec.blob) : undefined,
-                    thumb: rec.thumbnail ? URL.createObjectURL(rec.thumbnail) : undefined
-                });
+            const entry = urls.get(rec.id) ?? {};
+            if (rec.blob && !entry.video) {
+                entry.video = URL.createObjectURL(rec.blob);
+                changed = true;
+            } else if (!rec.blob && entry.video) {
+                URL.revokeObjectURL(entry.video);
+                entry.video = undefined;
+                changed = true;
+            }
+
+            if (rec.thumbnail && !entry.thumb) {
+                entry.thumb = URL.createObjectURL(rec.thumbnail);
+                changed = true;
+            } else if (!rec.thumbnail && entry.thumb) {
+                URL.revokeObjectURL(entry.thumb);
+                entry.thumb = undefined;
+                changed = true;
+            }
+
+            if (entry.video || entry.thumb) {
+                urls.set(rec.id, entry);
+            } else if (urls.has(rec.id)) {
+                urls.delete(rec.id);
                 changed = true;
             }
         }
@@ -118,14 +136,14 @@ export function useVideoSources() {
 
     const hasLocalCopy = React.useCallback(
         (id: string): boolean => {
-            return allDbVideos?.some((rec) => rec.id === id) ?? false;
+            return allDbVideos?.some((rec) => rec.id === id && Boolean(rec.blob)) ?? false;
         },
         [allDbVideos]
     );
 
     const hasSource = React.useCallback(
         (id: string): boolean => {
-            return objectUrlsRef.current.has(id) || remoteSources.has(id);
+            return Boolean(objectUrlsRef.current.get(id)?.video) || remoteSources.has(id);
         },
         [remoteSources]
     );

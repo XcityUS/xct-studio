@@ -1,6 +1,7 @@
 'use client';
 
-import { archiveVideo, mediaArchiveEnabled } from '@/lib/media-archive';
+import { ArchiveSourceFetchError, archiveVideo, mediaArchiveEnabled } from '@/lib/media-archive';
+import { providerLinkLikelyDead } from '@/lib/media-state';
 import type { VideoService } from '@/lib/video-service';
 import type { VideoMetadata } from '@/types/video';
 import * as React from 'react';
@@ -25,6 +26,7 @@ interface UseMediaArchiveOptions {
     service: VideoService;
     resolveKey: () => Promise<string | null>;
     onArchived: (id: string, url: string, bytes: number | null) => void;
+    onExpired?: (id: string) => void;
 }
 
 /**
@@ -43,7 +45,14 @@ interface UseMediaArchiveOptions {
  * (e.g. provider link long expired). Runs one item at a time to avoid a burst
  * of large uploads.
  */
-export function useMediaArchive({ history, enabled, service, resolveKey, onArchived }: UseMediaArchiveOptions) {
+export function useMediaArchive({
+    history,
+    enabled,
+    service,
+    resolveKey,
+    onArchived,
+    onExpired
+}: UseMediaArchiveOptions) {
     const attemptsRef = React.useRef<Map<string, ArchiveAttemptState>>(new Map());
     const busyRef = React.useRef(false);
     const timerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -53,18 +62,29 @@ export function useMediaArchive({ history, enabled, service, resolveKey, onArchi
     const serviceRef = React.useRef(service);
     const resolveKeyRef = React.useRef(resolveKey);
     const onArchivedRef = React.useRef(onArchived);
+    const onExpiredRef = React.useRef(onExpired);
     React.useEffect(() => {
         serviceRef.current = service;
         resolveKeyRef.current = resolveKey;
         onArchivedRef.current = onArchived;
-    }, [service, resolveKey, onArchived]);
+        onExpiredRef.current = onExpired;
+    }, [service, resolveKey, onArchived, onExpired]);
+
+    const retryArchive = React.useCallback((id: string) => {
+        attemptsRef.current.delete(id);
+        if (timerRef.current) {
+            clearTimeout(timerRef.current);
+            timerRef.current = null;
+        }
+        setPass((p) => p + 1);
+    }, []);
 
     React.useEffect(() => {
         if (!enabled || busyRef.current) return;
 
         const now = Date.now();
         const candidates = history.filter((item) => {
-            if (item.status !== 'completed' || item.storedUrl) return false;
+            if (item.status !== 'completed' || item.storedUrl || item.mediaExpired) return false;
             const state = attemptsRef.current.get(item.id);
             return !state || state.attempts < MAX_ATTEMPTS;
         });
@@ -88,6 +108,7 @@ export function useMediaArchive({ history, enabled, service, resolveKey, onArchi
         busyRef.current = true;
         void (async () => {
             let success = false;
+            let expired = false;
             try {
                 if (!(await mediaArchiveEnabled())) {
                     // No worker configured: mark everything exhausted so this
@@ -103,7 +124,14 @@ export function useMediaArchive({ history, enabled, service, resolveKey, onArchi
 
                 // Ark's link expires, so always read the job's current one.
                 const job = await serviceRef.current.retrieveVideo(due.id);
-                if (!job.output_url) return;
+                if (!job.output_url) {
+                    expired = providerLinkLikelyDead(due, Date.now());
+                    if (expired) {
+                        attemptsRef.current.set(due.id, { attempts: MAX_ATTEMPTS, nextAt: Infinity });
+                        onExpiredRef.current?.(due.id);
+                    }
+                    return;
+                }
 
                 const archived = await archiveVideo(due.id, job.output_url, key);
                 if (!archived) return;
@@ -113,9 +141,16 @@ export function useMediaArchive({ history, enabled, service, resolveKey, onArchi
                 onArchivedRef.current(due.id, archived.url, archived.bytes);
                 console.log(`[media-archive] stored ${due.id} (${archived.bytes ?? '?'} bytes)`);
             } catch (err) {
+                if (err instanceof ArchiveSourceFetchError && providerLinkLikelyDead(due, Date.now())) {
+                    expired = true;
+                    attemptsRef.current.set(due.id, { attempts: MAX_ATTEMPTS, nextAt: Infinity });
+                    onExpiredRef.current?.(due.id);
+                    console.warn(`[media-archive] ${due.id} expired before it could be archived.`);
+                    return;
+                }
                 console.warn(`[media-archive] ${due.id} attempt failed:`, err);
             } finally {
-                if (!success) {
+                if (!success && !expired) {
                     const prev = attemptsRef.current.get(due.id);
                     const attempts = (prev?.attempts ?? 0) + 1;
                     attemptsRef.current.set(due.id, {
@@ -136,4 +171,6 @@ export function useMediaArchive({ history, enabled, service, resolveKey, onArchi
             if (timerRef.current) clearTimeout(timerRef.current);
         };
     }, []);
+
+    return { retryArchive };
 }

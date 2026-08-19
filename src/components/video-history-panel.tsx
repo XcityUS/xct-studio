@@ -14,12 +14,15 @@ import {
     DialogClose
 } from '@/components/ui/dialog';
 import { db } from '@/lib/db';
+import { resolveMediaState } from '@/lib/media-state';
 import type { CaptionSegment } from '@/lib/captions';
 import type { UserAsset } from '@/lib/media-archive';
 import { cn } from '@/lib/utils';
 import type { VideoMetadata, VideoJob } from '@/types/video';
 import {
     Check,
+    CloudOff,
+    CloudUpload,
     Copy,
     Download,
     DollarSign,
@@ -45,6 +48,7 @@ type VideoHistoryPanelProps = {
     onClearHistory: () => void;
     getVideoSrc: (id: string) => string | undefined;
     getThumbnailSrc?: (id: string) => string | undefined;
+    hasLocalCopy: (id: string) => boolean;
     onDeleteItem?: (item: VideoMetadata) => void;
     /** 做同款 — fill the create form with this item's parameters. */
     onReuseItem?: (item: VideoMetadata) => void;
@@ -56,6 +60,8 @@ type VideoHistoryPanelProps = {
     onExtendItem?: (item: VideoMetadata) => void;
     /** Share — create a public share page for this completed video. */
     onShareItem?: (item: VideoMetadata) => void;
+    /** Retry permanent R2 archival for a completed item. */
+    onRetryArchive?: (id: string) => void;
     sharePendingId?: string | null;
     /** Fetches user audio assets for the assembly editor's BGM picker. */
     loadAudioAssets?: () => Promise<UserAsset[]>;
@@ -127,12 +133,14 @@ export function VideoHistoryPanel({
     onClearHistory,
     getVideoSrc,
     getThumbnailSrc,
+    hasLocalCopy,
     onDeleteItem,
     onReuseItem,
     onRegenerateItem,
     onFinalizeItem,
     onExtendItem,
     onShareItem,
+    onRetryArchive,
     sharePendingId,
     loadAudioAssets,
     onTranscribeVideo
@@ -146,6 +154,25 @@ export function VideoHistoryPanel({
     const [selectedClipIds, setSelectedClipIds] = React.useState<string[]>([]);
     const [assembleError, setAssembleError] = React.useState<string | null>(null);
     const [isAssemblyEditorOpen, setIsAssemblyEditorOpen] = React.useState(false);
+    const [hoverPreviewId, setHoverPreviewId] = React.useState<string | null>(null);
+
+    const getMediaState = React.useCallback(
+        (item: VideoMetadata) =>
+            resolveMediaState(
+                item,
+                { hasBlob: hasLocalCopy(item.id) },
+                Date.now()
+            ),
+        [hasLocalCopy]
+    );
+
+    const canAssembleItem = React.useCallback(
+        (item: VideoMetadata, job?: VideoJob) => {
+            if (!getHistoryItemState(item, job).isCompleted || getMediaState(item) === 'expired') return false;
+            return hasLocalCopy(item.id) || Boolean(getVideoSrc(item.id) ?? item.storedUrl);
+        },
+        [getMediaState, getVideoSrc, hasLocalCopy]
+    );
 
     /** Models actually present in history, for the filter row. */
     const modelsInHistory = React.useMemo(() => {
@@ -157,8 +184,8 @@ export function VideoHistoryPanel({
     }, [history]);
 
     const completedClipCount = React.useMemo(() => {
-        return history.filter((item) => getHistoryItemState(item, activeJobs?.get(item.id)).isCompleted).length;
-    }, [history, activeJobs]);
+        return history.filter((item) => canAssembleItem(item, activeJobs?.get(item.id))).length;
+    }, [history, activeJobs, canAssembleItem]);
 
     const filteredHistory = React.useMemo(() => {
         const query = promptQuery.trim().toLowerCase();
@@ -174,8 +201,8 @@ export function VideoHistoryPanel({
         return selectedClipIds
             .map((id) => historyById.get(id))
             .filter((item): item is VideoMetadata => Boolean(item))
-            .filter((item) => getHistoryItemState(item, activeJobs?.get(item.id)).isCompleted);
-    }, [selectedClipIds, historyById, activeJobs]);
+            .filter((item) => canAssembleItem(item, activeJobs?.get(item.id)));
+    }, [selectedClipIds, historyById, activeJobs, canAssembleItem]);
 
     const selectedSizes = React.useMemo(() => {
         return Array.from(new Set(selectedItems.map((item) => item.size).filter(Boolean)));
@@ -251,12 +278,12 @@ export function VideoHistoryPanel({
         setSelectedClipIds((current) => {
             const next = current.filter((id) => {
                 const item = historyById.get(id);
-                return item ? getHistoryItemState(item, activeJobs?.get(id)).isCompleted : false;
+                return item ? canAssembleItem(item, activeJobs?.get(id)) : false;
             });
 
             return next.length === current.length ? current : next;
         });
-    }, [historyById, activeJobs]);
+    }, [historyById, activeJobs, canAssembleItem]);
 
     React.useEffect(() => {
         if (completedClipCount < 2 && isAssembleMode) {
@@ -315,45 +342,6 @@ export function VideoHistoryPanel({
         setAssembleError(null);
         setIsAssemblyEditorOpen(true);
     }, [hasMixedSelectedSizes, selectedItems.length]);
-
-    const handlePreviewEnter = React.useCallback((video: HTMLVideoElement) => {
-        const tryPlay = () => {
-            const playPromise = video.play();
-            if (playPromise !== undefined) {
-                playPromise.catch((error) => {
-                    console.warn('Preview playback failed:', error);
-                });
-            }
-        };
-
-        video.dataset.hoverPreview = 'true';
-        video.currentTime = 0;
-
-        if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-            tryPlay();
-            return;
-        }
-
-        const handleCanPlay = () => {
-            video.removeEventListener('canplay', handleCanPlay);
-            if (video.dataset.hoverPreview === 'true') {
-                tryPlay();
-            }
-        };
-
-        video.addEventListener('canplay', handleCanPlay, { once: true });
-        video.load();
-    }, []);
-
-    const handlePreviewLeave = React.useCallback((video: HTMLVideoElement) => {
-        video.dataset.hoverPreview = 'false';
-        video.pause();
-        try {
-            video.currentTime = 0;
-        } catch (error) {
-            console.warn('Unable to reset preview time:', error);
-        }
-    }, []);
 
     return (
         <Card className='flex h-full w-full flex-col overflow-hidden rounded-lg border border-white/10 bg-black'>
@@ -531,9 +519,21 @@ export function VideoHistoryPanel({
                             <div className='grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5'>
                                 {filteredHistory.map((item) => {
                                     const thumbnailUrl = getThumbnailSrc ? getThumbnailSrc(item.id) : undefined;
-                                    const videoUrl = getVideoSrc(item.id);
+                                    const videoUrl = getVideoSrc(item.id) ?? item.storedUrl;
                                     const job = activeJobs?.get(item.id);
                                     const { isProcessing, isFailed, isCompleted } = getHistoryItemState(item, job);
+                                    const mediaState = getMediaState(item);
+                                    const isExpired = isCompleted && mediaState === 'expired';
+                                    const canPlayPreview =
+                                        isCompleted &&
+                                        !isExpired &&
+                                        Boolean(videoUrl) &&
+                                        (mediaState === 'local' ||
+                                            mediaState === 'archived' ||
+                                            mediaState === 'provider');
+                                    const showHoverPreview = hoverPreviewId === item.id && canPlayPreview;
+                                    const canSelectForAssembly = canAssembleItem(item, job);
+                                    const needsCloudArchive = isCompleted && !item.storedUrl && !isExpired;
                                     const isDraft = item.draft === true || item.createParams?.draft === true;
                                     const selectionOrder = selectedClipIds.indexOf(item.id) + 1;
                                     const isSelectedForAssembly = selectionOrder > 0;
@@ -546,17 +546,26 @@ export function VideoHistoryPanel({
                                                     type='button'
                                                     onClick={() => {
                                                         if (isAssembleMode) {
-                                                            handleToggleClipSelection(item, isCompleted);
+                                                            handleToggleClipSelection(item, canSelectForAssembly);
                                                             return;
                                                         }
 
                                                         onSelectVideo(item);
                                                     }}
+                                                    onMouseEnter={() => {
+                                                        if (canPlayPreview) setHoverPreviewId(item.id);
+                                                    }}
+                                                    onMouseLeave={() => {
+                                                        setHoverPreviewId((current) =>
+                                                            current === item.id ? null : current
+                                                        );
+                                                    }}
                                                     className={cn(
                                                         'relative block aspect-square w-full overflow-hidden rounded-t-md border border-white/20 transition-all duration-150 group-hover:border-white/40 focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-black focus:outline-none',
-                                                        isAssembleMode && isCompleted && 'cursor-pointer',
+                                                        isExpired && 'border-white/10 opacity-75',
+                                                        isAssembleMode && canSelectForAssembly && 'cursor-pointer',
                                                         isAssembleMode &&
-                                                            !isCompleted &&
+                                                            !canSelectForAssembly &&
                                                             'cursor-not-allowed opacity-60',
                                                         isSelectedForAssembly && 'border-white ring-2 ring-white/40'
                                                     )}
@@ -566,7 +575,7 @@ export function VideoHistoryPanel({
                                                             : `View video from ${new Date(item.timestamp).toLocaleString()}`
                                                     }
                                                     aria-pressed={
-                                                        isAssembleMode && isCompleted
+                                                        isAssembleMode && canSelectForAssembly
                                                             ? isSelectedForAssembly
                                                             : undefined
                                                     }>
@@ -588,30 +597,46 @@ export function VideoHistoryPanel({
                                                                 </span>
                                                             )}
                                                         </div>
-                                                    ) : videoUrl && item.status !== 'failed' ? (
+                                                    ) : isExpired ? (
+                                                        <div className='flex h-full w-full flex-col items-center justify-center bg-neutral-950 p-3 text-center text-white/40'>
+                                                            <Film className='mb-2 h-8 w-8 text-white/20' />
+                                                            <span className='text-xs font-medium text-white/55'>
+                                                                Media expired
+                                                            </span>
+                                                            <span className='mt-1 text-[10px] text-white/30'>
+                                                                {item.size}
+                                                            </span>
+                                                        </div>
+                                                    ) : showHoverPreview && videoUrl ? (
                                                         <video
-                                                            // Without a captured poster, a #t media fragment
-                                                            // makes browsers (Safari included) paint the first
-                                                            // frame instead of a blank box.
                                                             src={thumbnailUrl ? videoUrl : `${videoUrl}#t=0.001`}
                                                             poster={thumbnailUrl}
                                                             className='h-full w-full object-cover'
                                                             muted
-                                                            preload='metadata'
+                                                            autoPlay
+                                                            loop
+                                                            preload='auto'
                                                             playsInline
-                                                            onMouseEnter={(event) =>
-                                                                handlePreviewEnter(event.currentTarget)
-                                                            }
-                                                            onMouseLeave={(event) =>
-                                                                handlePreviewLeave(event.currentTarget)
+                                                            onError={(error) =>
+                                                                console.warn('Preview playback failed:', error)
                                                             }
                                                         />
+                                                    ) : thumbnailUrl ? (
+                                                        // eslint-disable-next-line @next/next/no-img-element
+                                                        <img
+                                                            src={thumbnailUrl}
+                                                            alt=''
+                                                            className='h-full w-full object-cover'
+                                                        />
                                                     ) : (
-                                                        <div className='flex h-full w-full items-center justify-center bg-neutral-800 text-neutral-500'>
-                                                            ?
+                                                        <div className='flex h-full w-full flex-col items-center justify-center bg-neutral-900 p-3 text-center text-white/40'>
+                                                            <Film className='mb-2 h-8 w-8 text-white/25' />
+                                                            <span className='text-[10px] text-white/45'>
+                                                                {item.size}
+                                                            </span>
                                                         </div>
                                                     )}
-                                                    {isAssembleMode && isCompleted ? (
+                                                    {isAssembleMode && canSelectForAssembly ? (
                                                         <div className='pointer-events-none absolute top-1 left-1 z-30 flex h-6 w-6 items-center justify-center rounded border border-white/60 bg-black/70 text-[11px] font-medium text-white backdrop-blur'>
                                                             {isSelectedForAssembly ? selectionOrder : null}
                                                         </div>
@@ -635,6 +660,13 @@ export function VideoHistoryPanel({
                                                             {isDraft && (
                                                                 <div className='rounded-full bg-cyan-600/85 px-1.5 py-0.5 text-[11px] text-white'>
                                                                     Draft
+                                                                </div>
+                                                            )}
+                                                            {needsCloudArchive && (
+                                                                <div
+                                                                    className='flex items-center gap-1 rounded-full bg-amber-600/85 px-1.5 py-0.5 text-[11px] text-white'
+                                                                    title='Not archived to cloud yet — the provider link expires 24h after completion'>
+                                                                    <CloudOff size={12} />
                                                                 </div>
                                                             )}
                                                         </div>
@@ -749,10 +781,11 @@ export function VideoHistoryPanel({
                                                     onRegenerateItem ||
                                                     onFinalizeItem ||
                                                     onExtendItem ||
-                                                    onShareItem) &&
+                                                    onShareItem ||
+                                                    onRetryArchive) &&
                                                     !isProcessing &&
                                                     !isAssembleMode && (
-                                                        <div className='mt-1.5 flex items-center gap-1'>
+                                                        <div className='mt-1.5 flex flex-wrap items-center gap-1'>
                                                             {onReuseItem && (
                                                                 <button
                                                                     type='button'
@@ -763,7 +796,17 @@ export function VideoHistoryPanel({
                                                                     Reuse
                                                                 </button>
                                                             )}
-                                                            {onShareItem && isCompleted && (
+                                                            {onRetryArchive && needsCloudArchive && (
+                                                                <button
+                                                                    type='button'
+                                                                    onClick={() => onRetryArchive(item.id)}
+                                                                    title='Archive now'
+                                                                    className='flex flex-1 items-center justify-center gap-1 rounded bg-amber-500/15 px-1.5 py-1 text-[10px] text-amber-100 transition-colors hover:bg-amber-500/25 hover:text-white'>
+                                                                    <CloudUpload size={11} />
+                                                                    Archive now
+                                                                </button>
+                                                            )}
+                                                            {onShareItem && isCompleted && !isExpired && (
                                                                 <button
                                                                     type='button'
                                                                     onClick={() => onShareItem(item)}
@@ -786,7 +829,7 @@ export function VideoHistoryPanel({
                                                                     Share
                                                                 </button>
                                                             )}
-                                                            {onExtendItem && isCompleted && (
+                                                            {onExtendItem && isCompleted && !isExpired && (
                                                                 <button
                                                                     type='button'
                                                                     onClick={() => onExtendItem(item)}

@@ -47,17 +47,29 @@ async function drawCurrentFrame(video: HTMLVideoElement): Promise<Blob | undefin
     );
 }
 
-async function captureFrameAt(
-    videoBlob: Blob,
+type FrameSource = { kind: 'blob'; blob: Blob } | { kind: 'url'; url: string };
+
+async function captureFrameFrom(
+    source: FrameSource,
     resolveTime: (duration: number) => number
 ): Promise<Blob | undefined> {
-    const url = URL.createObjectURL(videoBlob);
+    const objectUrl = source.kind === 'blob' ? URL.createObjectURL(source.blob) : null;
     try {
         const video = document.createElement('video');
         video.muted = true;
         video.playsInline = true;
-        video.preload = 'auto';
-        video.src = url;
+        if (source.kind === 'url') {
+            // Let the browser Range-request only the bytes the seek needs —
+            // downloading a whole 4K clip to grab one frame costs tens of MB.
+            // crossOrigin keeps the canvas untainted (our media host is
+            // CORS-open, which is exactly why R2 copies are capturable).
+            video.crossOrigin = 'anonymous';
+            video.preload = 'metadata';
+            video.src = source.url;
+        } else {
+            video.preload = 'auto';
+            video.src = objectUrl as string;
+        }
 
         if (video.readyState < HTMLMediaElement.HAVE_METADATA) {
             await waitForVideoEvent(video, 'loadedmetadata', 'frame capture');
@@ -104,8 +116,12 @@ async function captureFrameAt(
         console.warn('Frame capture failed:', err);
         return undefined;
     } finally {
-        URL.revokeObjectURL(url);
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
     }
+}
+
+function captureFrameAt(videoBlob: Blob, resolveTime: (duration: number) => number): Promise<Blob | undefined> {
+    return captureFrameFrom({ kind: 'blob', blob: videoBlob }, resolveTime);
 }
 
 export async function captureVideoFrame(videoBlob: Blob, atTime: number): Promise<Blob | undefined> {
@@ -115,6 +131,11 @@ export async function captureVideoFrame(videoBlob: Blob, atTime: number): Promis
 export async function captureVideoPoster(videoBlob: Blob): Promise<Blob | undefined> {
     // Seek slightly in — frame 0 is sometimes black on encoded output.
     return captureVideoFrame(videoBlob, 0.1);
+}
+
+/** Poster from a CORS-open URL (R2), streamed rather than fully downloaded. */
+export async function captureVideoPosterFromUrl(url: string): Promise<Blob | undefined> {
+    return captureFrameFrom({ kind: 'url', url }, () => 0.1);
 }
 
 export async function captureVideoLastFrame(videoBlob: Blob): Promise<Blob | undefined> {
