@@ -26,7 +26,11 @@ export async function GET(request: Request) {
     }
 
     try {
-        await arkOpenApi('ListAssetGroups', { PageNumber: 1, PageSize: 1 });
+        await arkOpenApi('ListAssetGroups', {
+            Filter: { GroupType: 'LivenessFace' },
+            PageNumber: 1,
+            PageSize: 1
+        });
         return responseJson({
             configured: true,
             ok: true,

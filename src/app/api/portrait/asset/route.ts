@@ -51,7 +51,9 @@ export async function POST(request: Request) {
         // serve-through-Railway route or upload through TOS instead.
         const payload = await arkOpenApi('CreateAsset', {
             GroupId: groupId,
-            Url: url,
+            // Spelled URL, not Url (API ref 2318271) — Url is dropped and the
+            // call fails as MissingParameter.URL.
+            URL: url,
             Name: name,
             AssetType: 'Image'
         });
@@ -79,7 +81,7 @@ export async function GET(request: Request) {
         const root = assetRoot(payload);
         return responseJson({
             status: stringField(root, 'Status', 'status'),
-            previewUrl: stringField(root, 'Url', 'url', 'PreviewUrl', 'previewUrl')
+            previewUrl: stringField(root, 'URL', 'Url', 'url', 'PreviewUrl', 'previewUrl')
         });
     } catch (err) {
         return jsonError(err instanceof Error ? err.message : 'portrait asset status failed', 502);

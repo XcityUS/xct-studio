@@ -31,6 +31,9 @@ export async function GET(request: Request) {
 
     try {
         const payload = await arkOpenApi('ListAssetGroups', {
+            // Filter.GroupType is required; LivenessFace is the real-person
+            // portrait library (AIGC would be digital characters).
+            Filter: { GroupType: 'LivenessFace' },
             PageNumber: 1,
             PageSize: 100
         });
