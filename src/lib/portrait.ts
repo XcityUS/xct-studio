@@ -67,3 +67,22 @@ export function createPortraitAsset(
 export function getPortraitAsset(assetId: string, apiKey: string): Promise<PortraitAsset> {
     return portraitRequest<PortraitAsset>(`/api/portrait/asset?id=${encodeURIComponent(assetId)}`, apiKey);
 }
+
+export type PortraitStatus = {
+    configured: boolean;
+    ok: boolean;
+    projectName: string;
+    error?: string;
+};
+
+/** Operator-facing self-test: is the real-human library actually usable here? */
+export async function fetchPortraitStatus(apiKey: string): Promise<PortraitStatus> {
+    const res = await fetch('/api/portrait/status', {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        cache: 'no-store'
+    });
+    if (!res.ok) {
+        throw new Error(`Portrait status check failed (${res.status}).`);
+    }
+    return (await res.json()) as PortraitStatus;
+}

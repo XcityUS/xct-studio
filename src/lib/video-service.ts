@@ -1,4 +1,4 @@
-import { InvalidApiKeyError } from './errors';
+import { InvalidApiKeyError, RealPersonImageError } from './errors';
 import { createFrontendOpenAI } from './openai-client';
 import { clampSeconds } from './seedance';
 import type { VideoJob, VideoJobCreate } from '@/types/video';
@@ -158,11 +158,7 @@ export class VideoService {
                 typeof gatewayMessage === 'string' &&
                 gatewayMessage.includes('InputImageSensitiveContentDetected')
             ) {
-                throw new Error(
-                    'BytePlus blocked a reference image that appears to contain a real person. ' +
-                        'Verify the person in Assets → Verified people, then use the verified asset instead. ' +
-                        `(${gatewayMessage})`
-                );
+                throw new RealPersonImageError(gatewayMessage);
             }
             // 404 = model unknown to the gateway; 400 only counts when the
             // body specifically blames the model name (a plain 400 is usually
