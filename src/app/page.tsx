@@ -22,6 +22,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { VideoHistoryPanel } from '@/components/video-history-panel';
 import { VideoOutput } from '@/components/video-output';
 import { useMediaArchive } from '@/hooks/use-media-archive';
+import { usePosterBackfill } from '@/hooks/use-poster-backfill';
 import { useVideoHistory } from '@/hooks/use-video-history';
 import { useVideoJobs } from '@/hooks/use-video-jobs';
 import { useVideoSources } from '@/hooks/use-video-sources';
@@ -56,6 +57,7 @@ import {
     uploadReferenceVideo,
     videoUrlToDataUri
 } from '@/lib/media-archive';
+import { providerLinkLikelyDead } from '@/lib/media-state';
 import { estimateVideoProgress } from '@/lib/progress';
 import { optimizePrompt } from '@/lib/prompt-optimizer';
 import {
@@ -776,15 +778,25 @@ export default function HomePage() {
     );
 
     // Permanent R2 copies for completed videos (see hook for the why).
-    useMediaArchive({
+    const { retryArchive } = useMediaArchive({
         history,
         enabled: !isInitialLoad,
         service: videoService,
         resolveKey,
         onArchived: (id, url) => {
             setRemoteSource(id, url);
-            updateItem(id, { storedUrl: url });
+            updateItem(id, { storedUrl: url, mediaExpired: false });
+        },
+        onExpired: (id) => {
+            const item = history.find((candidate) => candidate.id === id);
+            if (!item || item.storedUrl || hasLocalCopy(id)) return;
+            updateItem(id, { mediaExpired: true });
         }
+    });
+
+    usePosterBackfill({
+        history,
+        enabled: !isInitialLoad
     });
 
     // Resume polling for every in-flight history item — including ones
@@ -1304,6 +1316,7 @@ export default function HomePage() {
         handleFinalizeItem(item);
     };
 
+    const sourceProbeMissesRef = React.useRef<Set<string>>(new Set());
     const handleHistorySelect = (item: VideoMetadata) => {
         setCurrentJobId(item.id);
 
@@ -1338,6 +1351,17 @@ export default function HomePage() {
             return;
         }
 
+        if (item.mediaExpired || providerLinkLikelyDead(item, Date.now())) {
+            if (!item.storedUrl && !hasLocalCopy(item.id)) {
+                updateItem(item.id, { mediaExpired: true });
+            }
+            return;
+        }
+
+        if (sourceProbeMissesRef.current.has(item.id)) {
+            return;
+        }
+
         // Otherwise ask the gateway for the job's current output_url — signed
         // Ark links last 24h, so whatever the poll cached may have expired.
         if (item.status !== 'failed' && !hasSource(item.id) && !hasLocalCopy(item.id)) {
@@ -1346,8 +1370,11 @@ export default function HomePage() {
                     const fresh = await videoService.retrieveVideo(item.id);
                     if (fresh.output_url) {
                         setRemoteSource(item.id, fresh.output_url);
+                    } else {
+                        sourceProbeMissesRef.current.add(item.id);
                     }
                 } catch (err) {
+                    sourceProbeMissesRef.current.add(item.id);
                     console.warn(`Could not resolve a source for ${item.id}:`, err);
                 }
             })();
@@ -1419,7 +1446,13 @@ export default function HomePage() {
     const currentHistoryItem = currentJobId ? history.find((item) => item.id === currentJobId) : undefined;
     const currentHistoryItemIsDraft =
         currentHistoryItem?.draft === true || currentHistoryItem?.createParams?.draft === true;
-    const currentVideoSrc = currentJobId ? getVideoSrc(currentJobId) : null;
+    const currentMediaExpired = Boolean(
+        currentHistoryItem?.status === 'completed' &&
+            !currentHistoryItem.storedUrl &&
+            !hasLocalCopy(currentHistoryItem.id) &&
+            (currentHistoryItem.mediaExpired || providerLinkLikelyDead(currentHistoryItem, Date.now()))
+    );
+    const currentVideoSrc = currentJobId && !currentMediaExpired ? getVideoSrc(currentJobId) : null;
     const currentThumbnailSrc = currentJobId ? getThumbnailSrc(currentJobId) : null;
 
     // Without SSO the manual key is the only way in — gate until one is set.
@@ -1531,6 +1564,7 @@ export default function HomePage() {
                         job={currentJob || null}
                         videoSrc={currentVideoSrc}
                         thumbnailSrc={currentThumbnailSrc}
+                        mediaExpired={currentMediaExpired}
                         isLoading={
                             currentJob ? currentJob.status === 'queued' || currentJob.status === 'in_progress' : false
                         }
@@ -1554,6 +1588,8 @@ export default function HomePage() {
                     onClearHistory={handleClearHistory}
                     getVideoSrc={getVideoSrc}
                     getThumbnailSrc={getThumbnailSrc}
+                    hasLocalCopy={hasLocalCopy}
+                    onRetryArchive={retryArchive}
                     onDeleteItem={handleDeleteVideo}
                     onReuseItem={handleReuseItem}
                     onRegenerateItem={handleRegenerateItem}

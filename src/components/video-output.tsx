@@ -28,6 +28,7 @@ type VideoOutputProps = {
     job: VideoJob | null;
     videoSrc: string | null | undefined;
     thumbnailSrc?: string | null | undefined;
+    mediaExpired?: boolean;
     isLoading: boolean;
     onSendToRemix?: (videoId: string) => void;
     onDownload?: (videoId: string) => void;
@@ -105,6 +106,7 @@ export function VideoOutput({
     job,
     videoSrc,
     thumbnailSrc,
+    mediaExpired = false,
     isLoading,
     onSendToRemix,
     onDownload,
@@ -182,10 +184,12 @@ export function VideoOutput({
     };
 
     const completedOutput =
-        job?.status === 'completed' && typeof videoSrc === 'string'
+        job?.status === 'completed' && !mediaExpired && typeof videoSrc === 'string'
             ? { job, videoSrc }
             : null;
     const isCompletedWithVideo = Boolean(completedOutput);
+    const isCompletedExpired = job?.status === 'completed' && mediaExpired;
+    const showCompletedDetails = isCompletedWithVideo || isCompletedExpired;
 
     return (
         <Card className='flex h-full w-full flex-1 flex-col overflow-hidden rounded-lg border border-white/10 bg-black'>
@@ -203,7 +207,7 @@ export function VideoOutput({
             <CardContent
                 className={cn(
                     'flex min-h-0 flex-1 flex-col p-4',
-                    isCompletedWithVideo ? 'items-stretch justify-start gap-4' : 'items-center justify-center'
+                    showCompletedDetails ? 'items-stretch justify-start gap-4' : 'items-center justify-center'
                 )}>
                 {!job && !isLoading && (
                     <div className='flex flex-col items-center justify-center text-center'>
@@ -275,7 +279,45 @@ export function VideoOutput({
                     </div>
                 )}
 
-                {job && job.status === 'completed' && !completedOutput && (
+                {isCompletedExpired && job && (
+                    <div className='w-full space-y-4'>
+                        <div className='rounded-md border border-amber-500/25 bg-amber-500/10 p-4'>
+                            <div className='flex items-center gap-2 text-amber-200'>
+                                <AlertCircle className='h-5 w-5' />
+                                <p className='text-base font-medium'>Media no longer available</p>
+                            </div>
+                            <p className='mt-2 text-sm text-amber-100/75'>
+                                The provider link expired 24 h after generation, and this clip was never archived.
+                            </p>
+                        </div>
+
+                        {job.prompt && <ClickablePrompt prompt={job.prompt} />}
+
+                        <div className='shrink-0 rounded-md bg-white/5 p-4'>
+                            <p className='text-xs text-white/40'>
+                                <span className='font-medium text-white/60'>Model:</span> {job.model}
+                            </p>
+                            <p className='text-xs text-white/40'>
+                                <span className='font-medium text-white/60'>Resolution:</span> {job.size}
+                            </p>
+                            <p className='text-xs text-white/40'>
+                                <span className='font-medium text-white/60'>Duration:</span> {job.seconds}s
+                            </p>
+                        </div>
+
+                        {onFinalize && (
+                            <Button
+                                onClick={handleFinalize}
+                                variant='outline'
+                                className='border-white/20 bg-black text-white hover:bg-white/10 hover:text-white'>
+                                <Rocket className='mr-2 h-4 w-4' />
+                                Finalize
+                            </Button>
+                        )}
+                    </div>
+                )}
+
+                {job && job.status === 'completed' && !completedOutput && !mediaExpired && (
                     <div className='flex flex-col items-center justify-center text-center'>
                         {thumbnailSrc ? (
                             // eslint-disable-next-line @next/next/no-img-element

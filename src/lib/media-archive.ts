@@ -79,6 +79,13 @@ export interface ArchivedMedia {
     cached: boolean;
 }
 
+export class ArchiveSourceFetchError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'ArchiveSourceFetchError';
+    }
+}
+
 export interface CreatedShare {
     id: string;
     url: string;
@@ -275,9 +282,9 @@ export async function fetchCommunityList(): Promise<CommunityListItem[]> {
 }
 
 /**
- * Copies a finished video into R2. Best-effort: returns null on any failure so
- * callers keep the provider URL rather than surfacing an error — the video is
- * watchable either way, archiving only decides whether it still is tomorrow.
+ * Copies a finished video into R2. Most failures return null so callers can
+ * keep provider playback; an upstream source fetch failure is surfaced because
+ * it may be the only signal that the provider bytes are already gone.
  */
 export async function archiveVideo(videoId: string, sourceUrl: string, apiKey: string): Promise<ArchivedMedia | null> {
     const workerUrl = await loadWorkerUrl();
@@ -297,12 +304,16 @@ export async function archiveVideo(videoId: string, sourceUrl: string, apiKey: s
             // without it these silent nulls are undebuggable in the field.
             const detail = await res.text().catch(() => '');
             console.warn(`[media-archive] ${videoId} failed: ${res.status} ${detail.slice(0, 300)}`);
+            if (/source fetch failed/i.test(detail)) {
+                throw new ArchiveSourceFetchError(detail || `source fetch failed (${res.status})`);
+            }
             return null;
         }
         const data = (await res.json()) as { url?: string; bytes?: number | null; cached?: boolean };
         if (!data.url) return null;
         return { url: data.url, bytes: data.bytes ?? null, cached: !!data.cached };
     } catch (err) {
+        if (err instanceof ArchiveSourceFetchError) throw err;
         console.warn(`[media-archive] ${videoId} errored:`, err);
         return null;
     }

@@ -3,7 +3,7 @@ import Dexie, { type EntityTable } from 'dexie';
 export interface VideoRecord {
     id: string; // video job id
     filename: string;
-    blob: Blob; // MP4 blob
+    blob?: Blob; // MP4 blob
     thumbnail?: Blob; // WebP thumbnail
     created_at: number;
 }

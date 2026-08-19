@@ -223,7 +223,8 @@ export class VideoService {
     /**
      * Downloads the finished MP4. Prefers the provider's direct CDN link when
      * the completed job exposes one — the gateway's /content route proxies the
-     * whole file and is unreliable. Falls back to /content otherwise.
+     * whole file and is unreliable. Uses /content only when no direct URL was
+     * available at all.
      */
     async downloadContent(videoId: string, outputUrl?: string): Promise<Blob> {
         if (outputUrl) {
@@ -235,7 +236,11 @@ export class VideoService {
             if (direct.ok) {
                 return await direct.blob();
             }
-            console.warn(`Direct CDN download failed (${direct.status}), falling back to gateway`);
+            const detail = await direct.text().catch(() => '');
+            if (direct.status === 403 || direct.status === 410 || /accessdenied|expired|expires/i.test(detail)) {
+                throw new Error('The provider link for this video has expired; it was not archived in time.');
+            }
+            throw new Error(`Direct CDN download failed (${direct.status}).`);
         }
 
         try {
