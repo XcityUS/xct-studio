@@ -7,9 +7,9 @@
  * camera_fixed) through to Ark verbatim, so we send those explicitly instead
  * of a pixel `size` (size→ratio reduction mangles 21:9 into 7:3).
  *
- * Per-second prices mirror the gateway cost map
- * (xcity-litellm model_prices_and_context_window.json, byteplus/* entries);
- * 480p figures are derived from the same Ark token formula.
+ * BytePlus bills video by tokens, not by wall-clock seconds. Unit prices
+ * mirror the gateway cost map (xcity-litellm model_prices_and_context_window.json,
+ * byteplus/* entries).
  */
 
 export const RATIOS = ['16:9', '9:16', '1:1', '4:3', '21:9'] as const;
@@ -18,12 +18,30 @@ export type VideoRatio = (typeof RATIOS)[number];
 export const RESOLUTIONS = ['480p', '720p', '1080p', '4K'] as const;
 export type VideoResolution = (typeof RESOLUTIONS)[number];
 
+export const VIDEO_FPS = 24;
+
+type VideoReferenceUnitPrices = {
+    /** USD per 1M tokens when no reference video is attached. */
+    noVideo: number;
+    /** USD per 1M tokens when a reference video contributes input tokens. */
+    withVideo: number;
+};
+
+type AudioUnitPrices = {
+    /** USD per 1M tokens with generated audio. */
+    audio: number;
+    /** USD per 1M tokens without generated audio. */
+    silent: number;
+};
+
+export type SeedanceUnitPrice = VideoReferenceUnitPrices | AudioUnitPrices;
+
 export interface SeedanceModel {
     id: string;
     label: string;
     description: string;
-    /** USD per generated second, keyed by resolution (null = unsupported). */
-    pricePerSecond: Record<VideoResolution, number | null>;
+    /** USD per 1M tokens, keyed by resolution (null = unsupported). */
+    unitPrices: Record<VideoResolution, SeedanceUnitPrice | null>;
     /** Clip length bounds, in seconds — 2.5 generates far longer takes than 1.x/2.0. */
     minSeconds: number;
     maxSeconds: number;
@@ -33,8 +51,6 @@ export interface SeedanceModel {
      * prompts cite [Image 1], [Image 2], …).
      */
     maxReferenceImages: number;
-    /** Shown when a model's pricing is provisional rather than published. */
-    priceIsEstimate?: boolean;
 }
 
 export const SEEDANCE_MODELS = [
@@ -42,7 +58,12 @@ export const SEEDANCE_MODELS = [
         id: 'seedance-1-5-pro-251215',
         label: 'Seedance 1.5 Pro',
         description: 'Native audio · best value',
-        pricePerSecond: { '480p': 0.023, '720p': 0.052, '1080p': 0.117, '4K': null },
+        unitPrices: {
+            '480p': { audio: 2.4, silent: 1.2 },
+            '720p': { audio: 2.4, silent: 1.2 },
+            '1080p': { audio: 2.4, silent: 1.2 },
+            '4K': null
+        },
         minSeconds: 4,
         maxSeconds: 12,
         maxReferenceImages: 1
@@ -51,7 +72,12 @@ export const SEEDANCE_MODELS = [
         id: 'dreamina-seedance-2-0-260128',
         label: 'Seedance 2.0',
         description: 'High quality · audio',
-        pricePerSecond: { '480p': 0.067, '720p': 0.151, '1080p': 0.374, '4K': null },
+        unitPrices: {
+            '480p': { noVideo: 7.0, withVideo: 4.3 },
+            '720p': { noVideo: 7.0, withVideo: 4.3 },
+            '1080p': { noVideo: 7.7, withVideo: 4.7 },
+            '4K': { noVideo: 4.0, withVideo: 2.4 }
+        },
         minSeconds: 4,
         maxSeconds: 12,
         maxReferenceImages: 9
@@ -60,7 +86,12 @@ export const SEEDANCE_MODELS = [
         id: 'dreamina-seedance-2-0-fast-260128',
         label: 'Seedance 2.0 Fast',
         description: 'Faster · no 1080p',
-        pricePerSecond: { '480p': 0.054, '720p': 0.121, '1080p': null, '4K': null },
+        unitPrices: {
+            '480p': { noVideo: 5.6, withVideo: 3.3 },
+            '720p': { noVideo: 5.6, withVideo: 3.3 },
+            '1080p': null,
+            '4K': null
+        },
         minSeconds: 4,
         maxSeconds: 12,
         maxReferenceImages: 9
@@ -68,15 +99,17 @@ export const SEEDANCE_MODELS = [
     {
         id: 'dreamina-seedance-2-5-260628',
         label: 'Seedance 2.5',
-        description: 'Up to 30s single shot · 4K',
-        // BytePlus has not published 2.5 rates (beta). These mirror 2.0's
-        // published ladder, with 4K extrapolated at 2x 1080p, so jobs bill
-        // something defensible instead of $0. Replace at GA.
-        pricePerSecond: { '480p': 0.067, '720p': 0.151, '1080p': 0.374, '4K': 0.748 },
+        description: 'Up to 30s single shot',
+        // Includes Xcity's 20% markup on Seedance 2.5.
+        unitPrices: {
+            '480p': { noVideo: 12.84, withVideo: 7.68 },
+            '720p': { noVideo: 12.84, withVideo: 7.68 },
+            '1080p': { noVideo: 14.04, withVideo: 8.4 },
+            '4K': null
+        },
         minSeconds: 4,
         maxSeconds: 30,
-        maxReferenceImages: 9,
-        priceIsEstimate: true
+        maxReferenceImages: 9
     }
 ] as const satisfies readonly SeedanceModel[];
 
@@ -96,7 +129,7 @@ export function getSeedanceModel(id: string): SeedanceModel | undefined {
 }
 
 export function modelSupportsResolution(modelId: string, resolution: VideoResolution): boolean {
-    return getSeedanceModel(modelId)?.pricePerSecond[resolution] != null;
+    return getSeedanceModel(modelId)?.unitPrices[resolution] != null;
 }
 
 /** Human display string stored in job/history `size` fields, e.g. "16:9 · 720p". */
@@ -139,17 +172,24 @@ function roundToEven(value: number) {
     return Math.max(2, Math.round(value / 2) * 2);
 }
 
+/**
+ * Output pixels for a ratio + resolution label.
+ *
+ * The label names the SHORT side: 9:16 at "720p" renders 720x1280, not
+ * 405x720. Treating it as the height everywhere made portrait clips look
+ * three times cheaper than they are — and video is billed by pixel area.
+ */
 export function pixelDimensions(ratio: VideoRatio, resolution: VideoResolution): { width: number; height: number } {
     if (ratio === '16:9') {
         return SIXTEEN_BY_NINE_DIMENSIONS[resolution];
     }
 
-    const height = RESOLUTION_HEIGHTS[resolution];
+    const shortSide = RESOLUTION_HEIGHTS[resolution];
     const { widthPart, heightPart } = parseRatioParts(ratio);
-    return {
-        width: roundToEven((height * widthPart) / heightPart),
-        height
-    };
+    if (widthPart >= heightPart) {
+        return { width: roundToEven((shortSide * widthPart) / heightPart), height: shortSide };
+    }
+    return { width: shortSide, height: roundToEven((shortSide * heightPart) / widthPart) };
 }
 
 /** Reference-image cap for a model (1 = first-frame only). */

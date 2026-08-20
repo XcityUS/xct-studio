@@ -205,6 +205,13 @@ function finalResolutionForDraft(model: VideoModel, resolution: string | undefin
         : bestSupportedResolution(model);
 }
 
+function inputVideoSecondsFromParams(params: VideoJobCreate): number {
+    if (!params.reference_video_urls?.length || !params.reference_video_seconds?.length) return 0;
+    return params.reference_video_seconds
+        .slice(0, params.reference_video_urls.length)
+        .reduce((total, seconds) => (Number.isFinite(seconds) && seconds > 0 ? total + seconds : total), 0);
+}
+
 export default function HomePage() {
     const [error, setError] = React.useState<string | null>(null);
     const [isApiKeyDialogOpen, setIsApiKeyDialogOpen] = React.useState(false);
@@ -667,7 +674,7 @@ export default function HomePage() {
 
             // Ark attaches the CDN link AFTER the job first reports completed,
             // and the gap scales with the render: short clips take seconds,
-            // 30s/4K takes minutes of post-processing. Poll with backoff for
+            // long clips and 4K clips take minutes. Poll with backoff for
             // ~1 min on short clips, ~6 min for clips longer than 12s.
             let sourceUrl = job.output_url;
             const isLongClip = Number(job.seconds) > 12;
@@ -763,6 +770,7 @@ export default function HomePage() {
             onFailed: (job: VideoJob) => {
                 updateItem(job.id, {
                     status: 'failed',
+                    costDetails: null,
                     error: job.error?.message || 'Video generation failed'
                 });
                 setError(job.error?.message || 'Video generation failed');
@@ -1042,8 +1050,11 @@ export default function HomePage() {
                 createParams,
                 costDetails: calculateVideoCost({
                     model: formData.model,
+                    ratio: formData.ratio,
                     resolution: formData.resolution,
-                    seconds: formData.seconds
+                    seconds: formData.seconds,
+                    generateAudio: formData.generate_audio,
+                    inputVideoSeconds: inputVideoSecondsFromParams(formData)
                 }),
                 draft: formData.draft || undefined,
                 finalResolution: formData.draft ? formData.final_resolution : undefined,

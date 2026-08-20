@@ -157,6 +157,7 @@ export function CreationForm({
     const [optimizeError, setOptimizeError] = React.useState<string | null>(null);
     // The prompt as it was before the last AI rewrite, so Undo can restore it.
     const [promptBeforeOptimize, setPromptBeforeOptimize] = React.useState<string | null>(null);
+    const [referenceVideoSecondsByUrl, setReferenceVideoSecondsByUrl] = React.useState<Record<string, number>>({});
     const supportsDraftMode = modelSupportsResolution(model, '480p');
     const [generationMode, setGenerationMode] = React.useState<GenerationMode>(() =>
         modelSupportsResolution(model, '480p') ? 'draft' : 'final'
@@ -177,7 +178,28 @@ export function CreationForm({
 
     const isDraftMode = supportsDraftMode && generationMode === 'draft';
     const activeResolution: VideoResolution = isDraftMode ? '480p' : resolution;
-    const estimatedCost = calculateVideoCost({ model, resolution: activeResolution, seconds });
+    const hasReferenceVideos = showReferenceVideos && referenceVideoUrls.some((url) => url.trim());
+    const inputVideoSeconds = React.useMemo(() => {
+        if (!hasReferenceVideos) return 0;
+        return referenceVideoUrls.reduce((total, url) => total + (referenceVideoSecondsByUrl[url] ?? 0), 0);
+    }, [hasReferenceVideos, referenceVideoSecondsByUrl, referenceVideoUrls]);
+    const estimatedCost = calculateVideoCost({
+        model,
+        ratio,
+        resolution: activeResolution,
+        seconds,
+        generateAudio,
+        inputVideoSeconds
+    });
+    const isCostLowerBound = Boolean(estimatedCost && (estimatedCost.lowerBound || hasReferenceVideos));
+
+    React.useEffect(() => {
+        setReferenceVideoSecondsByUrl((current) => {
+            const activeUrls = new Set(referenceVideoUrls);
+            const next = Object.fromEntries(Object.entries(current).filter(([url]) => activeUrls.has(url)));
+            return Object.keys(next).length === Object.keys(current).length ? current : next;
+        });
+    }, [referenceVideoUrls]);
 
     const handleOptimize = async () => {
         if (!onOptimizePrompt || !prompt.trim() || isOptimizing) return;
@@ -270,6 +292,9 @@ export function CreationForm({
             const videos = referenceVideoUrls.map((u) => u.trim()).filter(Boolean);
             if (showReferenceVideos && videos.length) {
                 formData.reference_video_urls = videos.slice(0, 2);
+                formData.reference_video_seconds = formData.reference_video_urls.map(
+                    (url) => referenceVideoSecondsByUrl[url] ?? 0
+                );
             }
         }
         onSubmit(formData);
@@ -405,10 +430,8 @@ export function CreationForm({
                             onValueChange={(value) => {
                                 const newModel = value as VideoModel;
                                 setModel(newModel);
-                                // Capabilities differ per model: 2.0 Fast has no
-                                // 1080p, only 2.5 does 4K, and only 2.5 goes past
-                                // 12s. Pull the current choices back into range
-                                // instead of submitting something the model rejects.
+                                // Pull the current choices back into range instead
+                                // of submitting something the selected model rejects.
                                 if (!modelSupportsResolution(newModel, resolution)) {
                                     setResolution('720p');
                                 }
@@ -687,6 +710,9 @@ export function CreationForm({
                         <ReferenceVideosInput
                             urls={referenceVideoUrls}
                             onChange={setReferenceVideoUrls}
+                            onDurationChange={(url, duration) => {
+                                setReferenceVideoSecondsByUrl((current) => ({ ...current, [url]: duration }));
+                            }}
                             onUpload={onUploadVideo}
                             disabled={isLoading}
                         />
@@ -743,14 +769,9 @@ export function CreationForm({
                         )}
                     </Button>
                     {estimatedCost && (
-                        <p
-                            className='w-full truncate text-xs whitespace-nowrap text-white/60'
-                            title={
-                                modelDef?.priceIsEstimate
-                                    ? 'Provisional rate — BytePlus has not published pricing for this model yet'
-                                    : undefined
-                            }>
-                            Cost: ${estimatedCost.totalCost.toFixed(2)} · billed at submission
+                        <p className='w-full truncate text-xs whitespace-nowrap text-white/60'>
+                            Est. {isCostLowerBound ? 'from ' : ''}${estimatedCost.totalCost.toFixed(2)} · charged on
+                            success
                         </p>
                     )}
                 </CardFooter>
