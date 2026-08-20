@@ -108,6 +108,9 @@ function voiceoverAssetName(text: string): string {
 const MAX_REFERENCE_VIDEOS = 2;
 type StudioTab = 'video' | 'image' | 'assets' | 'community';
 
+/** Where a message belongs, so it lands next to the control that raised it. */
+type ErrorScope = 'create' | 'output';
+
 function isAssetReferenceUrl(url: string): boolean {
     const value = url.trim();
     return value.startsWith('asset://') && value.length > 'asset://'.length;
@@ -213,7 +216,32 @@ function inputVideoSecondsFromParams(params: VideoJobCreate): number {
 }
 
 export default function HomePage() {
-    const [error, setError] = React.useState<string | null>(null);
+    // Errors are shown next to whatever raised them: 'create' renders under
+    // the Create Video button, 'output' under the output panel's action row.
+    // A single alert at the top of the right column meant every failed click
+    // sent the user scrolling back up to find out why.
+    const [errorState, setErrorState] = React.useState<{ message: string; scope: ErrorScope } | null>(null);
+    const setError = React.useCallback((message: string | null, scope: ErrorScope = 'create') => {
+        setErrorState(message ? { message, scope } : null);
+    }, []);
+    const createError = errorState?.scope === 'create' ? errorState.message : null;
+    const outputError = errorState?.scope === 'output' ? errorState.message : null;
+
+    // Completed videos the gateway has no playable link for. State, not a ref:
+    // the output panel renders a retry instead of spinning "loading preview…"
+    // forever, which is what it did whenever a probe came back empty.
+    const [unresolvedPreviewIds, setUnresolvedPreviewIds] = React.useState<Set<string>>(new Set());
+    const unresolvedPreviewIdsRef = React.useRef(unresolvedPreviewIds);
+    unresolvedPreviewIdsRef.current = unresolvedPreviewIds;
+    const markPreviewUnresolved = React.useCallback((id: string, unresolved: boolean) => {
+        setUnresolvedPreviewIds((prev) => {
+            if (prev.has(id) === unresolved) return prev;
+            const next = new Set(prev);
+            if (unresolved) next.add(id);
+            else next.delete(id);
+            return next;
+        });
+    }, []);
     const [isApiKeyDialogOpen, setIsApiKeyDialogOpen] = React.useState(false);
     const [currentJobId, setCurrentJobId] = React.useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = React.useState(false);
@@ -288,7 +316,7 @@ export default function HomePage() {
         setCreateWatermark(p.watermark ?? false);
         setError(p.adjusted.length ? `Adjusted for ${p.model}: ${p.adjusted.join(', ')}` : null);
         creationFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, []);
+    }, [setError]);
 
     const loadSharedSettings = React.useCallback(async (shareId: string) => {
         try {
@@ -320,7 +348,7 @@ export default function HomePage() {
             console.error('Error loading share:', err);
             setError(err instanceof Error ? err.message : 'Could not load shared settings.');
         }
-    }, []);
+    }, [setError]);
 
     const loadedShareIdRef = React.useRef<string | null>(null);
     React.useEffect(() => {
@@ -664,7 +692,7 @@ export default function HomePage() {
             setIsApiKeyDialogOpen(true);
             setError(message);
         },
-        [invalidateKey]
+        [invalidateKey, setError]
     );
 
     /** Downloads a finished video into IndexedDB and finalizes its history entry. */
@@ -732,14 +760,16 @@ export default function HomePage() {
                         status: 'completed'
                     });
                 } else {
+                    markPreviewUnresolved(job.id, true);
                     setError(
                         `The gateway reported the video as completed but never exposed its download link (job ${job.id}). ` +
-                            'Select it from History in a moment to retry, or check the TokenHub logs.'
+                            'Select it from History in a moment to retry, or check the TokenHub logs.',
+                        'output'
                     );
                 }
             }
         },
-        [videoService, setRemoteSource, updateItem, handleInvalidApiKey]
+        [videoService, setRemoteSource, updateItem, handleInvalidApiKey, markPreviewUnresolved, setError]
     );
 
     const jobCallbacks = React.useMemo(
@@ -773,11 +803,11 @@ export default function HomePage() {
                     costDetails: null,
                     error: job.error?.message || 'Video generation failed'
                 });
-                setError(job.error?.message || 'Video generation failed');
+                setError(job.error?.message || 'Video generation failed', 'output');
             },
             onInvalidKey: () => handleInvalidApiKey()
         }),
-        [history, updateItem, downloadAndStoreVideo, handleInvalidApiKey]
+        [history, updateItem, downloadAndStoreVideo, handleInvalidApiKey, setError]
     );
 
     const { activeJobs, addJob, replaceJob, removeJob, restoreJobs, clearJobs } = useVideoJobs(
@@ -793,6 +823,7 @@ export default function HomePage() {
         resolveKey,
         onArchived: (id, url) => {
             setRemoteSource(id, url);
+            markPreviewUnresolved(id, false);
             updateItem(id, { storedUrl: url, mediaExpired: false });
         },
         onExpired: (id) => {
@@ -1250,7 +1281,7 @@ export default function HomePage() {
 
             try {
                 if (!(await mediaArchiveEnabled())) {
-                    setError('Extend requires media storage to be configured');
+                    setError('Extend requires media storage to be configured', 'output');
                     return;
                 }
 
@@ -1261,7 +1292,16 @@ export default function HomePage() {
                     if (!src) {
                         throw new Error('Video source not found. Select the video from History and try again.');
                     }
-                    const res = await fetch(src);
+                    let res: Response;
+                    try {
+                        res = await fetch(src);
+                    } catch {
+                        // The provider's CDN is not CORS-open; only our own R2
+                        // copy can be read back into a blob.
+                        throw new Error(
+                            'Could not read this video for extending — wait for its cloud copy to finish archiving, then retry.'
+                        );
+                    }
                     if (!res.ok) {
                         throw new Error(`Could not load the video source (${res.status}).`);
                     }
@@ -1299,35 +1339,108 @@ export default function HomePage() {
                 if (err instanceof InvalidApiKeyError) {
                     handleInvalidApiKey(err.message);
                 } else {
-                    setError(err instanceof Error ? err.message : 'Failed to extend video');
+                    setError(err instanceof Error ? err.message : 'Failed to extend video', 'output');
                 }
             }
         },
-        [buildParamsFromItem, getVideoSrc, handleInvalidApiKey, handleUploadImage]
+        [buildParamsFromItem, getVideoSrc, handleInvalidApiKey, handleUploadImage, setError]
     );
 
     const handleExtendCurrentVideo = React.useCallback(
         (videoId: string) => {
             const item = history.find((candidate) => candidate.id === videoId);
-            if (!item) {
-                setError('Could not find this video in history.');
+            if (item) {
+                void handleExtendVideo(item);
                 return;
             }
-            void handleExtendVideo(item);
+
+            // The output panel can outlive its history entry (deleted here, or
+            // dropped by a merge with another device). Everything extend needs
+            // is on the job itself, so rebuild the entry instead of dead-ending
+            // the button with "Could not find this video in history."
+            const job = activeJobs.get(videoId);
+            if (!job) {
+                setError('Could not find this video.', 'output');
+                return;
+            }
+            console.warn(`Extending ${videoId} from its job — no history entry for it.`);
+            void handleExtendVideo({
+                id: videoId,
+                timestamp: job.created_at * 1000,
+                filename: `${videoId}.mp4`,
+                storageModeUsed: 'indexeddb',
+                durationMs: 0,
+                model: job.model,
+                size: job.size,
+                seconds: Number(job.seconds) || DEFAULT_SECONDS,
+                prompt: job.prompt ?? '',
+                mode: 'create',
+                status: 'completed',
+                costDetails: null
+            });
         },
-        [history, handleExtendVideo]
+        [activeJobs, history, handleExtendVideo, setError]
     );
 
     const handleFinalizeCurrentVideo = (videoId: string) => {
         const item = history.find((candidate) => candidate.id === videoId);
         if (!item) {
-            setError('Could not find this video in history.');
+            setError('Could not find this video in history.', 'output');
             return;
         }
         handleFinalizeItem(item);
     };
 
-    const sourceProbeMissesRef = React.useRef<Set<string>>(new Set());
+    /**
+     * Resolves a playback source for a history item.
+     *
+     * Order: a local blob wins, then the permanent R2 copy (never expires,
+     * CORS-open), then the provider's current signed link — re-read from the
+     * gateway because Ark links last 24 h and whatever a poll cached may be
+     * dead. Preferring storedUrl over an already-registered source matters:
+     * the link captured at generation time expires while the tab is open, and
+     * the panel used to keep replaying that corpse.
+     */
+    const resolvePlaybackSource = React.useCallback(
+        async (item: VideoMetadata, options: { force?: boolean } = {}) => {
+            if (hasLocalCopy(item.id)) {
+                markPreviewUnresolved(item.id, false);
+                return;
+            }
+
+            if (item.storedUrl) {
+                if (getVideoSrc(item.id) !== item.storedUrl) setRemoteSource(item.id, item.storedUrl);
+                markPreviewUnresolved(item.id, false);
+                return;
+            }
+
+            if (item.status === 'failed') return;
+
+            if (item.mediaExpired || providerLinkLikelyDead(item, Date.now())) {
+                updateItem(item.id, { mediaExpired: true });
+                return;
+            }
+
+            // Without force, don't re-probe what already plays or what we
+            // already know the gateway has nothing for.
+            if (!options.force && (hasSource(item.id) || unresolvedPreviewIdsRef.current.has(item.id))) return;
+
+            try {
+                const fresh = await videoService.retrieveVideo(item.id);
+                if (fresh.output_url) {
+                    setRemoteSource(item.id, fresh.output_url);
+                    markPreviewUnresolved(item.id, false);
+                } else {
+                    markPreviewUnresolved(item.id, true);
+                }
+            } catch (err) {
+                markPreviewUnresolved(item.id, true);
+                console.warn(`Could not resolve a source for ${item.id}:`, err);
+            }
+        },
+        [getVideoSrc, hasLocalCopy, hasSource, markPreviewUnresolved, setRemoteSource, updateItem, videoService]
+    );
+
     const handleHistorySelect = (item: VideoMetadata) => {
         setCurrentJobId(item.id);
 
@@ -1355,42 +1468,18 @@ export default function HomePage() {
                 ...(item.remix_of && { remix_of: item.remix_of })
             });
 
-        // Resolve a playback source on demand. A permanent R2 copy beats
-        // everything: it never expires and is CORS-enabled.
-        if (item.storedUrl && !hasSource(item.id)) {
-            setRemoteSource(item.id, item.storedUrl);
-            return;
-        }
-
-        if (item.mediaExpired || providerLinkLikelyDead(item, Date.now())) {
-            if (!item.storedUrl && !hasLocalCopy(item.id)) {
-                updateItem(item.id, { mediaExpired: true });
-            }
-            return;
-        }
-
-        if (sourceProbeMissesRef.current.has(item.id)) {
-            return;
-        }
-
-        // Otherwise ask the gateway for the job's current output_url — signed
-        // Ark links last 24h, so whatever the poll cached may have expired.
-        if (item.status !== 'failed' && !hasSource(item.id) && !hasLocalCopy(item.id)) {
-            void (async () => {
-                try {
-                    const fresh = await videoService.retrieveVideo(item.id);
-                    if (fresh.output_url) {
-                        setRemoteSource(item.id, fresh.output_url);
-                    } else {
-                        sourceProbeMissesRef.current.add(item.id);
-                    }
-                } catch (err) {
-                    sourceProbeMissesRef.current.add(item.id);
-                    console.warn(`Could not resolve a source for ${item.id}:`, err);
-                }
-            })();
-        }
+        void resolvePlaybackSource(item);
     };
+
+    /** "Retry" on an unplayable preview: probe again, and re-arm archiving. */
+    const handleRetryPreview = React.useCallback(() => {
+        if (!currentJobId) return;
+        const item = history.find((candidate) => candidate.id === currentJobId);
+        if (!item) return;
+        markPreviewUnresolved(item.id, false);
+        retryArchive(item.id);
+        void resolvePlaybackSource(item, { force: true });
+    }, [currentJobId, history, markPreviewUnresolved, resolvePlaybackSource, retryArchive]);
 
     const handleClearHistory = async () => {
         const confirmed = window.confirm(
@@ -1426,7 +1515,7 @@ export default function HomePage() {
             }
         } catch (err) {
             console.error('Error deleting video:', err);
-            setError(err instanceof Error ? err.message : 'Failed to delete video');
+            setError(err instanceof Error ? err.message : 'Failed to delete video', 'output');
         }
     };
 
@@ -1444,7 +1533,7 @@ export default function HomePage() {
             document.body.removeChild(a);
         } catch (err) {
             console.error('Error downloading video:', err);
-            setError(err instanceof Error ? err.message : 'Failed to download video');
+            setError(err instanceof Error ? err.message : 'Failed to download video', 'output');
         }
     };
 
@@ -1560,17 +1649,12 @@ export default function HomePage() {
                                 onUploadVideo={uploadEnabled ? handleUploadVideo : undefined}
                                 onOptimizePrompt={handleOptimizePrompt}
                                 onBreakdownScript={handleBreakdownScript}
+                                error={createError}
                             />
                         )}
                     </ApiKeyGate>
                 </div>
                 <div className='flex min-h-[600px] flex-col lg:col-span-1'>
-                    {error && (
-                        <Alert variant='destructive' className='mb-4 border-red-500/50 bg-red-900/20 text-red-300'>
-                            <AlertTitle className='text-red-200'>Error</AlertTitle>
-                            <AlertDescription>{error}</AlertDescription>
-                        </Alert>
-                    )}
                     <VideoOutput
                         job={currentJob || null}
                         videoSrc={currentVideoSrc}
@@ -1585,6 +1669,9 @@ export default function HomePage() {
                         onShare={handleShareItem}
                         shareItem={currentHistoryItem}
                         isSharePending={Boolean(currentHistoryItem && sharingVideoId === currentHistoryItem.id)}
+                        previewUnavailable={Boolean(currentJobId && unresolvedPreviewIds.has(currentJobId))}
+                        onRetryPreview={handleRetryPreview}
+                        error={outputError}
                     />
                 </div>
             </div>

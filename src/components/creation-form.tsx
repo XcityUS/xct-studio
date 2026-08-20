@@ -80,6 +80,8 @@ type CreationFormProps = {
     onOptimizePrompt?: (prompt: string) => Promise<string>;
     /** Splits a script into Seedance shot rows via the gateway's chat API. */
     onBreakdownScript?: (script: string) => Promise<ShotDraft[]>;
+    /** Message from the last submission — rendered under the Create button. */
+    error?: string | null;
 };
 
 const RATIO_LABELS: Record<VideoRatio, string> = {
@@ -139,7 +141,8 @@ export function CreationForm({
     onSynthesizeSpeech,
     onUploadVideo,
     onOptimizePrompt,
-    onBreakdownScript
+    onBreakdownScript,
+    error
 }: CreationFormProps) {
     const { min: minSeconds, max: maxSeconds } = secondsRange(model);
     const modelDef = getSeedanceModel(model);
@@ -773,6 +776,13 @@ export function CreationForm({
                             Est. {isCostLowerBound ? 'from ' : ''}${estimatedCost.totalCost.toFixed(2)} · charged on
                             success
                         </p>
+                    )}
+                    {error && (
+                        <div
+                            role='alert'
+                            className='w-full rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200'>
+                            {error}
+                        </div>
                     )}
                 </CardFooter>
             </form>

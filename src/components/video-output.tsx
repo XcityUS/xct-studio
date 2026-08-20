@@ -18,6 +18,7 @@ import {
     Pause,
     Play,
     Rocket,
+    RotateCcw,
     Share2,
     Sparkles,
     StepForward
@@ -37,6 +38,12 @@ type VideoOutputProps = {
     onShare?: (item: VideoMetadata) => void;
     shareItem?: VideoMetadata;
     isSharePending?: boolean;
+    /** The gateway has no playable link for this completed job (yet). */
+    previewUnavailable?: boolean;
+    /** Re-resolves a playback source for the current job. */
+    onRetryPreview?: () => void;
+    /** Message for an action taken from this panel — rendered under the buttons. */
+    error?: string | null;
 };
 
 function ClickablePrompt({ prompt }: { prompt: string }) {
@@ -114,7 +121,10 @@ export function VideoOutput({
     onFinalize,
     onShare,
     shareItem,
-    isSharePending
+    isSharePending,
+    previewUnavailable = false,
+    onRetryPreview,
+    error
 }: VideoOutputProps) {
     const displayProgress = useDisplayProgress(job);
 
@@ -187,6 +197,16 @@ export function VideoOutput({
         job?.status === 'completed' && !mediaExpired && typeof videoSrc === 'string'
             ? { job, videoSrc }
             : null;
+
+    // Rendered next to the buttons that raise it — an alert at the top of the
+    // panel meant scrolling back up to find out why a click did nothing.
+    const actionError = error ? (
+        <div
+            role='alert'
+            className='shrink-0 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200'>
+            {error}
+        </div>
+    ) : null;
     const isCompletedWithVideo = Boolean(completedOutput);
     const isCompletedExpired = job?.status === 'completed' && mediaExpired;
     const showCompletedDetails = isCompletedWithVideo || isCompletedExpired;
@@ -326,14 +346,37 @@ export function VideoOutput({
                                 alt='Video first frame'
                                 className='mb-4 max-h-64 rounded-lg border border-white/10 object-contain'
                             />
+                        ) : previewUnavailable ? (
+                            <AlertCircle className='mb-4 h-12 w-12 text-amber-300/80' />
                         ) : (
                             <Loader2 className='mb-4 h-12 w-12 animate-spin text-white/60' />
                         )}
-                        <p className='text-white/60'>Video ready — loading preview…</p>
-                        <p className='mt-2 text-sm text-white/40'>
-                            Fetching the finished video from the gateway — long clips and 4K clips can take a few
-                            minutes of provider post-processing before the link appears
-                        </p>
+                        {previewUnavailable ? (
+                            <>
+                                <p className='text-white/60'>Preview unavailable</p>
+                                <p className='mt-2 max-w-md text-sm text-white/40'>
+                                    The gateway has not published a playable link for this clip. It may still be
+                                    post-processing, or its link may have expired before the cloud copy was made.
+                                </p>
+                                {onRetryPreview && (
+                                    <Button
+                                        onClick={onRetryPreview}
+                                        variant='outline'
+                                        className='mt-4 border-white/20 bg-black text-white hover:bg-white/10 hover:text-white'>
+                                        <RotateCcw className='mr-2 h-4 w-4' />
+                                        Retry
+                                    </Button>
+                                )}
+                            </>
+                        ) : (
+                            <>
+                                <p className='text-white/60'>Video ready — loading preview…</p>
+                                <p className='mt-2 text-sm text-white/40'>
+                                    Fetching the finished video from the gateway — long clips and 4K clips can take a
+                                    few minutes of provider post-processing before the link appears
+                                </p>
+                            </>
+                        )}
                     </div>
                 )}
 
@@ -344,6 +387,7 @@ export function VideoOutput({
                             jobId={completedOutput.job.id}
                             videoSrc={completedOutput.videoSrc}
                             thumbnailSrc={thumbnailSrc}
+                            onSourceError={onRetryPreview}
                         />
 
                         <div className='flex shrink-0 flex-wrap gap-3'>
@@ -404,6 +448,8 @@ export function VideoOutput({
                             )}
                         </div>
 
+                        {actionError}
+
                         {completedOutput.job.prompt && (
                             <ClickablePrompt prompt={completedOutput.job.prompt} />
                         )}
@@ -463,6 +509,8 @@ export function VideoOutput({
                         </div>
                     </div>
                 )}
+
+                {!completedOutput && actionError && <div className='w-full'>{actionError}</div>}
             </CardContent>
         </Card>
     );
@@ -472,9 +520,10 @@ type CompletedVideoPlayerProps = {
     jobId: string;
     videoSrc: string;
     thumbnailSrc?: string | null | undefined;
+    onSourceError?: () => void;
 };
 
-function CompletedVideoPlayer({ jobId, videoSrc, thumbnailSrc }: CompletedVideoPlayerProps) {
+function CompletedVideoPlayer({ jobId, videoSrc, thumbnailSrc, onSourceError }: CompletedVideoPlayerProps) {
     const videoRef = React.useRef<HTMLVideoElement | null>(null);
     const [isPlaying, setIsPlaying] = React.useState(false);
     const [hasInteracted, setHasInteracted] = React.useState(false);
@@ -482,12 +531,24 @@ function CompletedVideoPlayer({ jobId, videoSrc, thumbnailSrc }: CompletedVideoP
     const [duration, setDuration] = React.useState(0);
     const [currentTime, setCurrentTime] = React.useState(0);
 
+    // Playhead mirrored into refs: any src change reloads the element and
+    // wipes its state before an effect can read it.
+    const positionRef = React.useRef(0);
+    const playingRef = React.useRef(false);
+    const loadedSrcRef = React.useRef<string | null>(null);
+    const pendingResumeRef = React.useRef<{ time: number; playing: boolean } | null>(null);
+
+    // New clip: start from scratch.
     React.useEffect(() => {
         const video = videoRef.current;
         setIsPlaying(false);
         setHasInteracted(false);
         setCurrentTime(0);
         setDuration(0);
+        positionRef.current = 0;
+        playingRef.current = false;
+        loadedSrcRef.current = null;
+        pendingResumeRef.current = null;
 
         if (video) {
             video.pause();
@@ -497,7 +558,23 @@ function CompletedVideoPlayer({ jobId, videoSrc, thumbnailSrc }: CompletedVideoP
                 console.warn('Unable to reset video currentTime:', error);
             }
         }
-    }, [jobId, videoSrc]);
+    }, [jobId]);
+
+    /**
+     * The URL for a clip that is already on screen gets swapped underneath us
+     * — the permanent R2 copy replacing the provider link, a downloaded blob
+     * replacing both. That reloads the element, which used to dump the viewer
+     * back to the start (and, with the old poster-dependent `#t=` fragment,
+     * looked like the preview closing a second in). Carry the playhead over.
+     */
+    React.useEffect(() => {
+        if (loadedSrcRef.current === null || loadedSrcRef.current === videoSrc) {
+            loadedSrcRef.current = videoSrc;
+            return;
+        }
+        loadedSrcRef.current = videoSrc;
+        pendingResumeRef.current = { time: positionRef.current, playing: playingRef.current };
+    }, [videoSrc]);
 
     const handleTogglePlayback = React.useCallback(() => {
         const video = videoRef.current;
@@ -563,9 +640,10 @@ function CompletedVideoPlayer({ jobId, videoSrc, thumbnailSrc }: CompletedVideoP
             >
                 <video
                     ref={videoRef}
-                    // The #t fragment forces browsers to paint the first frame
-                    // when no poster was captured (e.g. CDN-only playback).
-                    src={thumbnailSrc ? videoSrc : `${videoSrc}#t=0.001`}
+                    // Never derive the src from anything that can change while
+                    // the clip plays (it used to carry a `#t=` fragment only
+                    // until a poster arrived, which reloaded the element).
+                    src={videoSrc}
                     poster={thumbnailSrc || undefined}
                     className='h-full w-full max-h-full object-contain'
                     style={{ display: 'block', outline: 'none' }}
@@ -573,21 +651,47 @@ function CompletedVideoPlayer({ jobId, videoSrc, thumbnailSrc }: CompletedVideoP
                     playsInline
                     onClick={handleTogglePlayback}
                     onPlay={() => {
+                        playingRef.current = true;
                         setIsPlaying(true);
                         setHasInteracted(true);
                     }}
-                    onPause={() => setIsPlaying(false)}
+                    onPause={() => {
+                        playingRef.current = false;
+                        setIsPlaying(false);
+                    }}
                     onEnded={(event) => {
+                        playingRef.current = false;
                         setIsPlaying(false);
                         setCurrentTime(event.currentTarget.duration || 0);
                     }}
                     onLoadedMetadata={(event) => {
-                        setDuration(event.currentTarget.duration || 0);
+                        const video = event.currentTarget;
+                        setDuration(video.duration || 0);
+
+                        const resume = pendingResumeRef.current;
+                        pendingResumeRef.current = null;
+                        if (resume && resume.time > 0 && resume.time < (video.duration || Infinity)) {
+                            video.currentTime = resume.time;
+                            if (resume.playing) void video.play().catch(() => {});
+                            return;
+                        }
+                        // Without a poster the element paints black until it
+                        // has decoded a frame — nudge it past zero.
+                        if (!thumbnailSrc && video.currentTime === 0) {
+                            video.currentTime = 0.001;
+                        }
                     }}
                     onTimeUpdate={(event) => {
-                        setCurrentTime(event.currentTarget.currentTime);
+                        const time = event.currentTarget.currentTime;
+                        setCurrentTime(time);
+                        // A reload reports 0 before it reports anything real;
+                        // keeping it would defeat the resume above.
+                        if (time > 0) positionRef.current = time;
                     }}
-                    onError={(error) => console.error('Video playback error:', error)}
+                    onError={(error) => {
+                        console.error('Video playback error:', error);
+                        onSourceError?.();
+                    }}
                 />
 
                 <button

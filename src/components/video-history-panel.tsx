@@ -626,7 +626,9 @@ export function VideoHistoryPanel({
                                                         </div>
                                                     ) : showHoverPreview && videoUrl ? (
                                                         <video
-                                                            src={thumbnailUrl ? videoUrl : `${videoUrl}#t=0.001`}
+                                                            // Plain src: deriving it from the poster made the
+                                                            // element reload the moment a poster arrived.
+                                                            src={videoUrl}
                                                             poster={thumbnailUrl}
                                                             className='h-full w-full object-cover'
                                                             muted
