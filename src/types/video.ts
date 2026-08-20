@@ -87,6 +87,8 @@ export type VideoJobCreate = {
      * [Video 1], [Video 2], …; submit code may inline them as data URIs.
      */
     reference_video_urls?: string[];
+    /** Studio-only durations for reference video cost estimates, aligned with `reference_video_urls`. */
+    reference_video_seconds?: number[];
     /**
      * Optional background music / timbre reference for multi-reference mode.
      * History stores the public URL; submit code may inline it as a data URI.

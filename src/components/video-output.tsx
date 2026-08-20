@@ -331,7 +331,7 @@ export function VideoOutput({
                         )}
                         <p className='text-white/60'>Video ready — loading preview…</p>
                         <p className='mt-2 text-sm text-white/40'>
-                            Fetching the finished video from the gateway — long clips (30s / 4K) can take a few
+                            Fetching the finished video from the gateway — long clips and 4K clips can take a few
                             minutes of provider post-processing before the link appears
                         </p>
                     </div>

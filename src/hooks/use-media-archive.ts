@@ -7,7 +7,7 @@ import type { VideoMetadata } from '@/types/video';
 import * as React from 'react';
 
 // 8 attempts with backoff capped at 5 min ≈ a 25-minute window — long
-// clips (30s/4K) can take several minutes of provider post-processing
+// clips and 4K clips can take several minutes of provider post-processing
 // before the CDN link exists, and the old 15-minute window gave up on them.
 const MAX_ATTEMPTS = 8;
 const BASE_BACKOFF_MS = 30_000;

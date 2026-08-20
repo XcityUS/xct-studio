@@ -10,6 +10,7 @@ interface ReferenceVideosInputProps {
     /** Public video URLs, in order — [Video 1], [Video 2], … in the prompt. */
     urls: string[];
     onChange: (urls: string[]) => void;
+    onDurationChange?: (url: string, seconds: number) => void;
     /** Uploads a local file and resolves to its public URL. Absent = URL-only mode. */
     onUpload?: (file: File) => Promise<string>;
     disabled?: boolean;
@@ -26,7 +27,7 @@ function isHttpVideoUrl(url: string): boolean {
     }
 }
 
-export function ReferenceVideosInput({ urls, onChange, onUpload, disabled }: ReferenceVideosInputProps) {
+export function ReferenceVideosInput({ urls, onChange, onDurationChange, onUpload, disabled }: ReferenceVideosInputProps) {
     const fileInputRef = React.useRef<HTMLInputElement>(null);
     const [isUploading, setIsUploading] = React.useState(false);
     const [uploadError, setUploadError] = React.useState<string | null>(null);
@@ -101,6 +102,12 @@ export function ReferenceVideosInput({ urls, onChange, onUpload, disabled }: Ref
                                     src={url}
                                     controls
                                     preload='metadata'
+                                    onLoadedMetadata={(event) => {
+                                        const duration = event.currentTarget.duration;
+                                        if (Number.isFinite(duration) && duration > 0) {
+                                            onDurationChange?.(url, duration);
+                                        }
+                                    }}
                                     className='aspect-video w-full object-contain'
                                     title={url}
                                 />

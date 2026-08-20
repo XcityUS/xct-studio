@@ -35,8 +35,10 @@ export function GalleryDetailDialog({
     const model = getSeedanceModel(item.params.model);
     const cost = calculateVideoCost({
         model: item.params.model,
+        ratio: item.params.ratio,
         resolution: item.params.resolution,
-        seconds: item.params.seconds
+        seconds: item.params.seconds,
+        generateAudio: item.params.generate_audio
     });
 
     const copyPrompt = async () => {

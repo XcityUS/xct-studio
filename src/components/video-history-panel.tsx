@@ -126,6 +126,20 @@ function getHistoryItemState(item: VideoMetadata, job?: VideoJob) {
     return { isProcessing, isFailed, isCompleted };
 }
 
+function hasTokenCostDetails(costDetails: VideoMetadata['costDetails']): boolean {
+    return Boolean(
+        costDetails &&
+            typeof costDetails.tokens === 'number' &&
+            Number.isFinite(costDetails.tokens) &&
+            typeof costDetails.unitPricePerMillionTokens === 'number' &&
+            Number.isFinite(costDetails.unitPricePerMillionTokens)
+    );
+}
+
+function formatTokens(tokens: number): string {
+    return Math.round(tokens).toLocaleString();
+}
+
 export function VideoHistoryPanel({
     history,
     activeJobs,
@@ -224,7 +238,7 @@ export function VideoHistoryPanel({
         let billed = 0;
         history.forEach((item) => {
             const state = getHistoryItemState(item, activeJobs?.get(item.id));
-            if (item.costDetails) {
+            if (item.costDetails && state.isCompleted) {
                 cost += item.costDetails.totalCost;
                 billed += 1;
             }
@@ -247,7 +261,7 @@ export function VideoHistoryPanel({
     }, [history, activeJobs]);
 
     const averageCost = billedVideos > 0 ? totalCost / billedVideos : 0;
-    const totalCostSummary = `Total Cost $${totalCost.toFixed(2)} · ${totalVideos.toLocaleString()} videos${
+    const totalCostSummary = `Total Billed $${totalCost.toFixed(2)} · ${totalVideos.toLocaleString()} videos${
         failedVideos > 0 ? ` (${failedVideos.toLocaleString()} failed)` : ''
     }`;
 
@@ -362,7 +376,7 @@ export function VideoHistoryPanel({
                                 <button
                                     className='mt-0.5 flex items-center gap-1 rounded-full bg-green-600/80 px-1.5 py-0.5 text-[12px] text-white transition-colors hover:bg-green-500/90'
                                     aria-label='Show total cost summary'>
-                                    Total Cost: ${totalCost.toFixed(2)}
+                                    Total Billed: ${totalCost.toFixed(2)}
                                 </button>
                             </DialogTrigger>
                             <DialogContent className='border-neutral-700 bg-neutral-900 text-white sm:max-w-[450px]'>
@@ -376,12 +390,8 @@ export function VideoHistoryPanel({
                                     {totalCostSummary}
                                 </div>
                                 <div className='space-y-1 pt-1 text-xs text-neutral-400'>
-                                    <p>Seedance pricing (per second, 720p / 1080p):</p>
-                                    <ul className='list-disc pl-4'>
-                                        <li>Seedance 1.5 Pro: $0.052 / $0.117</li>
-                                        <li>Seedance 2.0: $0.151 / $0.374</li>
-                                        <li>Seedance 2.0 Fast: $0.121 / —</li>
-                                    </ul>
+                                    <p>Seedance billing is token-based and charged only after successful completion.</p>
+                                    <p>Reference video estimates are lower bounds because provider floors may apply.</p>
                                 </div>
                                 <div className='space-y-2 py-4 text-sm text-neutral-300'>
                                     <div className='flex justify-between'>
@@ -390,6 +400,11 @@ export function VideoHistoryPanel({
                                     <div className='flex justify-between'>
                                         <span>Successful Videos:</span> <span>{successfulVideos.toLocaleString()}</span>
                                     </div>
+                                    {failedVideos > 0 && (
+                                        <div className='flex justify-between'>
+                                            <span>Failed Videos:</span> <span>{failedVideos.toLocaleString()}</span>
+                                        </div>
+                                    )}
                                     <div className='flex justify-between'>
                                         <span>Average Cost Per Video:</span> <span>${averageCost.toFixed(2)}</span>
                                     </div>
@@ -538,6 +553,8 @@ export function VideoHistoryPanel({
                                     const selectionOrder = selectedClipIds.indexOf(item.id) + 1;
                                     const isSelectedForAssembly = selectionOrder > 0;
                                     const isSharePending = sharePendingId === item.id;
+                                    const costDetails = item.costDetails;
+                                    const tokenCostDetails = hasTokenCostDetails(costDetails);
 
                                     return (
                                         <div key={item.id} className='flex flex-col'>
@@ -677,7 +694,15 @@ export function VideoHistoryPanel({
                                                         </div>
                                                     </div>
                                                 </button>
-                                                {!isAssembleMode && item.costDetails && (
+                                                {!isAssembleMode && isFailed && (
+                                                    <div
+                                                        className='absolute top-1 right-1 z-20 flex items-center gap-0.5 rounded-full bg-neutral-700/90 px-1.5 py-0.5 text-[11px] text-white'
+                                                        title='Failed generations are free'>
+                                                        <DollarSign size={12} />
+                                                        Free
+                                                    </div>
+                                                )}
+                                                {!isAssembleMode && !isFailed && costDetails && (
                                                     <Dialog
                                                         open={openCostDialogId === item.id}
                                                         onOpenChange={(isOpen) => !isOpen && setOpenCostDialogId(null)}>
@@ -695,7 +720,8 @@ export function VideoHistoryPanel({
                                                                 )}
                                                                 aria-label='Show cost breakdown'>
                                                                 <DollarSign size={12} />
-                                                                {item.costDetails.totalCost.toFixed(2)}
+                                                                {costDetails.lowerBound ? 'from ' : ''}
+                                                                {costDetails.totalCost.toFixed(2)}
                                                             </button>
                                                         </DialogTrigger>
                                                         <DialogContent className='border-neutral-700 bg-neutral-900 text-white sm:max-w-[450px]'>
@@ -708,35 +734,72 @@ export function VideoHistoryPanel({
                                                                 </DialogDescription>
                                                             </DialogHeader>
                                                             <div className='space-y-2 py-4 text-sm text-neutral-300'>
-                                                                {isFailed && (
-                                                                    <div className='rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200'>
-                                                                        Billed at submission — generation failed.
+                                                                <div className='flex justify-between'>
+                                                                    <span>Model:</span>{' '}
+                                                                    <span>{costDetails.model}</span>
+                                                                </div>
+                                                                {tokenCostDetails && (
+                                                                    <div className='flex justify-between'>
+                                                                        <span>Ratio:</span>{' '}
+                                                                        <span>{costDetails.ratio}</span>
                                                                     </div>
                                                                 )}
                                                                 <div className='flex justify-between'>
-                                                                    <span>Model:</span>{' '}
-                                                                    <span>{item.costDetails.model}</span>
-                                                                </div>
-                                                                <div className='flex justify-between'>
                                                                     <span>Resolution:</span>{' '}
-                                                                    <span>{item.costDetails.resolution}</span>
+                                                                    <span>{costDetails.resolution}</span>
                                                                 </div>
                                                                 <div className='flex justify-between'>
-                                                                    <span>Duration:</span>{' '}
-                                                                    <span>{item.costDetails.duration}s</span>
+                                                                    <span>Output Duration:</span>{' '}
+                                                                    <span>{costDetails.duration}s</span>
                                                                 </div>
-                                                                <div className='flex justify-between'>
-                                                                    <span>Price Per Second:</span>{' '}
-                                                                    <span>
-                                                                        ${item.costDetails.pricePerSecond.toFixed(2)}
-                                                                    </span>
-                                                                </div>
+                                                                {tokenCostDetails ? (
+                                                                    <>
+                                                                        {costDetails.inputVideoSeconds > 0 && (
+                                                                            <div className='flex justify-between'>
+                                                                                <span>Input Video:</span>{' '}
+                                                                                <span>
+                                                                                    {costDetails.inputVideoSeconds.toFixed(
+                                                                                        1
+                                                                                    )}
+                                                                                    s
+                                                                                </span>
+                                                                            </div>
+                                                                        )}
+                                                                        <div className='flex justify-between'>
+                                                                            <span>Pixels:</span>{' '}
+                                                                            <span>
+                                                                                {costDetails.width} x{' '}
+                                                                                {costDetails.height} @{' '}
+                                                                                {costDetails.fps} fps
+                                                                            </span>
+                                                                        </div>
+                                                                        <div className='flex justify-between'>
+                                                                            <span>Tokens:</span>{' '}
+                                                                            <span>{formatTokens(costDetails.tokens)}</span>
+                                                                        </div>
+                                                                        <div className='flex justify-between'>
+                                                                            <span>Unit Price:</span>{' '}
+                                                                            <span>
+                                                                                $
+                                                                                {costDetails.unitPricePerMillionTokens.toFixed(
+                                                                                    2
+                                                                                )}
+                                                                                /1M tokens
+                                                                            </span>
+                                                                        </div>
+                                                                    </>
+                                                                ) : (
+                                                                    <div className='flex justify-between'>
+                                                                        <span>Price Per Second:</span>{' '}
+                                                                        <span>${costDetails.pricePerSecond.toFixed(2)}</span>
+                                                                    </div>
+                                                                )}
                                                                 <hr className='my-2 border-neutral-700' />
                                                                 <div className='flex justify-between font-medium text-white'>
-                                                                    <span>Total Cost:</span>
                                                                     <span>
-                                                                        ${item.costDetails.totalCost.toFixed(2)}
+                                                                        {costDetails.lowerBound ? 'Estimated From:' : 'Cost:'}
                                                                     </span>
+                                                                    <span>${costDetails.totalCost.toFixed(2)}</span>
                                                                 </div>
                                                             </div>
                                                             <DialogFooter>
