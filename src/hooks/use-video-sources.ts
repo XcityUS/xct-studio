@@ -92,7 +92,12 @@ export function useVideoSources() {
 
     /** Registers a remote (CDN / R2) source for an id. */
     const setRemoteSource = React.useCallback((id: string, url: string) => {
-        setRemoteSources((prev) => new Map(prev).set(id, url));
+        setRemoteSources((prev) => {
+            // Re-registering the same URL would hand consumers a new map and
+            // reload any <video> already playing from it.
+            if (prev.get(id) === url) return prev;
+            return new Map(prev).set(id, url);
+        });
     }, []);
 
     const removeSource = React.useCallback((id: string) => {

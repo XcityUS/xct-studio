@@ -31,6 +31,12 @@ Deployed on Railway at studio.xcity.ai; media worker on Cloudflare (R2).
 - **Object URLs are created only in effects** (`use-video-sources`,
   `useImageObjectUrls`) and revoked on removal/unmount. Never call
   `URL.createObjectURL` during render.
+- **A `<video src>` must never be derived from state that changes during
+  playback.** Any change to the attribute reloads the element. The source for
+  one clip legitimately changes (provider link → R2 copy → local blob), and a
+  poster arrives mid-playback, so the player carries the playhead across a
+  swap (`CompletedVideoPlayer`) and paints the first frame by seeking to
+  0.001 s, never by appending a `#t=` fragment conditionally.
 - **Storage names stay legacy** (`SoraVideoDB`, `soraVideoHistory`,
   `openaiApiKey`, `activeVideoJobs`) — renaming orphans existing users' data.
 - **Reference images are inlined as Base64 data URIs at submit** (see
