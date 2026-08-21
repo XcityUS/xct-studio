@@ -7,6 +7,8 @@
  * our own origin, with CORS and range support.
  *
  *   POST /archive        { video_id, source_url }   -> { url, key, bytes, cached }
+ *   GET  /archive/<id>                              -> { url, key, bytes, cached }
+ *   POST /archive/<id>   <raw video bytes>          -> { url, key, bytes, cached }
  *   POST /upload         <raw image/audio/video bytes> -> { url, key, bytes, cached }
  *   GET  /assets                                    -> { assets: [{key, url, bytes, uploaded, kind, name}] }
  *   POST /assets/delete  { key }                    -> { ok }
@@ -176,6 +178,19 @@ async function safeVideoId(id) {
     const sanitized = String(id).replace(/[^A-Za-z0-9._-]/g, '');
     if (sanitized.length <= 120) return sanitized;
     return `${sanitized.slice(0, 120)}-${(await sha256Hex(sanitized)).slice(0, 12)}`;
+}
+
+function archivedVideoKey(owner, videoId, ext = 'mp4') {
+    return `${owner}/${videoId}.${ext}`;
+}
+
+function archivedVideoPayload(request, key, object, cached) {
+    return {
+        url: `${new URL(request.url).origin}/media/${key}`,
+        key,
+        bytes: object?.size ?? null,
+        cached
+    };
 }
 
 /** Upload types accepted for reference media. */
@@ -797,6 +812,97 @@ function etagFromIfMatch(value) {
     return trimmed.replace(/^"|"$/g, '');
 }
 
+function isRecord(value) {
+    return typeof value === 'object' && value !== null;
+}
+
+function normalizeStateDoc(value) {
+    if (!isRecord(value)) {
+        return { updatedAt: 0, history: [], characters: [], portraits: [], deletedIds: [] };
+    }
+    return {
+        updatedAt: Number.isFinite(value.updatedAt) ? value.updatedAt : 0,
+        history: Array.isArray(value.history) ? value.history : [],
+        characters: Array.isArray(value.characters) ? value.characters : [],
+        portraits: Array.isArray(value.portraits) ? value.portraits : [],
+        deletedIds: Array.isArray(value.deletedIds) ? value.deletedIds.filter((id) => typeof id === 'string') : []
+    };
+}
+
+function historyRank(item) {
+    const terminal = item?.status === 'completed' || item?.status === 'failed' ? 2 : 0;
+    return terminal + (item?.storedUrl ? 1 : 0);
+}
+
+function mergeStateDocs(local, remote) {
+    const a = normalizeStateDoc(local);
+    const b = normalizeStateDoc(remote);
+    const deletedIds = Array.from(new Set([...b.deletedIds, ...a.deletedIds])).slice(-500);
+    const tombstoned = new Set(deletedIds);
+
+    const byId = new Map();
+    for (const item of [...b.history, ...a.history]) {
+        if (!isRecord(item) || typeof item.id !== 'string' || tombstoned.has(item.id)) continue;
+        const existing = byId.get(item.id);
+        if (!existing || historyRank(item) >= historyRank(existing)) byId.set(item.id, item);
+    }
+
+    const characterById = new Map();
+    for (const item of [...b.characters, ...a.characters]) {
+        if (isRecord(item) && typeof item.id === 'string' && !tombstoned.has(item.id)) {
+            characterById.set(item.id, item);
+        }
+    }
+
+    const portraitByAssetId = new Map();
+    for (const item of [...b.portraits, ...a.portraits]) {
+        if (isRecord(item) && typeof item.assetId === 'string' && !tombstoned.has(item.assetId)) {
+            portraitByAssetId.set(item.assetId, item);
+        }
+    }
+
+    return {
+        updatedAt: Math.max(a.updatedAt, b.updatedAt),
+        history: Array.from(byId.values()).sort((x, y) => (y.timestamp || 0) - (x.timestamp || 0)),
+        characters: Array.from(characterById.values()),
+        portraits: Array.from(portraitByAssetId.values()),
+        deletedIds
+    };
+}
+
+async function putMergedState(env, key, incomingDoc) {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+        const current = await env.XCITY_MEDIA.get(key);
+        if (!current) {
+            const stored = await env.XCITY_MEDIA.put(key, JSON.stringify(normalizeStateDoc(incomingDoc)), {
+                onlyIf: { etagDoesNotExist: true },
+                httpMetadata: {
+                    contentType: 'application/json',
+                    cacheControl: 'no-store'
+                }
+            });
+            if (stored) return stored;
+            continue;
+        }
+
+        const currentDoc = await current
+            .json()
+            .then((value) => normalizeStateDoc(value))
+            .catch(() => normalizeStateDoc({}));
+        const merged = mergeStateDocs(incomingDoc, currentDoc);
+        const stored = await env.XCITY_MEDIA.put(key, JSON.stringify(merged), {
+            onlyIf: { etagMatches: etagFromIfMatch(current.httpEtag || '') },
+            httpMetadata: {
+                contentType: 'application/json',
+                cacheControl: 'no-store'
+            }
+        });
+        if (stored) return stored;
+    }
+
+    return null;
+}
+
 async function handleStateGet(request, env, cors) {
     const { owner, error } = await authOwner(request, env, cors);
     if (error) return error;
@@ -828,15 +934,17 @@ async function handleStatePut(request, env, cors) {
     }
 
     const text = new TextDecoder().decode(body);
+    let incomingDoc;
     try {
-        JSON.parse(text);
+        incomingDoc = JSON.parse(text);
     } catch {
         return json({ error: 'invalid JSON body' }, 400, cors);
     }
 
+    const key = stateKey(owner);
     const etagMatches = etagFromIfMatch(request.headers.get('if-match'));
     const onlyIf = etagMatches ? { etagMatches } : { etagDoesNotExist: true };
-    const stored = await env.XCITY_MEDIA.put(stateKey(owner), text, {
+    let stored = await env.XCITY_MEDIA.put(key, JSON.stringify(normalizeStateDoc(incomingDoc)), {
         onlyIf,
         httpMetadata: {
             contentType: 'application/json',
@@ -844,7 +952,10 @@ async function handleStatePut(request, env, cors) {
         }
     });
     if (!stored) {
-        return json({ error: 'state changed on another device' }, 412, cors);
+        stored = await putMergedState(env, key, incomingDoc);
+    }
+    if (!stored) {
+        return json({ error: 'state changed on another device after merge retries' }, 412, cors);
     }
 
     return json({ etag: stored.httpEtag }, 200, cors);
@@ -892,15 +1003,11 @@ async function handleArchive(request, env, cors) {
         return json({ error: 'invalid or unauthorized key' }, 403, cors);
     }
 
-    const key = `${owner}/${videoId}.mp4`;
+    const key = archivedVideoKey(owner, videoId);
 
     const existing = await env.XCITY_MEDIA.head(key);
     if (existing) {
-        return json(
-            { url: `${new URL(request.url).origin}/media/${key}`, key, bytes: existing.size, cached: true },
-            200,
-            cors
-        );
+        return json(archivedVideoPayload(request, key, existing, true), 200, cors);
     }
 
     const upstream = await fetch(source.toString());
@@ -922,15 +1029,80 @@ async function handleArchive(request, env, cors) {
     });
 
     return json(
-        {
-            url: `${new URL(request.url).origin}/media/${key}`,
-            key,
-            bytes: stored?.size ?? declared ?? null,
-            cached: false
-        },
+        archivedVideoPayload(request, key, { size: stored?.size ?? declared ?? null }, false),
         200,
         cors
     );
+}
+
+async function handleArchiveLookup(request, env, cors, rawVideoId) {
+    const { owner, error } = await authOwner(request, env, cors);
+    if (error) return error;
+
+    const videoId = await safeVideoId(rawVideoId || '');
+    if (!videoId) {
+        return json({ error: 'video id is required' }, 400, cors);
+    }
+
+    for (const ext of ['mp4', 'webm', 'mov']) {
+        const key = archivedVideoKey(owner, videoId, ext);
+        const existing = await env.XCITY_MEDIA.head(key);
+        if (existing) {
+            return json(archivedVideoPayload(request, key, existing, true), 200, cors);
+        }
+    }
+
+    return json({ error: 'archive not found' }, 404, cors);
+}
+
+async function handleArchiveUpload(request, env, cors, rawVideoId) {
+    const auth = request.headers.get('authorization') || '';
+    const bearer = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+    if (!bearer) {
+        return json({ error: 'missing bearer token' }, 401, cors);
+    }
+
+    const owner = await resolveOwner(bearer, env);
+    if (!owner) {
+        return json({ error: 'invalid or unauthorized key' }, 403, cors);
+    }
+
+    const videoId = await safeVideoId(rawVideoId || '');
+    if (!videoId) {
+        return json({ error: 'video id is required' }, 400, cors);
+    }
+
+    const contentType = (request.headers.get('content-type') || '').split(';')[0].trim();
+    const ext = UPLOAD_TYPES[contentType];
+    if (!ext || !contentType.startsWith('video/')) {
+        return json({ error: 'unsupported content-type (want video/mp4, video/quicktime, or video/webm)' }, 415, cors);
+    }
+
+    const body = await request.arrayBuffer();
+    const maxBytes = Number(env.MAX_BYTES || 0) || 209715200;
+    if (body.byteLength === 0) {
+        return json({ error: 'empty body' }, 400, cors);
+    }
+    if (body.byteLength > maxBytes) {
+        return json({ error: `video is ${body.byteLength} bytes, over the ${maxBytes} limit` }, 413, cors);
+    }
+
+    const key = archivedVideoKey(owner, videoId, ext);
+    const existing = await env.XCITY_MEDIA.head(key);
+    if (existing) {
+        return json(archivedVideoPayload(request, key, existing, true), 200, cors);
+    }
+
+    const name = assetNameFromHeader(request);
+    const stored = await env.XCITY_MEDIA.put(key, body, {
+        httpMetadata: {
+            contentType,
+            cacheControl: 'public, max-age=31536000, immutable'
+        },
+        ...(name ? { customMetadata: { name } } : {})
+    });
+
+    return json(archivedVideoPayload(request, key, { size: stored?.size ?? body.byteLength }, false), 200, cors);
 }
 
 async function handleMedia(request, env, key, cors) {
@@ -983,6 +1155,15 @@ export default {
 
         if (url.pathname === '/archive' && request.method === 'POST') {
             return handleArchive(request, env, cors);
+        }
+
+        const archiveMediaMatch = url.pathname.match(/^\/archive\/(.+)$/);
+        if (archiveMediaMatch && request.method === 'GET') {
+            return handleArchiveLookup(request, env, cors, decodeURIComponent(archiveMediaMatch[1]));
+        }
+
+        if (archiveMediaMatch && request.method === 'POST') {
+            return handleArchiveUpload(request, env, cors, decodeURIComponent(archiveMediaMatch[1]));
         }
 
         if (url.pathname === '/upload' && request.method === 'POST') {

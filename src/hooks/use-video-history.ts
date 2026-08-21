@@ -170,6 +170,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
     const [characters, setCharacters] = React.useState<VideoCharacter[]>([]);
     const [portraits, setPortraits] = React.useState<VideoPortrait[]>([]);
     const [isInitialLoad, setIsInitialLoad] = React.useState(true);
+    const [cloudReadyVersion, setCloudReadyVersion] = React.useState(0);
 
     const historyRef = React.useRef<VideoMetadata[]>([]);
     const charactersRef = React.useRef<VideoCharacter[]>([]);
@@ -179,9 +180,11 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
     const etagRef = React.useRef<string | null>(null);
     const resolveKeyRef = React.useRef(resolveKey);
     const didBootSyncRef = React.useRef(false);
+    const cloudReadyRef = React.useRef(false);
     const didObserveLoadedStateRef = React.useRef(false);
     const skipNextCloudPushRef = React.useRef(false);
     const pushTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+    const pushQueueRef = React.useRef<Promise<void>>(Promise.resolve());
 
     historyRef.current = history;
     charactersRef.current = characters;
@@ -202,6 +205,12 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
         }),
         []
     );
+
+    const markCloudReady = React.useCallback(() => {
+        if (cloudReadyRef.current) return;
+        cloudReadyRef.current = true;
+        setCloudReadyVersion((version) => version + 1);
+    }, []);
 
     // Load once on mount
     React.useEffect(() => {
@@ -296,23 +305,55 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
         [applyCloudDoc, localDoc]
     );
 
-    const pushDoc = React.useCallback(async (apiKey: string, doc: HistoryDoc) => {
-        etagRef.current = await pushCloudState(
-            {
-                updatedAt: doc.updatedAt,
-                history: doc.history,
-                characters: doc.characters,
-                portraits: doc.portraits,
-                deletedIds: doc.deletedIds
-            },
-            apiKey,
-            etagRef.current
-        );
-    }, []);
+    const pushDoc = React.useCallback(
+        async (apiKey: string, doc: HistoryDoc) => {
+            let lastConflict: StateConflictError | null = null;
+
+            for (let attempt = 0; attempt < 3; attempt += 1) {
+                let nextDoc = attempt === 0 ? doc : localDoc();
+                let nextEtag: string | null = null;
+
+                const cloud = await fetchCloudState(apiKey);
+                if (cloud) {
+                    nextEtag = cloud.etag;
+                    const cloudDoc = parseHistoryDoc(cloud.doc);
+                    if (cloudDoc) {
+                        nextDoc = mergeDocs(nextDoc, cloudDoc);
+                        if (!sameDocContent(nextDoc, localDoc())) {
+                            applyCloudDoc(nextDoc);
+                        }
+                    } else {
+                        console.warn('[history-sync] Ignoring invalid cloud history document.');
+                    }
+                }
+
+                try {
+                    etagRef.current = await pushCloudState(
+                        {
+                            updatedAt: nextDoc.updatedAt,
+                            history: nextDoc.history,
+                            characters: nextDoc.characters,
+                            portraits: nextDoc.portraits,
+                            deletedIds: nextDoc.deletedIds
+                        },
+                        apiKey,
+                        nextEtag
+                    );
+                    return;
+                } catch (err) {
+                    if (!(err instanceof StateConflictError)) throw err;
+                    lastConflict = err;
+                }
+            }
+
+            throw lastConflict ?? new StateConflictError();
+        },
+        [applyCloudDoc, localDoc]
+    );
 
     pushDocRef.current = pushDoc;
 
-    const pushDocOrMerge = React.useCallback(
+    const pushDocOrMergeNow = React.useCallback(
         async (apiKey: string, doc: HistoryDoc) => {
             try {
                 await pushDoc(apiKey, doc);
@@ -328,6 +369,16 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
         [mergeWithServerState, pushDoc]
     );
 
+    const pushDocOrMerge = React.useCallback(
+        (apiKey: string, doc: HistoryDoc) => {
+            const run = () => pushDocOrMergeNow(apiKey, doc);
+            const queued = pushQueueRef.current.then(run, run);
+            pushQueueRef.current = queued.catch(() => undefined);
+            return queued;
+        },
+        [pushDocOrMergeNow]
+    );
+
     // One-shot boot reconciliation. Local state is usable immediately; cloud
     // sync quietly skips itself when there is no key or no media worker.
     React.useEffect(() => {
@@ -337,10 +388,16 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
         let cancelled = false;
         void (async () => {
             try {
-                if (!(await mediaArchiveEnabled())) return;
+                if (!(await mediaArchiveEnabled())) {
+                    markCloudReady();
+                    return;
+                }
 
                 const key = await resolveKeyRef.current?.();
-                if (!key || cancelled) return;
+                if (!key || cancelled) {
+                    markCloudReady();
+                    return;
+                }
 
                 const cloud = await fetchCloudState(key);
                 if (cancelled) return;
@@ -348,6 +405,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
                 const mine = localDoc();
                 if (!cloud) {
                     await pushDocOrMerge(key, mine);
+                    markCloudReady();
                     return;
                 }
 
@@ -355,6 +413,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
                 const cloudDoc = parseHistoryDoc(cloud.doc);
                 if (!cloudDoc) {
                     console.warn('[history-sync] Ignoring invalid cloud history document.');
+                    markCloudReady();
                     return;
                 }
 
@@ -365,20 +424,23 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
                 if (!sameDocContent(merged, cloudDoc)) {
                     await pushDocOrMerge(key, merged);
                 }
+                markCloudReady();
             } catch (err) {
                 console.warn('[history-sync] Could not reconcile cloud history:', err);
+                markCloudReady();
             }
         })();
 
         return () => {
             cancelled = true;
         };
-    }, [applyCloudDoc, isInitialLoad, localDoc, pushDocOrMerge, resolveKey]);
+    }, [applyCloudDoc, isInitialLoad, localDoc, markCloudReady, pushDocOrMerge, resolveKey]);
 
     // Debounced cloud push after user/local mutations. The first loaded state
     // and server-applied states are handled by boot reconciliation, not here.
     React.useEffect(() => {
         if (isInitialLoad || !resolveKey) return;
+        if (!cloudReadyRef.current) return;
 
         if (!didObserveLoadedStateRef.current) {
             didObserveLoadedStateRef.current = true;
@@ -414,7 +476,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
                 pushTimerRef.current = null;
             }
         };
-    }, [characters, history, isInitialLoad, localDoc, portraits, pushDocOrMerge, resolveKey]);
+    }, [characters, cloudReadyVersion, history, isInitialLoad, localDoc, portraits, pushDocOrMerge, resolveKey]);
 
     const mutateDoc = React.useCallback(
         (update: (prev: {

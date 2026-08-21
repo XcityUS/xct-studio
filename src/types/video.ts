@@ -43,6 +43,8 @@ export type VideoMetadata = {
     mode: 'create' | 'remix';
     /** Permanent R2 URL once archived — outlives the provider's 24h CDN link. */
     storedUrl?: string;
+    /** Provider CDN URL captured at completion time. Temporary; may expire after provider retention. */
+    providerUrl?: string;
     /**
      * Exact submission parameters, kept for reuse/regenerate. Items created
      * before this field existed fall back to parsing `size`/`model`.

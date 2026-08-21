@@ -1,6 +1,6 @@
 'use client';
 
-import { verifyFrontendApiKey } from '@/lib/openai-client';
+import { RateLimitError, verifyFrontendApiKey } from '@/lib/openai-client';
 import { InvalidApiKeyError } from '@/lib/errors';
 import { XCITY_SSO_ENABLED, fetchXcityUserKey } from '@/lib/xcity-sso';
 import * as React from 'react';
@@ -105,6 +105,9 @@ export function useXcityKey() {
             } catch (error) {
                 if (error instanceof InvalidApiKeyError) {
                     throw new Error('The gateway rejected this API key. Please double-check and try again.');
+                }
+                if (error instanceof RateLimitError) {
+                    throw new Error('This API key is rate-limited right now. Wait for the limit to reset or use a key with a higher RPM.');
                 }
                 console.error('Error verifying API key:', error);
                 throw new Error('Failed to verify API key. Please try again.');

@@ -19,9 +19,9 @@ export function resolveMediaState(
     sources: { hasBlob: boolean },
     now: number
 ): MediaState {
-    if (item.status !== 'completed') return 'pending';
     if (sources.hasBlob) return 'local';
     if (item.storedUrl) return 'archived';
+    if (item.status !== 'completed') return 'pending';
     if (item.mediaExpired || providerLinkLikelyDead(item, now)) return 'expired';
     // Inside the 24 h window the provider link is presumed usable even before
     // this session has resolved one (selection resolves it on demand).
