@@ -319,6 +319,85 @@ export async function archiveVideo(videoId: string, sourceUrl: string, apiKey: s
     }
 }
 
+/** Returns the deterministic archive URL when this video already exists in R2. */
+export async function fetchArchivedVideo(videoId: string, apiKey: string): Promise<ArchivedMedia | null> {
+    const workerUrl = await loadWorkerUrl();
+    if (!workerUrl) return null;
+
+    try {
+        const res = await fetch(`${workerUrl}/archive/${encodeURIComponent(videoId)}`, {
+            headers: { Authorization: `Bearer ${apiKey}` },
+            cache: 'no-store'
+        });
+        if (res.status === 404) return null;
+        if (!res.ok) {
+            const detail = await res.text().catch(() => '');
+            console.warn(`[media-archive] ${videoId} lookup failed: ${res.status} ${detail.slice(0, 300)}`);
+            return null;
+        }
+        const data = (await res.json()) as { url?: string; bytes?: number | null; cached?: boolean };
+        if (!data.url) return null;
+        return { url: data.url, bytes: data.bytes ?? null, cached: !!data.cached };
+    } catch (err) {
+        console.warn(`[media-archive] ${videoId} lookup errored:`, err);
+        return null;
+    }
+}
+
+/**
+ * Archives a video that is already cached in this browser. This covers the
+ * local-first case where IndexedDB has the MP4 but the provider's temporary
+ * URL is missing, expired, or CORS-hostile.
+ */
+export async function archiveLocalVideo(
+    videoId: string,
+    blob: Blob,
+    apiKey: string,
+    name?: string
+): Promise<ArchivedMedia | null> {
+    const workerUrl = await loadWorkerUrl();
+    if (!workerUrl) return null;
+
+    const rawContentType = blob.type || '';
+    const looksLikeMp4 =
+        !rawContentType ||
+        rawContentType === 'application/octet-stream' ||
+        name?.toLowerCase().endsWith('.mp4') ||
+        videoId.startsWith('video_');
+    const contentType = looksLikeMp4 ? 'video/mp4' : rawContentType;
+    if (!UPLOADABLE_VIDEO_TYPES.has(contentType)) {
+        console.warn(`[media-archive] ${videoId} local cache has unsupported type: ${contentType || '(empty)'}`);
+        return null;
+    }
+    if (blob.size > MAX_VIDEO_UPLOAD_BYTES) {
+        console.warn(`[media-archive] ${videoId} local cache is too large to upload (${blob.size} bytes)`);
+        return null;
+    }
+
+    try {
+        const res = await fetch(`${workerUrl}/archive/${encodeURIComponent(videoId)}`, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${apiKey}`,
+                'Content-Type': contentType,
+                ...assetNameHeader(name || videoId)
+            },
+            body: blob
+        });
+        if (!res.ok) {
+            const detail = await res.text().catch(() => '');
+            console.warn(`[media-archive] ${videoId} local upload failed: ${res.status} ${detail.slice(0, 300)}`);
+            return null;
+        }
+        const data = (await res.json()) as { url?: string; bytes?: number | null; cached?: boolean };
+        if (!data.url) return null;
+        return { url: data.url, bytes: data.bytes ?? blob.size, cached: !!data.cached };
+    } catch (err) {
+        console.warn(`[media-archive] ${videoId} local upload errored:`, err);
+        return null;
+    }
+}
+
 export interface UserAsset {
     key: string;
     url: string;

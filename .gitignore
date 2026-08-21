@@ -52,3 +52,6 @@ media-worker/.wrangler/
 
 # local Claude Code session config
 .claude/
+
+# local code intelligence index
+.codegraph/

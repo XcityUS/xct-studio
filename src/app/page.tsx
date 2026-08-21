@@ -233,6 +233,7 @@ export default function HomePage() {
     const [unresolvedPreviewIds, setUnresolvedPreviewIds] = React.useState<Set<string>>(new Set());
     const unresolvedPreviewIdsRef = React.useRef(unresolvedPreviewIds);
     unresolvedPreviewIdsRef.current = unresolvedPreviewIds;
+    const [resolvingPreviewIds, setResolvingPreviewIds] = React.useState<Set<string>>(new Set());
     const markPreviewUnresolved = React.useCallback((id: string, unresolved: boolean) => {
         setUnresolvedPreviewIds((prev) => {
             if (prev.has(id) === unresolved) return prev;
@@ -242,6 +243,17 @@ export default function HomePage() {
             return next;
         });
     }, []);
+    const markPreviewResolving = React.useCallback((id: string, resolving: boolean) => {
+        setResolvingPreviewIds((prev) => {
+            if (prev.has(id) === resolving) return prev;
+            const next = new Set(prev);
+            if (resolving) next.add(id);
+            else next.delete(id);
+            return next;
+        });
+    }, []);
+    const previewStateActionsRef = React.useRef({ markPreviewResolving, markPreviewUnresolved });
+    previewStateActionsRef.current = { markPreviewResolving, markPreviewUnresolved };
     const [isApiKeyDialogOpen, setIsApiKeyDialogOpen] = React.useState(false);
     const [currentJobId, setCurrentJobId] = React.useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = React.useState(false);
@@ -699,6 +711,7 @@ export default function HomePage() {
     const downloadAndStoreVideo = React.useCallback(
         async (job: VideoJob) => {
             console.log(`Downloading video for job: ${job.id}`);
+            markPreviewResolving(job.id, true);
 
             // Ark attaches the CDN link AFTER the job first reports completed,
             // and the gap scales with the render: short clips take seconds,
@@ -724,6 +737,17 @@ export default function HomePage() {
             // by the reconciliation hook once history shows the completion.
             if (sourceUrl) {
                 setRemoteSource(job.id, sourceUrl);
+                updateItem(job.id, { providerUrl: sourceUrl });
+                markPreviewResolving(job.id, false);
+            } else {
+                markPreviewResolving(job.id, false);
+                markPreviewUnresolved(job.id, true);
+                setError(
+                    `The gateway reported the video as completed but has not exposed its playback link yet (job ${job.id}). ` +
+                        'Use Retry in a moment, or select it from History to probe again.',
+                    'output'
+                );
+                return;
             }
 
             try {
@@ -747,19 +771,21 @@ export default function HomePage() {
                 });
                 console.log(`Video ${job.id} completed and stored`);
             } catch (err) {
+                markPreviewResolving(job.id, false);
                 if (err instanceof InvalidApiKeyError) {
                     handleInvalidApiKey();
                     return;
                 }
-                console.error(`Error storing video ${job.id}:`, err);
                 if (sourceUrl) {
                     // Playable from the CDN link — local storage is
                     // best-effort, so mark it done rather than failing it.
+                    console.warn(`Could not cache video ${job.id}; using the remote playback URL instead.`, err);
                     updateItem(job.id, {
                         durationMs: Date.now() - job.created_at * 1000,
                         status: 'completed'
                     });
                 } else {
+                    console.error(`Error storing video ${job.id}:`, err);
                     markPreviewUnresolved(job.id, true);
                     setError(
                         `The gateway reported the video as completed but never exposed its download link (job ${job.id}). ` +
@@ -769,7 +795,15 @@ export default function HomePage() {
                 }
             }
         },
-        [videoService, setRemoteSource, updateItem, handleInvalidApiKey, markPreviewUnresolved, setError]
+        [
+            videoService,
+            setRemoteSource,
+            updateItem,
+            handleInvalidApiKey,
+            markPreviewResolving,
+            markPreviewUnresolved,
+            setError
+        ]
     );
 
     const jobCallbacks = React.useMemo(
@@ -824,6 +858,7 @@ export default function HomePage() {
         onArchived: (id, url) => {
             setRemoteSource(id, url);
             markPreviewUnresolved(id, false);
+            markPreviewResolving(id, false);
             updateItem(id, { storedUrl: url, mediaExpired: false });
         },
         onExpired: (id) => {
@@ -837,6 +872,17 @@ export default function HomePage() {
         history,
         enabled: !isInitialLoad
     });
+
+    // Repair local metadata when the browser already has the MP4 but the last
+    // history write was interrupted before status flipped to completed.
+    React.useEffect(() => {
+        if (isInitialLoad) return;
+        for (const item of history) {
+            if (item.status === 'processing' && hasLocalCopy(item.id)) {
+                updateItem(item.id, { status: 'completed', progress: 100, storageModeUsed: 'indexeddb' });
+            }
+        }
+    }, [history, hasLocalCopy, isInitialLoad, updateItem]);
 
     // Resume polling for every in-flight history item — including ones
     // created on another device (cloud-synced) or before a crash. The gateway
@@ -1402,14 +1448,23 @@ export default function HomePage() {
      * the panel used to keep replaying that corpse.
      */
     const resolvePlaybackSource = React.useCallback(
-        async (item: VideoMetadata, options: { force?: boolean } = {}) => {
-            if (hasLocalCopy(item.id)) {
+        async (item: VideoMetadata, options: { force?: boolean; ignoreLocal?: boolean } = {}) => {
+            if (!options.ignoreLocal && hasLocalCopy(item.id)) {
+                markPreviewResolving(item.id, false);
                 markPreviewUnresolved(item.id, false);
                 return;
             }
 
             if (item.storedUrl) {
                 if (getVideoSrc(item.id) !== item.storedUrl) setRemoteSource(item.id, item.storedUrl);
+                markPreviewResolving(item.id, false);
+                markPreviewUnresolved(item.id, false);
+                return;
+            }
+
+            if (item.providerUrl && !providerLinkLikelyDead(item, Date.now())) {
+                if (getVideoSrc(item.id) !== item.providerUrl) setRemoteSource(item.id, item.providerUrl);
+                markPreviewResolving(item.id, false);
                 markPreviewUnresolved(item.id, false);
                 return;
             }
@@ -1417,6 +1472,7 @@ export default function HomePage() {
             if (item.status === 'failed') return;
 
             if (item.mediaExpired || providerLinkLikelyDead(item, Date.now())) {
+                markPreviewResolving(item.id, false);
                 updateItem(item.id, { mediaExpired: true });
                 return;
             }
@@ -1425,10 +1481,12 @@ export default function HomePage() {
             // already know the gateway has nothing for.
             if (!options.force && (hasSource(item.id) || unresolvedPreviewIdsRef.current.has(item.id))) return;
 
+            markPreviewResolving(item.id, true);
             try {
                 const fresh = await videoService.retrieveVideo(item.id);
                 if (fresh.output_url) {
                     setRemoteSource(item.id, fresh.output_url);
+                    updateItem(item.id, { providerUrl: fresh.output_url });
                     markPreviewUnresolved(item.id, false);
                 } else {
                     markPreviewUnresolved(item.id, true);
@@ -1436,9 +1494,20 @@ export default function HomePage() {
             } catch (err) {
                 markPreviewUnresolved(item.id, true);
                 console.warn(`Could not resolve a source for ${item.id}:`, err);
+            } finally {
+                markPreviewResolving(item.id, false);
             }
         },
-        [getVideoSrc, hasLocalCopy, hasSource, markPreviewUnresolved, setRemoteSource, updateItem, videoService]
+        [
+            getVideoSrc,
+            hasLocalCopy,
+            hasSource,
+            markPreviewResolving,
+            markPreviewUnresolved,
+            setRemoteSource,
+            updateItem,
+            videoService
+        ]
     );
 
     const handleHistorySelect = (item: VideoMetadata) => {
@@ -1477,9 +1546,23 @@ export default function HomePage() {
         const item = history.find((candidate) => candidate.id === currentJobId);
         if (!item) return;
         markPreviewUnresolved(item.id, false);
+        markPreviewResolving(item.id, true);
         retryArchive(item.id);
-        void resolvePlaybackSource(item, { force: true });
-    }, [currentJobId, history, markPreviewUnresolved, resolvePlaybackSource, retryArchive]);
+        void (async () => {
+            try {
+                await resolvePlaybackSource(item, { force: true });
+            } finally {
+                markPreviewResolving(item.id, false);
+            }
+        })();
+    }, [
+        currentJobId,
+        history,
+        markPreviewResolving,
+        markPreviewUnresolved,
+        resolvePlaybackSource,
+        retryArchive
+    ]);
 
     const handleClearHistory = async () => {
         const confirmed = window.confirm(
@@ -1521,7 +1604,11 @@ export default function HomePage() {
 
     const handleDownloadVideo = async (videoId: string) => {
         try {
-            const url = getVideoSrc(videoId);
+            const item = history.find((candidate) => candidate.id === videoId);
+            const url =
+                getVideoSrc(videoId) ??
+                item?.storedUrl ??
+                (item?.providerUrl && !providerLinkLikelyDead(item, Date.now()) ? item.providerUrl : undefined);
             if (!url) {
                 throw new Error('Video source not found');
             }
@@ -1552,8 +1639,31 @@ export default function HomePage() {
             !hasLocalCopy(currentHistoryItem.id) &&
             (currentHistoryItem.mediaExpired || providerLinkLikelyDead(currentHistoryItem, Date.now()))
     );
-    const currentVideoSrc = currentJobId && !currentMediaExpired ? getVideoSrc(currentJobId) : null;
+    const currentFallbackVideoSrc =
+        currentHistoryItem?.storedUrl ??
+        (currentHistoryItem?.providerUrl && !providerLinkLikelyDead(currentHistoryItem, Date.now())
+            ? currentHistoryItem.providerUrl
+            : undefined);
+    const currentVideoSrc =
+        currentJobId && !currentMediaExpired ? (getVideoSrc(currentJobId) ?? currentFallbackVideoSrc) : null;
     const currentThumbnailSrc = currentJobId ? getThumbnailSrc(currentJobId) : null;
+
+    React.useEffect(() => {
+        if (currentHistoryItem?.status === 'completed' && currentVideoSrc) {
+            previewStateActionsRef.current.markPreviewUnresolved(currentHistoryItem.id, false);
+            previewStateActionsRef.current.markPreviewResolving(currentHistoryItem.id, false);
+            return;
+        }
+
+        if (
+            currentHistoryItem?.status === 'completed' &&
+            !currentVideoSrc &&
+            !currentMediaExpired &&
+            !unresolvedPreviewIds.has(currentHistoryItem.id)
+        ) {
+            void resolvePlaybackSource(currentHistoryItem);
+        }
+    }, [currentHistoryItem, currentMediaExpired, currentVideoSrc, resolvePlaybackSource, unresolvedPreviewIds]);
 
     // Without SSO the manual key is the only way in — gate until one is set.
     const isApiKeyGateBlocked = !XCITY_SSO_ENABLED && !apiKey;
@@ -1670,6 +1780,7 @@ export default function HomePage() {
                         shareItem={currentHistoryItem}
                         isSharePending={Boolean(currentHistoryItem && sharingVideoId === currentHistoryItem.id)}
                         previewUnavailable={Boolean(currentJobId && unresolvedPreviewIds.has(currentJobId))}
+                        isPreviewResolving={Boolean(currentJobId && resolvingPreviewIds.has(currentJobId))}
                         onRetryPreview={handleRetryPreview}
                         error={outputError}
                     />

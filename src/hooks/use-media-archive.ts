@@ -1,6 +1,14 @@
 'use client';
 
-import { ArchiveSourceFetchError, archiveVideo, mediaArchiveEnabled } from '@/lib/media-archive';
+import { db } from '@/lib/db';
+import {
+    ArchiveSourceFetchError,
+    archiveLocalVideo,
+    archiveVideo,
+    fetchArchivedVideo,
+    listUserAssets,
+    mediaArchiveEnabled
+} from '@/lib/media-archive';
 import { providerLinkLikelyDead } from '@/lib/media-state';
 import type { VideoService } from '@/lib/video-service';
 import type { VideoMetadata } from '@/types/video';
@@ -17,6 +25,11 @@ interface ArchiveAttemptState {
     attempts: number;
     /** Epoch ms before which this id must not be retried. */
     nextAt: number;
+}
+
+function archivedAssetNameMatches(item: VideoMetadata, name: string | null) {
+    const normalized = (name || '').trim();
+    return normalized === item.id || normalized === item.filename || normalized === `${item.id}.mp4`;
 }
 
 interface UseMediaArchiveOptions {
@@ -57,7 +70,7 @@ export function useMediaArchive({
     const busyRef = React.useRef(false);
     const timerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     // Bumped after each attempt so the scheduling effect re-evaluates the queue.
-    const [, setPass] = React.useState(0);
+    const [pass, setPass] = React.useState(0);
 
     const serviceRef = React.useRef(service);
     const resolveKeyRef = React.useRef(resolveKey);
@@ -122,18 +135,46 @@ export function useMediaArchive({
                 const key = await resolveKeyRef.current();
                 if (!key) return; // Signed out — retry via backoff below.
 
-                // Ark's link expires, so always read the job's current one.
-                const job = await serviceRef.current.retrieveVideo(due.id);
-                if (!job.output_url) {
-                    expired = providerLinkLikelyDead(due, Date.now());
-                    if (expired) {
-                        attemptsRef.current.set(due.id, { attempts: MAX_ATTEMPTS, nextAt: Infinity });
-                        onExpiredRef.current?.(due.id);
-                    }
+                let archived = await fetchArchivedVideo(due.id, key);
+                if (archived) {
+                    success = true;
+                    attemptsRef.current.delete(due.id);
+                    onArchivedRef.current(due.id, archived.url, archived.bytes);
                     return;
                 }
 
-                const archived = await archiveVideo(due.id, job.output_url, key);
+                // Backfill objects uploaded by older builds through /upload.
+                // Those live at content-hash keys, but carry X-Asset-Name as
+                // custom metadata, so the video id can still recover the URL.
+                const legacyAsset = (await listUserAssets(key).catch(() => [])).find(
+                    (asset) => asset.kind === 'video' && archivedAssetNameMatches(due, asset.name)
+                );
+                if (legacyAsset) {
+                    success = true;
+                    attemptsRef.current.delete(due.id);
+                    onArchivedRef.current(due.id, legacyAsset.url, legacyAsset.bytes);
+                    return;
+                }
+
+                const localRecord = await db.videos.get(due.id);
+                archived = localRecord?.blob
+                    ? await archiveLocalVideo(due.id, localRecord.blob, key, localRecord.filename)
+                    : null;
+
+                if (!archived) {
+                    // Ark's link expires, so always read the job's current one.
+                    const job = await serviceRef.current.retrieveVideo(due.id);
+                    if (!job.output_url) {
+                        expired = providerLinkLikelyDead(due, Date.now());
+                        if (expired) {
+                            attemptsRef.current.set(due.id, { attempts: MAX_ATTEMPTS, nextAt: Infinity });
+                            onExpiredRef.current?.(due.id);
+                        }
+                        return;
+                    }
+
+                    archived = await archiveVideo(due.id, job.output_url, key);
+                }
                 if (!archived) return;
 
                 success = true;
@@ -164,7 +205,7 @@ export function useMediaArchive({
                 setPass((p) => p + 1);
             }
         })();
-    });
+    }, [enabled, history, pass]);
 
     React.useEffect(() => {
         return () => {

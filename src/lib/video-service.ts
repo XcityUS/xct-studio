@@ -1,5 +1,5 @@
 import { InvalidApiKeyError, RealPersonImageError } from './errors';
-import { createFrontendOpenAI } from './openai-client';
+import { BudgetExceededError, RateLimitError, createFrontendOpenAI } from './openai-client';
 import { clampSeconds } from './seedance';
 import type { VideoJob, VideoJobCreate } from '@/types/video';
 
@@ -83,6 +83,25 @@ const STATUS_MAP: Record<string, VideoJob['status']> = {
     expired: 'failed'
 };
 
+const MIN_RETRIEVE_INTERVAL_MS = 30_000;
+
+function retryDelayMs(error: RateLimitError) {
+    const retryAt = error.retryAt;
+    if (!retryAt) return 30_000;
+
+    const asSeconds = Number(retryAt);
+    if (Number.isFinite(asSeconds)) {
+        return Math.max(1_000, asSeconds * 1000);
+    }
+
+    const asDate = Date.parse(retryAt);
+    if (Number.isFinite(asDate)) {
+        return Math.max(1_000, asDate - Date.now());
+    }
+
+    return 30_000;
+}
+
 function normalizeJob(raw: unknown): VideoJob {
     const { seed, ...job } = raw as Omit<VideoJob, 'progress' | 'seed' | 'status'> & {
         progress?: number | string;
@@ -104,6 +123,9 @@ function normalizeJob(raw: unknown): VideoJob {
 export class VideoService {
     private getApiKey: () => string | null;
     private baseURL?: string;
+    private retrieveInflight = new Map<string, Promise<VideoJob>>();
+    private retrieveCache = new Map<string, { job: VideoJob; fetchedAt: number }>();
+    private retrievePausedUntil = 0;
 
     /**
      * Takes a key *getter*, not a key: SSO keys arrive async and rotate, and
@@ -130,6 +152,24 @@ export class VideoService {
             const err = error as { message?: string; type?: string; error?: { message?: string; type?: string } };
             const gatewayMessage = err.error?.message ?? err.message;
             const errorType = err.error?.type ?? err.type;
+            const gatewayCode = (err as { code?: string; error?: { code?: string } }).error?.code ?? code;
+
+            if (status === 429) {
+                const headers = (error as { headers?: Headers | Record<string, string> }).headers;
+                const retryAt =
+                    headers instanceof Headers
+                        ? (headers.get('x-ratelimit-reset-requests') ?? headers.get('retry-after') ?? undefined)
+                        : headers?.['x-ratelimit-reset-requests'] ?? headers?.['retry-after'];
+                throw new RateLimitError(gatewayMessage || 'The gateway is rate-limiting this API key right now.', retryAt);
+            }
+
+            if (
+                errorType === 'budget_exceeded' ||
+                gatewayCode === 'budget_exceeded' ||
+                (typeof gatewayMessage === 'string' && /budget has been exceeded/i.test(gatewayMessage))
+            ) {
+                throw new BudgetExceededError(gatewayMessage || 'The API key budget has been exceeded.');
+            }
 
             if (typeof status === 'number' && (status === 401 || status === 403)) {
                 // LiteLLM answers "this key may not use that model" with a 401
@@ -201,14 +241,43 @@ export class VideoService {
     }
 
     async retrieveVideo(videoId: string): Promise<VideoJob> {
+        const cached = this.retrieveCache.get(videoId);
+        if (cached && Date.now() - cached.fetchedAt < MIN_RETRIEVE_INTERVAL_MS) {
+            return cached.job;
+        }
+
+        const inflight = this.retrieveInflight.get(videoId);
+        if (inflight) return inflight;
+
         try {
             // Raw GET, not the typed videos.retrieve helper: the SDK models
             // only OpenAI's documented fields and drops `output_url`, the
             // provider's direct CDN link we play from.
-            const video = await this.client().get(`/videos/${encodeURIComponent(videoId)}`);
-            return normalizeJob(video);
+            const request = (async () => {
+                const pause = this.retrievePausedUntil - Date.now();
+                if (pause > 0) {
+                    await new Promise((resolve) => setTimeout(resolve, pause));
+                }
+
+                const video = await this.client().get(`/videos/${encodeURIComponent(videoId)}`);
+                const job = normalizeJob(video);
+                this.retrieveCache.set(videoId, { job, fetchedAt: Date.now() });
+                return job;
+            })();
+
+            this.retrieveInflight.set(videoId, request);
+            return await request;
         } catch (error) {
-            this.handleError(error);
+            try {
+                this.handleError(error);
+            } catch (handled) {
+                if (handled instanceof RateLimitError) {
+                    this.retrievePausedUntil = Math.max(this.retrievePausedUntil, Date.now() + retryDelayMs(handled));
+                }
+                throw handled;
+            }
+        } finally {
+            this.retrieveInflight.delete(videoId);
         }
     }
 
@@ -228,11 +297,39 @@ export class VideoService {
      */
     async downloadContent(videoId: string, outputUrl?: string): Promise<Blob> {
         if (outputUrl) {
+            const isVolcesCdn = (() => {
+                try {
+                    return new URL(outputUrl).hostname.endsWith('.volces.com');
+                } catch {
+                    return false;
+                }
+            })();
+            const downloadViaApp = async () => {
+                const proxied = await fetch('/api/video-content', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: outputUrl })
+                });
+                if (proxied.ok) {
+                    return await proxied.blob();
+                }
+                throw new Error(`Proxied CDN download failed (${proxied.status}).`);
+            };
+
+            if (isVolcesCdn) {
+                return downloadViaApp();
+            }
+
             // Plain cross-origin GET: no auth header, so the CDN's CORS policy
             // is the only gate. If it blocks us the video still plays via the
             // <video> element (media loads are not CORS-gated) — the caller
             // treats this archive step as best-effort.
-            const direct = await fetch(outputUrl);
+            let direct: Response;
+            try {
+                direct = await fetch(outputUrl);
+            } catch {
+                return downloadViaApp();
+            }
             if (direct.ok) {
                 return await direct.blob();
             }

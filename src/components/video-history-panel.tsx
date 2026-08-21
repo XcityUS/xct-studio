@@ -17,6 +17,7 @@ import { db } from '@/lib/db';
 import { resolveMediaState } from '@/lib/media-state';
 import type { CaptionSegment } from '@/lib/captions';
 import type { UserAsset } from '@/lib/media-archive';
+import { estimateVideoProgress } from '@/lib/progress';
 import { cn } from '@/lib/utils';
 import type { VideoMetadata, VideoJob } from '@/types/video';
 import {
@@ -108,20 +109,24 @@ function TilePrompt({ prompt }: { prompt: string }) {
     );
 }
 
-type StatusFilter = 'all' | 'completed' | 'processing' | 'failed';
+type StatusFilter = 'all' | 'completed' | 'processing' | 'archiving' | 'failed';
 
 const STATUS_FILTERS: Array<{ id: StatusFilter; label: string }> = [
     { id: 'all', label: 'All' },
     { id: 'completed', label: 'Completed' },
     { id: 'processing', label: 'Processing' },
+    { id: 'archiving', label: 'Archiving' },
     { id: 'failed', label: 'Failed' }
 ];
 
-function getHistoryItemState(item: VideoMetadata, job?: VideoJob) {
+function getHistoryItemState(item: VideoMetadata, job?: VideoJob, hasPlayableMedia = false) {
+    const isFailed = job?.status === 'failed' || item.status === 'failed';
+    const isCompleted =
+        !isFailed && (hasPlayableMedia || job?.status === 'completed' || (item.status ?? 'completed') === 'completed');
     const isProcessing =
-        item.status === 'processing' || (job && (job.status === 'queued' || job.status === 'in_progress'));
-    const isFailed = item.status === 'failed' || (job && job.status === 'failed');
-    const isCompleted = !isProcessing && !isFailed && (item.status ?? 'completed') === 'completed';
+        !isCompleted &&
+        !isFailed &&
+        (item.status === 'processing' || job?.status === 'queued' || job?.status === 'in_progress');
 
     return { isProcessing, isFailed, isCompleted };
 }
@@ -204,12 +209,26 @@ export function VideoHistoryPanel({
     const filteredHistory = React.useMemo(() => {
         const query = promptQuery.trim().toLowerCase();
         return history.filter((item) => {
-            if (statusFilter !== 'all' && (item.status ?? 'completed') !== statusFilter) return false;
+            if (statusFilter !== 'all') {
+                const job = activeJobs?.get(item.id);
+                const mediaState = getMediaState(item);
+                const hasPlayableMedia = mediaState !== 'expired' && (hasLocalCopy(item.id) || Boolean(getVideoSrc(item.id) ?? item.storedUrl));
+                const state = getHistoryItemState(item, job, hasPlayableMedia);
+                const needsCloudArchive = state.isCompleted && !item.storedUrl && mediaState !== 'expired';
+                const derivedStatus = state.isFailed
+                    ? 'failed'
+                    : needsCloudArchive
+                      ? 'archiving'
+                      : state.isCompleted
+                        ? 'completed'
+                        : 'processing';
+                if (derivedStatus !== statusFilter) return false;
+            }
             if (modelFilter !== 'all' && item.model !== modelFilter) return false;
             if (query && !item.prompt.toLowerCase().includes(query)) return false;
             return true;
         });
-    }, [history, statusFilter, modelFilter, promptQuery]);
+    }, [history, statusFilter, modelFilter, promptQuery, activeJobs, getMediaState, getVideoSrc, hasLocalCopy]);
 
     const selectedItems = React.useMemo(() => {
         return selectedClipIds
@@ -536,8 +555,14 @@ export function VideoHistoryPanel({
                                     const thumbnailUrl = getThumbnailSrc ? getThumbnailSrc(item.id) : undefined;
                                     const videoUrl = getVideoSrc(item.id) ?? item.storedUrl;
                                     const job = activeJobs?.get(item.id);
-                                    const { isProcessing, isFailed, isCompleted } = getHistoryItemState(item, job);
                                     const mediaState = getMediaState(item);
+                                    const hasPlayableMedia =
+                                        mediaState !== 'expired' && (hasLocalCopy(item.id) || Boolean(videoUrl));
+                                    const { isProcessing, isFailed, isCompleted } = getHistoryItemState(
+                                        item,
+                                        job,
+                                        hasPlayableMedia
+                                    );
                                     const isExpired = isCompleted && mediaState === 'expired';
                                     const canPlayPreview =
                                         isCompleted &&
@@ -555,6 +580,14 @@ export function VideoHistoryPanel({
                                     const isSharePending = sharePendingId === item.id;
                                     const costDetails = item.costDetails;
                                     const tokenCostDetails = hasTokenCostDetails(costDetails);
+                                    const displayProgress = isProcessing
+                                        ? estimateVideoProgress(
+                                              job?.created_at ?? item.timestamp / 1000,
+                                              item.seconds,
+                                              Math.max(item.progress || 0, job?.progress || 0),
+                                              Date.now()
+                                          )
+                                        : 100;
 
                                     return (
                                         <div key={item.id} className='flex flex-col'>
@@ -602,7 +635,7 @@ export function VideoHistoryPanel({
                                                             <span className='text-xs text-white/60'>
                                                                 {job?.status === 'queued'
                                                                     ? 'Queued'
-                                                                    : `${item.progress || job?.progress || 0}%`}
+                                                                    : `${displayProgress}%`}
                                                             </span>
                                                         </div>
                                                     ) : isFailed ? (
@@ -647,6 +680,16 @@ export function VideoHistoryPanel({
                                                             alt=''
                                                             className='h-full w-full object-cover'
                                                         />
+                                                    ) : canPlayPreview ? (
+                                                        <div className='flex h-full w-full flex-col items-center justify-center bg-neutral-900 p-3 text-center text-white/55'>
+                                                            <Film className='mb-2 h-8 w-8 text-white/35' />
+                                                            <span className='text-xs font-medium text-white/70'>
+                                                                Ready
+                                                            </span>
+                                                            <span className='mt-1 text-[10px] text-white/35'>
+                                                                Click to preview
+                                                            </span>
+                                                        </div>
                                                     ) : (
                                                         <div className='flex h-full w-full flex-col items-center justify-center bg-neutral-900 p-3 text-center text-white/40'>
                                                             <Film className='mb-2 h-8 w-8 text-white/25' />
