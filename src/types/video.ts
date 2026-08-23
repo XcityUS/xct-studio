@@ -34,7 +34,7 @@ export type VideoMetadata = {
     id: string;
     timestamp: number;
     filename: string;
-    storageModeUsed?: 'fs' | 'indexeddb';
+    storageModeUsed?: 'fs' | 'indexeddb' | 'r2';
     durationMs: number;
     model: string;
     size: string;

@@ -49,6 +49,7 @@ public/ffmpeg/
 
 # wrangler dev artifacts
 media-worker/.wrangler/
+media-worker/node_modules/
 
 # local Claude Code session config
 .claude/

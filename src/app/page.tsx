@@ -40,6 +40,7 @@ import {
     deleteUserAsset,
     fetchCommunityList,
     fetchCommunityQueue,
+    fetchArchivedVideo,
     fetchShare,
     imageUrlToDataUri,
     listUserAssets,
@@ -707,11 +708,37 @@ export default function HomePage() {
         [invalidateKey, setError]
     );
 
+    const resolveArchivedPlayback = React.useCallback(
+        async (videoId: string): Promise<boolean> => {
+            const key = await resolveKey();
+            if (!key) return false;
+
+            const archived = await fetchArchivedVideo(videoId, key);
+            if (!archived) return false;
+
+            setRemoteSource(videoId, archived.url);
+            markPreviewUnresolved(videoId, false);
+            markPreviewResolving(videoId, false);
+            updateItem(videoId, { storedUrl: archived.url, mediaExpired: false });
+            return true;
+        },
+        [markPreviewResolving, markPreviewUnresolved, resolveKey, setRemoteSource, updateItem]
+    );
+
     /** Downloads a finished video into IndexedDB and finalizes its history entry. */
     const downloadAndStoreVideo = React.useCallback(
         async (job: VideoJob) => {
             console.log(`Downloading video for job: ${job.id}`);
             markPreviewResolving(job.id, true);
+
+            if (await resolveArchivedPlayback(job.id)) {
+                updateItem(job.id, {
+                    durationMs: Date.now() - job.created_at * 1000,
+                    storageModeUsed: 'r2',
+                    status: 'completed'
+                });
+                return;
+            }
 
             // Ark attaches the CDN link AFTER the job first reports completed,
             // and the gap scales with the render: short clips take seconds,
@@ -802,6 +829,7 @@ export default function HomePage() {
             handleInvalidApiKey,
             markPreviewResolving,
             markPreviewUnresolved,
+            resolveArchivedPlayback,
             setError
         ]
     );
@@ -1462,6 +1490,10 @@ export default function HomePage() {
                 return;
             }
 
+            if (await resolveArchivedPlayback(item.id)) {
+                return;
+            }
+
             if (item.providerUrl && !providerLinkLikelyDead(item, Date.now())) {
                 if (getVideoSrc(item.id) !== item.providerUrl) setRemoteSource(item.id, item.providerUrl);
                 markPreviewResolving(item.id, false);
@@ -1504,6 +1536,7 @@ export default function HomePage() {
             hasSource,
             markPreviewResolving,
             markPreviewUnresolved,
+            resolveArchivedPlayback,
             setRemoteSource,
             updateItem,
             videoService
