@@ -13,9 +13,30 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { VideoCharacter, VideoPortrait } from '@/hooks/use-video-history';
+import { validateAssetImage } from '@/lib/image-constraints';
 import type { UserAsset } from '@/lib/media-archive';
-import type { PortraitAsset, PortraitGroup, PortraitSession, PortraitStatus } from '@/lib/portrait';
-import { Check, Copy, ImagePlus, Loader2, Music, RefreshCw, ShieldCheck, Trash2, UserPlus, Video } from 'lucide-react';
+import {
+    waitForPortraitAsset,
+    type PortraitAsset,
+    type PortraitGroup,
+    type PortraitGroupQueryType,
+    type PortraitGroupType,
+    type PortraitSession,
+    type PortraitStatus
+} from '@/lib/portrait';
+import {
+    Check,
+    Copy,
+    ImagePlus,
+    Loader2,
+    Music,
+    RefreshCw,
+    ShieldCheck,
+    Sparkles,
+    Trash2,
+    UserPlus,
+    Video
+} from 'lucide-react';
 import * as React from 'react';
 
 type AssetsPanelProps = {
@@ -30,8 +51,14 @@ type AssetsPanelProps = {
     addPortrait: (portrait: VideoPortrait) => void;
     removePortrait: (assetId: string) => void;
     startPortraitSession: (origin: string) => Promise<PortraitSession>;
-    loadPortraitGroups: () => Promise<PortraitGroup[]>;
-    createPortraitAsset: (input: { groupId: string; url: string; name: string }) => Promise<{ assetId: string }>;
+    loadPortraitGroups: (type?: PortraitGroupQueryType) => Promise<PortraitGroup[]>;
+    createPortraitGroup: (name: string) => Promise<{ groupId: string; slug: string; created: boolean }>;
+    createPortraitAsset: (input: {
+        groupId: string;
+        url: string;
+        name: string;
+        assetType?: 'Image' | 'Video' | 'Audio';
+    }) => Promise<{ assetId: string }>;
     getPortraitAsset: (assetId: string) => Promise<PortraitAsset>;
     /** Operator self-test of the real-human library configuration. */
     getPortraitStatus: () => Promise<PortraitStatus>;
@@ -53,18 +80,21 @@ function defaultCharacterName(asset: UserAsset): string {
     const assetName = asset.name?.trim();
     if (assetName) return assetName;
     const leaf = asset.key.split('/').pop() ?? '';
-    return leaf
-        .replace(/\.[^.]+$/, '')
-        .replace(/[-_]+/g, ' ')
-        .trim() || 'Character';
+    return (
+        leaf
+            .replace(/\.[^.]+$/, '')
+            .replace(/[-_]+/g, ' ')
+            .trim() || 'Character'
+    );
 }
 
 function shortAssetId(assetId: string): string {
     return assetId.length > 8 ? assetId.slice(-8) : assetId;
 }
 
-function sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+function portraitGroupLabel(group: PortraitGroup): string {
+    const slug = group.name.split(':').slice(2).join(':').trim();
+    return slug || `Group ${shortAssetId(group.id)}`;
 }
 
 function CopyUrlButton({ url }: { url: string }) {
@@ -106,6 +136,7 @@ export function AssetsPanel({
     removePortrait,
     startPortraitSession,
     loadPortraitGroups,
+    createPortraitGroup,
     createPortraitAsset,
     getPortraitAsset,
     getPortraitStatus,
@@ -122,6 +153,8 @@ export function AssetsPanel({
     const [portraitGroups, setPortraitGroups] = React.useState<PortraitGroup[] | null>(null);
     const [isLoadingPortraitGroups, setIsLoadingPortraitGroups] = React.useState(false);
     const [isStartingPortraitSession, setIsStartingPortraitSession] = React.useState(false);
+    const [isCreatingVirtualGroup, setIsCreatingVirtualGroup] = React.useState(false);
+    const [virtualCharacterName, setVirtualCharacterName] = React.useState('');
     const [portraitError, setPortraitError] = React.useState<string | null>(null);
     const [portraitNotice, setPortraitNotice] = React.useState<string | null>(null);
     const [addingPortraitGroupId, setAddingPortraitGroupId] = React.useState<string | null>(null);
@@ -136,7 +169,7 @@ export function AssetsPanel({
             const status = await getPortraitStatus();
             setPortraitStatus(
                 status.ok
-                    ? `Ready — BytePlus accepted the account keys (project "${status.projectName}").`
+                    ? `Ready — BytePlus accepted both portrait libraries (project "${status.projectName}").`
                     : `Not usable: ${status.error ?? 'unknown error'}`
             );
         } catch (err) {
@@ -163,9 +196,9 @@ export function AssetsPanel({
         setIsLoadingPortraitGroups(true);
         setPortraitError(null);
         try {
-            setPortraitGroups(await loadPortraitGroups());
+            setPortraitGroups(await loadPortraitGroups('all'));
         } catch (err) {
-            setPortraitError(err instanceof Error ? err.message : 'Could not load verified people.');
+            setPortraitError(err instanceof Error ? err.message : 'Could not load portrait groups.');
         } finally {
             setIsLoadingPortraitGroups(false);
         }
@@ -219,6 +252,22 @@ export function AssetsPanel({
     };
 
     const imageAssets = React.useMemo(() => (assets ?? []).filter((asset) => asset.kind === 'image'), [assets]);
+    const livenessGroups = React.useMemo(
+        () => (portraitGroups ?? []).filter((group) => group.groupType === 'LivenessFace'),
+        [portraitGroups]
+    );
+    const virtualGroups = React.useMemo(
+        () => (portraitGroups ?? []).filter((group) => group.groupType === 'AIGC'),
+        [portraitGroups]
+    );
+    const verifiedPortraits = React.useMemo(
+        () => portraits.filter((portrait) => portrait.groupType === 'LivenessFace'),
+        [portraits]
+    );
+    const virtualPortraits = React.useMemo(
+        () => portraits.filter((portrait) => portrait.groupType === 'AIGC'),
+        [portraits]
+    );
 
     const updatePortraitDraft = React.useCallback(
         (groupId: string, patch: Partial<{ assetKey: string; name: string }>) => {
@@ -249,29 +298,31 @@ export function AssetsPanel({
         }
     };
 
-    const waitForPortraitAsset = React.useCallback(
-        async (assetId: string) => {
-            const startedAt = Date.now();
-            let lastStatus = '';
-            while (Date.now() - startedAt <= 120_000) {
-                const asset = await getPortraitAsset(assetId);
-                lastStatus = asset.status;
-                if (asset.status === 'Active') return;
-                if (asset.status === 'Failed') {
-                    throw new Error('BytePlus rejected this verified photo.');
-                }
-                await sleep(3000);
-            }
-            throw new Error(
-                lastStatus
-                    ? `Verified photo is still ${lastStatus.toLowerCase()}. Try again in a moment.`
-                    : 'Verified photo processing timed out.'
-            );
-        },
-        [getPortraitAsset]
-    );
+    const handleCreateVirtualGroup = async (event: React.FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        const name = virtualCharacterName.trim();
+        if (!name) return;
 
-    const handleAddPortraitAsset = async (groupId: string) => {
+        setIsCreatingVirtualGroup(true);
+        setPortraitError(null);
+        setPortraitNotice(null);
+        try {
+            const result = await createPortraitGroup(name);
+            setVirtualCharacterName('');
+            setPortraitNotice(
+                result.created
+                    ? `Virtual character "${result.slug}" created.`
+                    : `Using existing virtual character "${result.slug}".`
+            );
+            await refreshPortraitGroups();
+        } catch (err) {
+            setPortraitError(err instanceof Error ? err.message : 'Could not create virtual character.');
+        } finally {
+            setIsCreatingVirtualGroup(false);
+        }
+    };
+
+    const handleAddPortraitAsset = async (groupId: string, groupType: PortraitGroupType) => {
         const draft = portraitDrafts[groupId];
         const selected = imageAssets.find((asset) => asset.key === draft?.assetKey);
         if (!selected) {
@@ -284,16 +335,25 @@ export function AssetsPanel({
         setPortraitError(null);
         setPortraitNotice(null);
         try {
-            const { assetId } = await createPortraitAsset({ groupId, url: selected.url, name });
-            await waitForPortraitAsset(assetId);
-            addPortrait({ assetId, groupId, name, thumbUrl: selected.url });
-            setPortraitNotice('Verified photo added.');
+            const validation = await validateAssetImage(selected.url);
+            if (validation.status === 'rejected') {
+                throw new Error(validation.message);
+            }
+            if (validation.status === 'unknown') {
+                setPortraitNotice(validation.message);
+            }
+
+            const { assetId } = await createPortraitAsset({ groupId, url: selected.url, name, assetType: 'Image' });
+            await waitForPortraitAsset(assetId, getPortraitAsset);
+            addPortrait({ assetId, groupId, groupType, name, thumbUrl: selected.url });
+            setPortraitNotice(groupType === 'AIGC' ? 'Virtual character image added.' : 'Verified photo added.');
             setPortraitDrafts((prev) => ({
                 ...prev,
                 [groupId]: { assetKey: '', name: '' }
             }));
         } catch (err) {
-            setPortraitError(err instanceof Error ? err.message : 'Could not add verified photo.');
+            setPortraitNotice(null);
+            setPortraitError(err instanceof Error ? err.message : 'Could not add portrait image.');
         } finally {
             setAddingPortraitGroupId(null);
         }
@@ -366,10 +426,10 @@ export function AssetsPanel({
                     <div className='mb-4 space-y-2 border-b border-white/10 pb-4'>
                         <h3 className='text-xs font-medium text-white/50'>Verified people</h3>
                         <p className='text-xs text-white/40'>
-                            BytePlus rejects reference images containing an identifiable real person. Verifying
-                            people once (consent + face match) unlocks them — that library is not enabled on this
-                            deployment yet. Ask the Xcity admin to enable it, or use reference images without a
-                            recognizable person.
+                            BytePlus rejects reference images containing an identifiable real person. Verifying people
+                            once (consent + face match) unlocks them — that library is not enabled on this deployment
+                            yet. Ask the Xcity admin to enable it, or use reference images without a recognizable
+                            person.
                         </p>
                         <button
                             type='button'
@@ -427,9 +487,9 @@ export function AssetsPanel({
                         {portraitStatus && <p className='text-xs text-white/50'>{portraitStatus}</p>}
                         {portraitError && <p className='text-xs text-red-400'>{portraitError}</p>}
 
-                        {portraits.length > 0 && (
+                        {verifiedPortraits.length > 0 && (
                             <div className='flex gap-2 overflow-x-auto pb-1'>
-                                {portraits.map((portrait) => (
+                                {verifiedPortraits.map((portrait) => (
                                     <div
                                         key={portrait.assetId}
                                         className='flex shrink-0 items-center gap-2 rounded-md border border-emerald-400/25 bg-emerald-400/[0.06] px-2 py-1.5'>
@@ -469,9 +529,9 @@ export function AssetsPanel({
                                 <Loader2 className='h-3 w-3 animate-spin' />
                                 Loading verified groups…
                             </div>
-                        ) : portraitGroups && portraitGroups.length > 0 ? (
+                        ) : portraitGroups && livenessGroups.length > 0 ? (
                             <div className='space-y-2'>
-                                {portraitGroups.map((group) => {
+                                {livenessGroups.map((group) => {
                                     const draft = portraitDrafts[group.id] ?? { assetKey: '', name: '' };
                                     const isAdding = addingPortraitGroupId === group.id;
                                     return (
@@ -495,7 +555,8 @@ export function AssetsPanel({
                                                         );
                                                         updatePortraitDraft(group.id, {
                                                             assetKey: event.target.value,
-                                                            name: draft.name || (asset ? defaultCharacterName(asset) : '')
+                                                            name:
+                                                                draft.name || (asset ? defaultCharacterName(asset) : '')
                                                         });
                                                     }}
                                                     disabled={isAdding || imageAssets.length === 0}
@@ -519,7 +580,9 @@ export function AssetsPanel({
                                                 <Button
                                                     type='button'
                                                     size='sm'
-                                                    onClick={() => void handleAddPortraitAsset(group.id)}
+                                                    onClick={() =>
+                                                        void handleAddPortraitAsset(group.id, 'LivenessFace')
+                                                    }
                                                     disabled={isAdding || !draft.assetKey}
                                                     className='h-8 bg-white text-xs text-black hover:bg-white/90 disabled:bg-white/40'>
                                                     {isAdding ? (
@@ -544,6 +607,163 @@ export function AssetsPanel({
                                 No verified groups yet. Complete verification, then refresh.
                             </p>
                         )}
+
+                        <div className='space-y-3 border-t border-white/10 pt-4'>
+                            <div className='flex flex-wrap items-start justify-between gap-3'>
+                                <div className='min-w-0 flex-1'>
+                                    <h3 className='text-xs font-medium text-white/50'>Virtual characters</h3>
+                                    <p className='mt-1 text-xs text-white/40'>
+                                        Put multiple images of the same character in one group to keep that character
+                                        consistent across shots.
+                                    </p>
+                                </div>
+                                <form
+                                    onSubmit={(event) => void handleCreateVirtualGroup(event)}
+                                    className='flex min-w-0 flex-1 gap-2 sm:max-w-sm'>
+                                    <Input
+                                        value={virtualCharacterName}
+                                        onChange={(event) => setVirtualCharacterName(event.target.value)}
+                                        placeholder='Character name'
+                                        disabled={isCreatingVirtualGroup}
+                                        className='h-8 min-w-0 rounded-md border border-white/20 bg-black text-xs text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
+                                    />
+                                    <Button
+                                        type='submit'
+                                        size='sm'
+                                        disabled={isCreatingVirtualGroup || !virtualCharacterName.trim()}
+                                        className='h-8 shrink-0 bg-white text-xs text-black hover:bg-white/90 disabled:bg-white/40'>
+                                        {isCreatingVirtualGroup ? (
+                                            <Loader2 className='h-3 w-3 animate-spin' />
+                                        ) : (
+                                            <Sparkles className='h-3 w-3' />
+                                        )}
+                                        Create
+                                    </Button>
+                                </form>
+                            </div>
+
+                            {virtualPortraits.length > 0 && (
+                                <div className='flex gap-2 overflow-x-auto pb-1'>
+                                    {virtualPortraits.map((portrait) => (
+                                        <div
+                                            key={portrait.assetId}
+                                            className='flex shrink-0 items-center gap-2 rounded-md border border-cyan-300/25 bg-cyan-300/[0.06] px-2 py-1.5'>
+                                            <div className='h-7 w-7 overflow-hidden rounded border border-white/15 bg-white/5'>
+                                                {/* eslint-disable-next-line @next/next/no-img-element -- worker-hosted URL */}
+                                                <img
+                                                    src={portrait.thumbUrl}
+                                                    alt={portrait.name}
+                                                    loading='lazy'
+                                                    className='h-full w-full object-cover'
+                                                />
+                                            </div>
+                                            <div className='min-w-0'>
+                                                <div className='max-w-32 truncate text-xs text-white/85'>
+                                                    {portrait.name}
+                                                </div>
+                                                <div className='flex items-center gap-1 text-[10px] text-cyan-200/80'>
+                                                    <Sparkles className='h-2.5 w-2.5' />
+                                                    Virtual
+                                                </div>
+                                            </div>
+                                            <button
+                                                type='button'
+                                                title='Remove virtual character image'
+                                                aria-label={`Remove virtual character image ${portrait.name}`}
+                                                onClick={() => removePortrait(portrait.assetId)}
+                                                className='rounded p-1 text-white/45 transition-colors hover:bg-white/10 hover:text-white'>
+                                                <Trash2 className='h-3 w-3' />
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
+                            {isLoadingPortraitGroups && portraitGroups === null ? (
+                                <div className='flex items-center gap-2 text-xs text-white/40'>
+                                    <Loader2 className='h-3 w-3 animate-spin' />
+                                    Loading virtual characters…
+                                </div>
+                            ) : portraitGroups && virtualGroups.length > 0 ? (
+                                <div className='space-y-2'>
+                                    {virtualGroups.map((group) => {
+                                        const draft = portraitDrafts[group.id] ?? { assetKey: '', name: '' };
+                                        const isAdding = addingPortraitGroupId === group.id;
+                                        return (
+                                            <div
+                                                key={group.id}
+                                                className='space-y-2 rounded-md border border-white/10 bg-white/[0.03] p-2'>
+                                                <div className='flex items-center justify-between gap-2'>
+                                                    <div className='flex min-w-0 items-center gap-1.5 text-xs text-white/70'>
+                                                        <Sparkles className='h-3.5 w-3.5 shrink-0 text-cyan-200' />
+                                                        <span className='truncate'>{portraitGroupLabel(group)}</span>
+                                                    </div>
+                                                    <span className='text-[10px] text-white/35'>
+                                                        Group {shortAssetId(group.id)}
+                                                    </span>
+                                                </div>
+                                                <div className='grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(8rem,12rem)_auto]'>
+                                                    <select
+                                                        aria-label='Virtual character image asset'
+                                                        value={draft.assetKey}
+                                                        onChange={(event) => {
+                                                            const asset = imageAssets.find(
+                                                                (candidate) => candidate.key === event.target.value
+                                                            );
+                                                            updatePortraitDraft(group.id, {
+                                                                assetKey: event.target.value,
+                                                                name:
+                                                                    draft.name ||
+                                                                    (asset ? defaultCharacterName(asset) : '')
+                                                            });
+                                                        }}
+                                                        disabled={isAdding || imageAssets.length === 0}
+                                                        className='h-8 min-w-0 rounded-md border border-white/20 bg-black px-2 text-xs text-white disabled:opacity-40'>
+                                                        <option value=''>Choose image asset</option>
+                                                        {imageAssets.map((asset) => (
+                                                            <option key={asset.key} value={asset.key}>
+                                                                {asset.name || defaultCharacterName(asset)}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                    <Input
+                                                        value={draft.name}
+                                                        onChange={(event) =>
+                                                            updatePortraitDraft(group.id, { name: event.target.value })
+                                                        }
+                                                        placeholder='Name'
+                                                        disabled={isAdding}
+                                                        className='h-8 rounded-md border border-white/20 bg-black text-xs text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
+                                                    />
+                                                    <Button
+                                                        type='button'
+                                                        size='sm'
+                                                        onClick={() => void handleAddPortraitAsset(group.id, 'AIGC')}
+                                                        disabled={isAdding || !draft.assetKey}
+                                                        className='h-8 bg-white text-xs text-black hover:bg-white/90 disabled:bg-white/40'>
+                                                        {isAdding ? (
+                                                            <Loader2 className='h-3 w-3 animate-spin' />
+                                                        ) : (
+                                                            <ImagePlus className='h-3 w-3' />
+                                                        )}
+                                                        Add character image
+                                                    </Button>
+                                                </div>
+                                                {imageAssets.length === 0 && (
+                                                    <p className='text-[10px] text-white/35'>
+                                                        Upload or save an image asset first.
+                                                    </p>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <p className='text-xs text-white/40'>
+                                    No virtual characters yet. Create one, then add uploaded images to it.
+                                </p>
+                            )}
+                        </div>
                     </div>
                 )}
 

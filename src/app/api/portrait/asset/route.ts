@@ -1,7 +1,7 @@
 import { arkOpenApi } from '@/lib/server/byteplus-openapi';
 import {
+    isOwnedGroupName,
     jsonError,
-    ownerTag,
     readJsonRecord,
     readRecord,
     requirePortraitRoute,
@@ -12,6 +12,8 @@ import {
 
 export const dynamic = 'force-dynamic';
 
+type PortraitAssetType = 'Image' | 'Video' | 'Audio';
+
 function assetRoot(payload: unknown): Record<string, unknown> {
     const root = resultRoot(payload);
     return readRecord(root.Asset) ?? readRecord(root.AssetInfo) ?? root;
@@ -20,6 +22,13 @@ function assetRoot(payload: unknown): Record<string, unknown> {
 function createAssetId(payload: unknown): string {
     const root = assetRoot(payload);
     return stringField(root, 'Id', 'ID', 'AssetId', 'assetId');
+}
+
+function readAssetType(value: unknown): PortraitAssetType | null {
+    if (typeof value !== 'string' || !value.trim()) return 'Image';
+    const assetType = value.trim();
+    if (assetType === 'Image' || assetType === 'Video' || assetType === 'Audio') return assetType;
+    return null;
 }
 
 async function ownedGroupName(groupId: string): Promise<string> {
@@ -37,12 +46,16 @@ export async function POST(request: Request) {
     const groupId = typeof body?.groupId === 'string' ? body.groupId.trim() : '';
     const url = typeof body?.url === 'string' ? body.url.trim() : '';
     const name = typeof body?.name === 'string' ? body.name.trim().slice(0, 80) : '';
+    const assetType = readAssetType(body?.assetType);
     if (!groupId || !url || !name) {
         return jsonError('missing groupId, url, or name', 400);
     }
+    if (!assetType) {
+        return jsonError('assetType must be Image, Video, or Audio', 400);
+    }
 
     try {
-        if ((await ownedGroupName(groupId)) !== ownerTag(gate.auth.userId)) {
+        if (!isOwnedGroupName(await ownedGroupName(groupId), gate.auth.userId)) {
             return jsonError('portrait group is not owned by this user', 403);
         }
 
@@ -55,7 +68,7 @@ export async function POST(request: Request) {
             // call fails as MissingParameter.URL.
             URL: url,
             Name: name,
-            AssetType: 'Image'
+            AssetType: assetType
         });
         const assetId = createAssetId(payload);
         if (!assetId) {

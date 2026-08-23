@@ -78,8 +78,10 @@ in sync with xcity-litellm's model_prices json.
 gateway adds `role: "reference_image"`, prompts cite [Image 1], [Image 2]…),
 or `{url, role}` objects (explicit `first_frame`/`last_frame`).
 
+`/v1/images` availability is verified with `seedream-5-0-260128`; gate the
+Image tab through runtime `IMAGE_MODELS` via `/api/config`.
+
 **Still unverified against the live gateway**: `seed` pass-through,
-`/v1/images` availability + Seedream ids (`NEXT_PUBLIC_IMAGE_MODELS` gate),
 chat model id for the prompt optimizer (`NEXT_PUBLIC_PROMPT_OPTIMIZER_MODEL`).
 
 ## Deployment (every one of these burned us once)
@@ -94,13 +96,35 @@ chat model id for the prompt optimizer (`NEXT_PUBLIC_PROMPT_OPTIMIZER_MODEL`).
 - **TokenHub gateway**: Railway project `xct-litellm`, service **`xct-litellm`**
   (tokenhub.xcity.one/.ai are bound to it). The sibling service
   `xct-agent-gateway` is NOT tokenhub — a deploy landed there once by mistake.
-  Merging xcity-litellm does NOT auto-deploy; trigger it manually
-  (dashboard, or `railway up -s xct-litellm` from a clean checkout).
+  Merging into `litellm_internal_staging` **does** auto-deploy (verified
+  2026-08-23: the merge commit was building within seconds). Do NOT run
+  `railway up` from a local checkout to "trigger" it — that uploads whatever
+  the working tree holds, which once meant a dirty, wrong-branch build.
 - **User keys snapshot their model allowlist at mint** (xct-home
   `src/lib/billing.ts` BYTEPLUS_MODELS). Adding a model to the gateway isn't
   enough for existing keys — also bump `KEY_MODELS_REV` in xct-home
   `src/lib/user-key.ts` so keys re-mint on next use, or they 401 with
   `key_model_access_denied` forever.
+
+## Gateway pricing (three places, and they fight)
+
+Learned by shipping a token-billing release that charged nothing for four days:
+
+- **The runtime price map is `litellm/model_prices_and_context_window_backup.json`**,
+  not the root `model_prices_and_context_window.json` — production sets
+  `LITELLM_LOCAL_MODEL_COST_MAP=True`, which loads the packaged copy. Edit both,
+  or the entries exist at runtime with none of the new cost keys.
+- **DB deployments beat the map.** `STORE_MODEL_IN_DB=True`, so every model added
+  through the tokenhub UI carries a `model_info` whose cost fields override the
+  map. Prices belong in the map (reviewable, diffable); the UI should carry
+  routing only. A 2.5 deployment hand-registered as `mode: image_generation`
+  with `output_cost_per_image` is what that mistake looks like.
+- **The poll call type is `avideo_status`** (`video_status` when sync), set as a
+  bare string by `router.py`'s factory — `CallTypes` has no member for either.
+  Pricing keyed on `video_retrieve`/`avideo_retrieve` alone never fires, because
+  the studio polls `GET /videos/{video_id}`. Unit tests that call the pricing
+  helper directly will not catch this; drive `completion_cost` with the real
+  call type.
 
 ## Commands
 

@@ -17,6 +17,15 @@ import type { VideoCharacter, VideoPortrait } from '@/hooks/use-video-history';
 import { calculateVideoCost } from '@/lib/cost-utils';
 import { PROMPT_TEMPLATE_CATEGORIES, applyPromptTemplate } from '@/lib/prompt-templates';
 import {
+    ASSET_LIBRARY_MODEL_BLOCK_REASON,
+    declarationBlockReason,
+    declarationSatisfied,
+    refKey,
+    referenceRequiresAssetLibrary,
+    type ReferenceDeclaration,
+    type ReferenceOrigin
+} from '@/lib/reference-origin';
+import {
     RATIOS,
     RESOLUTIONS,
     SEEDANCE_MODELS,
@@ -56,6 +65,8 @@ type CreationFormProps = {
     setCameraFixed: React.Dispatch<React.SetStateAction<boolean>>;
     referenceUrls: string[];
     setReferenceUrls: React.Dispatch<React.SetStateAction<string[]>>;
+    declarations: Record<string, ReferenceDeclaration>;
+    onDeclareReference: (url: string, origin: ReferenceOrigin) => void;
     characters: VideoCharacter[];
     portraits: VideoPortrait[];
     lastFrameUrl: string;
@@ -80,6 +91,8 @@ type CreationFormProps = {
     onOptimizePrompt?: (prompt: string) => Promise<string>;
     /** Splits a script into Seedance shot rows via the gateway's chat API. */
     onBreakdownScript?: (script: string) => Promise<ShotDraft[]>;
+    /** Opens the Assets tab for portrait-library setup. */
+    onOpenAssets?: () => void;
     /** Message from the last submission — rendered under the Create button. */
     error?: string | null;
 };
@@ -124,6 +137,8 @@ export function CreationForm({
     setCameraFixed,
     referenceUrls,
     setReferenceUrls,
+    declarations,
+    onDeclareReference,
     characters,
     portraits,
     lastFrameUrl,
@@ -142,6 +157,7 @@ export function CreationForm({
     onUploadVideo,
     onOptimizePrompt,
     onBreakdownScript,
+    onOpenAssets,
     error
 }: CreationFormProps) {
     const { min: minSeconds, max: maxSeconds } = secondsRange(model);
@@ -152,6 +168,28 @@ export function CreationForm({
     const showMultiReferenceMedia = refCap > 1 && referenceUrls.length >= 2;
     const showReferenceAudio = showMultiReferenceMedia;
     const showReferenceVideos = showMultiReferenceMedia;
+    const attachedReferenceUrls = React.useMemo(() => {
+        const refs = referenceUrls.map((url) => url.trim()).filter(Boolean);
+        const lastFrame = lastFrameUrl.trim();
+        return lastFrame ? [...refs, lastFrame] : refs;
+    }, [lastFrameUrl, referenceUrls]);
+    const blockedReferences = React.useMemo(
+        () =>
+            attachedReferenceUrls.filter((url) => {
+                const declaration = declarations[refKey(url)];
+                if (!declarationSatisfied(declaration)) return true;
+                return refCap <= 1 && referenceRequiresAssetLibrary(url, declaration);
+            }),
+        [attachedReferenceUrls, declarations, refCap]
+    );
+    const firstBlockedReference = blockedReferences[0];
+    const referenceBlockReason = firstBlockedReference
+        ? refCap <= 1 &&
+          referenceRequiresAssetLibrary(firstBlockedReference, declarations[refKey(firstBlockedReference)])
+            ? ASSET_LIBRARY_MODEL_BLOCK_REASON
+            : declarationBlockReason(declarations[refKey(firstBlockedReference)])
+        : null;
+    const submitMessage = error ?? referenceBlockReason;
 
     const [isInspirationOpen, setIsInspirationOpen] = React.useState(false);
     const [isShotBuilderOpen, setIsShotBuilderOpen] = React.useState(false);
@@ -172,6 +210,14 @@ export function CreationForm({
         ]);
         return referenceUrls.map((url) => labelsByUrl.get(url) ?? null);
     }, [characters, portraits, referenceUrls]);
+    const verifiedPortraits = React.useMemo(
+        () => portraits.filter((portrait) => portrait.groupType === 'LivenessFace'),
+        [portraits]
+    );
+    const virtualPortraits = React.useMemo(
+        () => portraits.filter((portrait) => portrait.groupType === 'AIGC'),
+        [portraits]
+    );
 
     React.useEffect(() => {
         if (!supportsDraftMode) {
@@ -264,6 +310,7 @@ export function CreationForm({
 
     const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
+        if (blockedReferences.length > 0) return;
         const formData: CreationFormData = {
             model,
             prompt,
@@ -658,12 +705,12 @@ export function CreationForm({
                         </div>
                     )}
 
-                    {portraits.length > 0 && (
+                    {verifiedPortraits.length > 0 && (
                         <div className='space-y-2'>
                             <div className='flex flex-wrap items-center gap-2'>
                                 <span className='text-sm text-white'>Verified people:</span>
                                 <div className='flex min-w-0 flex-1 flex-wrap gap-1.5'>
-                                    {portraits.map((portrait) => {
+                                    {verifiedPortraits.map((portrait) => {
                                         const referenceUrl = portraitReferenceUrl(portrait.assetId);
                                         const isAttached = referenceUrls.includes(referenceUrl);
                                         const disabled = isLoading || (!isAttached && referenceUrls.length >= refCap);
@@ -691,6 +738,39 @@ export function CreationForm({
                         </div>
                     )}
 
+                    {virtualPortraits.length > 0 && (
+                        <div className='space-y-2'>
+                            <div className='flex flex-wrap items-center gap-2'>
+                                <span className='text-sm text-white'>Virtual characters:</span>
+                                <div className='flex min-w-0 flex-1 flex-wrap gap-1.5'>
+                                    {virtualPortraits.map((portrait) => {
+                                        const referenceUrl = portraitReferenceUrl(portrait.assetId);
+                                        const isAttached = referenceUrls.includes(referenceUrl);
+                                        const disabled = isLoading || (!isAttached && referenceUrls.length >= refCap);
+                                        return (
+                                            <button
+                                                key={portrait.assetId}
+                                                type='button'
+                                                title={
+                                                    disabled && !isAttached
+                                                        ? `Reference limit reached (${refCap})`
+                                                        : `Attach ${portrait.name}`
+                                                }
+                                                onClick={() => handleAttachPortrait(portrait)}
+                                                disabled={disabled}
+                                                className='inline-flex max-w-full items-center gap-1.5 rounded-full border border-cyan-300/25 bg-cyan-300/[0.06] py-1 pr-2 pl-1 text-xs text-white/80 transition-colors hover:border-cyan-200/50 hover:bg-cyan-300/[0.1] hover:text-white disabled:cursor-not-allowed disabled:opacity-40'>
+                                                <span className='flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden rounded-full border border-cyan-200/30 bg-cyan-200/10'>
+                                                    <Sparkles className='h-3 w-3 text-cyan-200' />
+                                                </span>
+                                                <span className='max-w-32 truncate'>{portrait.name}</span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     <ReferenceImagesInput
                         urls={referenceUrls}
                         onChange={setReferenceUrls}
@@ -698,6 +778,9 @@ export function CreationForm({
                         lastFrameUrl={lastFrameUrl}
                         onLastFrameChange={setLastFrameUrl}
                         onUpload={onUploadImage}
+                        declarations={declarations}
+                        onDeclare={onDeclareReference}
+                        onOpenAssets={onOpenAssets}
                         disabled={isLoading}
                     />
                     {showReferenceAudio && (
@@ -757,7 +840,7 @@ export function CreationForm({
                     </div>
                     <Button
                         type='submit'
-                        disabled={isLoading || !prompt.trim()}
+                        disabled={isLoading || !prompt.trim() || blockedReferences.length > 0}
                         className='w-full bg-white text-black hover:bg-white/90 disabled:bg-white/40'>
                         {isLoading ? (
                             <>
@@ -777,11 +860,16 @@ export function CreationForm({
                             success
                         </p>
                     )}
-                    {error && (
+                    {submitMessage && (
                         <div
                             role='alert'
-                            className='w-full rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200'>
-                            {error}
+                            className={cn(
+                                'w-full rounded-md border px-3 py-2 text-sm',
+                                error
+                                    ? 'border-red-500/40 bg-red-500/10 text-red-200'
+                                    : 'border-amber-400/30 bg-amber-400/10 text-amber-100'
+                            )}>
+                            {submitMessage}
                         </div>
                     )}
                 </CardFooter>
