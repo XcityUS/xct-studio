@@ -2,8 +2,17 @@
 
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+    REFERENCE_ORIGINS,
+    REFERENCE_ORIGIN_LABELS,
+    declarationSatisfied,
+    refKey,
+    type ReferenceDeclaration,
+    type ReferenceOrigin
+} from '@/lib/reference-origin';
 import { cn } from '@/lib/utils';
-import { ImagePlus, Link2, Loader2, ShieldCheck, X } from 'lucide-react';
+import { AlertTriangle, Check, ImagePlus, Link2, Loader2, ShieldCheck, X } from 'lucide-react';
 import * as React from 'react';
 
 interface ReferenceImagesInputProps {
@@ -17,6 +26,8 @@ interface ReferenceImagesInputProps {
     onLastFrameChange?: (url: string) => void;
     /** Uploads a local file and resolves to its public URL. Absent = URL-only mode. */
     onUpload?: (file: File) => Promise<string>;
+    declarations: Record<string, ReferenceDeclaration>;
+    onDeclare: (url: string, origin: ReferenceOrigin) => void;
     disabled?: boolean;
 }
 
@@ -43,14 +54,79 @@ function assetReferenceLabel(url: string): string {
     return assetId.length > 8 ? assetId.slice(-8) : assetId;
 }
 
+function declarationForUrl(
+    declarations: Record<string, ReferenceDeclaration>,
+    url: string
+): ReferenceDeclaration | undefined {
+    const key = refKey(url);
+    return key ? declarations[key] : undefined;
+}
+
+function declarationActionLabel(origin: ReferenceOrigin): string | null {
+    if (origin === 'thirdparty-ai') return 'Add to virtual portrait library';
+    if (origin === 'real-person') return 'Verify this person';
+    if (origin === 'licensed-ip') return 'Submit authorization';
+    return null;
+}
+
+function ReferenceStatusBadge({ declaration }: { declaration: ReferenceDeclaration | undefined }) {
+    const satisfied = declarationSatisfied(declaration);
+    const title = satisfied ? 'Declaration complete' : declaration ? 'Needs setup before submit' : 'Choose origin';
+    return (
+        <span
+            title={title}
+            className={cn(
+                'absolute right-0 bottom-0 flex h-4 w-4 items-center justify-center rounded-tl border border-black/50 text-[10px] font-semibold',
+                satisfied ? 'bg-emerald-400 text-black' : 'bg-amber-400 text-black'
+            )}>
+            {satisfied ? (
+                <Check className='h-3 w-3' />
+            ) : declaration ? (
+                <AlertTriangle className='h-3 w-3' />
+            ) : (
+                '?'
+            )}
+        </span>
+    );
+}
+
+function ReferencePreview({ url, alt, className }: { url: string; alt: string; className: string }) {
+    return (
+        <div className={cn('shrink-0 overflow-hidden rounded-md border border-white/20 bg-white/5', className)}>
+            {isAssetReferenceUrl(url) ? (
+                <div
+                    title={url}
+                    className='flex h-full w-full flex-col items-center justify-center gap-1 bg-emerald-400/[0.06] px-1 text-center'>
+                    <ShieldCheck className='h-4 w-4 text-emerald-300' />
+                    <span className='max-w-full truncate font-mono text-[9px] text-emerald-100/80'>
+                        {assetReferenceLabel(url)}
+                    </span>
+                </div>
+            ) : (
+                // eslint-disable-next-line @next/next/no-img-element -- arbitrary worker/external URL
+                <img
+                    src={url}
+                    alt={alt}
+                    title={url}
+                    className='h-full w-full object-cover'
+                    onError={(e) => {
+                        (e.target as HTMLImageElement).style.visibility = 'hidden';
+                    }}
+                />
+            )}
+        </div>
+    );
+}
+
 type LastFrameSlotProps = {
     url: string;
     onChange: (url: string) => void;
     onUpload?: (file: File) => Promise<string>;
+    declaration?: ReferenceDeclaration;
     disabled?: boolean;
 };
 
-function LastFrameSlot({ url, onChange, onUpload, disabled }: LastFrameSlotProps) {
+function LastFrameSlot({ url, onChange, onUpload, declaration, disabled }: LastFrameSlotProps) {
     const fileInputRef = React.useRef<HTMLInputElement>(null);
     const [isUploading, setIsUploading] = React.useState(false);
     const [uploadError, setUploadError] = React.useState<string | null>(null);
@@ -98,16 +174,7 @@ function LastFrameSlot({ url, onChange, onUpload, disabled }: LastFrameSlotProps
 
             {url ? (
                 <div className='relative h-16 w-16 overflow-hidden rounded-md border border-white/20 bg-white/5'>
-                    {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary worker/external URL */}
-                    <img
-                        src={url}
-                        alt='Last frame reference'
-                        title={url}
-                        className='h-full w-full object-cover'
-                        onError={(e) => {
-                            (e.target as HTMLImageElement).style.visibility = 'hidden';
-                        }}
-                    />
+                    <ReferencePreview url={url} alt='Last frame reference' className='h-full w-full border-0' />
                     <span className='absolute bottom-0 left-0 rounded-tr bg-black/70 px-1 text-[10px] text-white/80'>
                         last
                     </span>
@@ -122,6 +189,7 @@ function LastFrameSlot({ url, onChange, onUpload, disabled }: LastFrameSlotProps
                         aria-label='Remove last frame'>
                         <X className='h-3 w-3' />
                     </button>
+                    <ReferenceStatusBadge declaration={declaration} />
                 </div>
             ) : (
                 <>
@@ -244,6 +312,8 @@ export function ReferenceImagesInput({
     lastFrameUrl = '',
     onLastFrameChange,
     onUpload,
+    declarations,
+    onDeclare,
     disabled
 }: ReferenceImagesInputProps) {
     const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -255,6 +325,13 @@ export function ReferenceImagesInput({
 
     const remaining = maxImages - urls.length;
     const canUpload = Boolean(onUpload);
+    const unresolvedDeclarations = React.useMemo(() => {
+        const items = urls.map((url, i) => ({ url, label: `Image ${i + 1}` }));
+        if (lastFrameUrl.trim()) {
+            items.push({ url: lastFrameUrl, label: 'Last frame' });
+        }
+        return items.filter((item) => !declarationSatisfied(declarationForUrl(declarations, item.url)));
+    }, [declarations, lastFrameUrl, urls]);
 
     const addUrls = React.useCallback(
         (added: string[]) => {
@@ -363,6 +440,7 @@ export function ReferenceImagesInput({
                                 aria-label={`Remove reference image ${i + 1}`}>
                                 <X className='h-3 w-3' />
                             </button>
+                            <ReferenceStatusBadge declaration={declarationForUrl(declarations, url)} />
                         </div>
                     ))}
                 </div>
@@ -373,8 +451,67 @@ export function ReferenceImagesInput({
                     url={lastFrameUrl}
                     onChange={onLastFrameChange}
                     onUpload={onUpload}
+                    declaration={declarationForUrl(declarations, lastFrameUrl)}
                     disabled={disabled}
                 />
+            )}
+
+            {unresolvedDeclarations.length > 0 && (
+                <div className='space-y-2 rounded-md border border-amber-300/20 bg-amber-300/[0.06] p-3'>
+                    <p className='text-sm text-white'>Where did these come from?</p>
+                    <div className='space-y-2'>
+                        {unresolvedDeclarations.map((item) => {
+                            const declaration = declarationForUrl(declarations, item.url);
+                            const actionLabel = declaration?.origin ? declarationActionLabel(declaration.origin) : null;
+                            return (
+                                <div
+                                    key={`${item.label}-${item.url}`}
+                                    className='grid gap-2 rounded-md border border-white/10 bg-black/40 p-2 sm:grid-cols-[auto_auto_1fr] sm:items-center'>
+                                    <div className='flex items-center gap-2'>
+                                        <ReferencePreview
+                                            url={item.url}
+                                            alt={`${item.label} declaration`}
+                                            className='h-8 w-8'
+                                        />
+                                        <span className='w-14 text-xs text-white/50'>{item.label}</span>
+                                    </div>
+                                    <Select
+                                        value={declaration?.origin ?? ''}
+                                        onValueChange={(value) => onDeclare(item.url, value as ReferenceOrigin)}
+                                        disabled={disabled}>
+                                        <SelectTrigger className='h-9 border-white/20 bg-black text-xs text-white focus:border-white/50 focus:ring-white/50 sm:w-64'>
+                                            <SelectValue placeholder='Select origin' />
+                                        </SelectTrigger>
+                                        <SelectContent className='border-white/20 bg-black text-white'>
+                                            {REFERENCE_ORIGINS.map((origin) => (
+                                                <SelectItem
+                                                    key={origin}
+                                                    value={origin}
+                                                    className='focus:bg-white/10 focus:text-white'>
+                                                    {REFERENCE_ORIGIN_LABELS[origin].label}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    {declaration?.origin && actionLabel && (
+                                        <div className='flex flex-wrap items-center gap-2 text-xs text-amber-100/80'>
+                                            <span className='min-w-0 flex-1'>
+                                                {REFERENCE_ORIGIN_LABELS[declaration.origin].hint}
+                                            </span>
+                                            <button
+                                                type='button'
+                                                title='Coming in the next release'
+                                                disabled
+                                                className='shrink-0 rounded-md border border-white/15 bg-white/5 px-2 py-1 text-xs text-white/40 disabled:cursor-not-allowed'>
+                                                {actionLabel}
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
             )}
 
             {remaining > 0 && (

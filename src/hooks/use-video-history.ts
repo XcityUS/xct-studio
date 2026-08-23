@@ -4,12 +4,18 @@ import { StateConflictError } from '@/lib/errors';
 import {
     mergeDocs,
     sameDocContent,
+    withDeclarations,
     withTombstones,
     type HistoryDoc,
     type VideoCharacter,
     type VideoPortrait
 } from '@/lib/history-merge';
 import { fetchCloudState, mediaArchiveEnabled, pushCloudState } from '@/lib/media-archive';
+import {
+    REFERENCE_ORIGINS,
+    type ReferenceDeclaration,
+    type ReferenceOrigin
+} from '@/lib/reference-origin';
 import type { VideoMetadata } from '@/types/video';
 import * as React from 'react';
 
@@ -18,10 +24,13 @@ const STORAGE_KEY = 'soraVideoHistory';
 const UPDATED_AT_KEY = 'soraVideoHistoryUpdatedAt';
 const CHARACTERS_KEY = 'soraVideoCharacters';
 const PORTRAITS_KEY = 'soraVideoPortraits';
+const DECLARATIONS_KEY = 'soraReferenceDeclarations';
 const DELETED_IDS_KEY = 'soraVideoDeletedIds';
 const SYNC_DEBOUNCE_MS = 3000;
 
 export type { VideoCharacter, VideoPortrait } from '@/lib/history-merge';
+
+const REFERENCE_ORIGIN_SET: ReadonlySet<string> = new Set(REFERENCE_ORIGINS);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
@@ -29,6 +38,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function numberOrZero(value: unknown): number {
     return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function isReferenceOrigin(value: unknown): value is ReferenceOrigin {
+    return typeof value === 'string' && REFERENCE_ORIGIN_SET.has(value);
+}
+
+function optionalString(value: unknown): string | undefined {
+    if (typeof value !== 'string') return undefined;
+    const trimmed = value.trim();
+    return trimmed ? trimmed : undefined;
 }
 
 function readStoredUpdatedAt(): number {
@@ -83,6 +102,39 @@ function parseDeletedIds(value: unknown): string[] {
     return value.filter((id): id is string => typeof id === 'string' && id.length > 0);
 }
 
+function parseDeclarations(value: unknown): Record<string, ReferenceDeclaration> {
+    if (!isRecord(value)) return {};
+
+    const declarations: Record<string, ReferenceDeclaration> = {};
+    for (const [key, item] of Object.entries(value)) {
+        if (
+            !key ||
+            !isRecord(item) ||
+            !isReferenceOrigin(item.origin) ||
+            typeof item.declaredAt !== 'number' ||
+            !Number.isFinite(item.declaredAt)
+        ) {
+            continue;
+        }
+
+        const declaration: ReferenceDeclaration = {
+            origin: item.origin,
+            declaredAt: item.declaredAt
+        };
+        const model = optionalString(item.model);
+        const assetId = optionalString(item.assetId);
+        const groupId = optionalString(item.groupId);
+        const authorizationId = optionalString(item.authorizationId);
+        if (model) declaration.model = model;
+        if (assetId) declaration.assetId = assetId;
+        if (groupId) declaration.groupId = groupId;
+        if (authorizationId) declaration.authorizationId = authorizationId;
+        declarations[key] = declaration;
+    }
+
+    return withDeclarations(declarations);
+}
+
 function parseHistoryDoc(value: unknown): HistoryDoc | null {
     if (!isRecord(value) || !Array.isArray(value.history)) return null;
     return {
@@ -90,6 +142,7 @@ function parseHistoryDoc(value: unknown): HistoryDoc | null {
         history: value.history as VideoMetadata[],
         characters: parseCharacters(value.characters),
         portraits: parsePortraits(value.portraits),
+        declarations: parseDeclarations(value.declarations),
         deletedIds: parseDeletedIds(value.deletedIds)
     };
 }
@@ -112,10 +165,17 @@ function readStoredPortraits(): { portraits: VideoPortrait[]; found: boolean } {
     return { portraits: parsePortraits(JSON.parse(raw) as unknown), found: true };
 }
 
+function readStoredDeclarations(): { declarations: Record<string, ReferenceDeclaration>; found: boolean } {
+    const raw = localStorage.getItem(DECLARATIONS_KEY);
+    if (!raw) return { declarations: {}, found: false };
+    return { declarations: parseDeclarations(JSON.parse(raw) as unknown), found: true };
+}
+
 function readLocalHistory(): HistoryDoc {
     const storedUpdatedAt = readStoredUpdatedAt();
     const storedCharacters = readStoredCharacters();
     const storedPortraits = readStoredPortraits();
+    const storedDeclarations = readStoredDeclarations();
     const storedDeletedIds = readStoredDeletedIds();
     const stored = localStorage.getItem(STORAGE_KEY);
     if (!stored) {
@@ -124,6 +184,7 @@ function readLocalHistory(): HistoryDoc {
             updatedAt: storedUpdatedAt,
             characters: storedCharacters.characters,
             portraits: storedPortraits.portraits,
+            declarations: storedDeclarations.declarations,
             deletedIds: storedDeletedIds
         };
     }
@@ -135,6 +196,7 @@ function readLocalHistory(): HistoryDoc {
             updatedAt: storedUpdatedAt,
             characters: storedCharacters.characters,
             portraits: storedPortraits.portraits,
+            declarations: storedDeclarations.declarations,
             deletedIds: storedDeletedIds
         };
     }
@@ -146,6 +208,7 @@ function readLocalHistory(): HistoryDoc {
             updatedAt: storedUpdatedAt || doc.updatedAt,
             characters: storedCharacters.found ? storedCharacters.characters : doc.characters,
             portraits: storedPortraits.found ? storedPortraits.portraits : doc.portraits,
+            declarations: storedDeclarations.found ? storedDeclarations.declarations : doc.declarations,
             deletedIds: storedDeletedIds.length ? storedDeletedIds : doc.deletedIds
         };
     }
@@ -158,6 +221,7 @@ function writeLocalHistory(doc: HistoryDoc) {
     localStorage.setItem(UPDATED_AT_KEY, String(doc.updatedAt));
     localStorage.setItem(CHARACTERS_KEY, JSON.stringify(doc.characters));
     localStorage.setItem(PORTRAITS_KEY, JSON.stringify(doc.portraits));
+    localStorage.setItem(DECLARATIONS_KEY, JSON.stringify(withDeclarations(doc.declarations)));
     localStorage.setItem(DELETED_IDS_KEY, JSON.stringify(doc.deletedIds));
 }
 
@@ -169,11 +233,13 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
     const [history, setHistory] = React.useState<VideoMetadata[]>([]);
     const [characters, setCharacters] = React.useState<VideoCharacter[]>([]);
     const [portraits, setPortraits] = React.useState<VideoPortrait[]>([]);
+    const [declarations, setDeclarations] = React.useState<Record<string, ReferenceDeclaration>>({});
     const [isInitialLoad, setIsInitialLoad] = React.useState(true);
 
     const historyRef = React.useRef<VideoMetadata[]>([]);
     const charactersRef = React.useRef<VideoCharacter[]>([]);
     const portraitsRef = React.useRef<VideoPortrait[]>([]);
+    const declarationsRef = React.useRef<Record<string, ReferenceDeclaration>>({});
     const updatedAtRef = React.useRef(0);
     const deletedIdsRef = React.useRef<string[]>([]);
     const etagRef = React.useRef<string | null>(null);
@@ -186,6 +252,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
     historyRef.current = history;
     charactersRef.current = characters;
     portraitsRef.current = portraits;
+    declarationsRef.current = declarations;
 
     React.useEffect(() => {
         resolveKeyRef.current = resolveKey;
@@ -198,6 +265,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
             history: historyRef.current,
             characters: charactersRef.current,
             portraits: portraitsRef.current,
+            declarations: declarationsRef.current,
             deletedIds: deletedIdsRef.current
         }),
         []
@@ -212,15 +280,18 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
             historyRef.current = doc.history;
             charactersRef.current = doc.characters;
             portraitsRef.current = doc.portraits;
+            declarationsRef.current = doc.declarations;
             setHistory(doc.history);
             setCharacters(doc.characters);
             setPortraits(doc.portraits);
+            setDeclarations(doc.declarations);
         } catch (e) {
             console.error('Failed to load or parse history from localStorage:', e);
             localStorage.removeItem(STORAGE_KEY);
             localStorage.removeItem(UPDATED_AT_KEY);
             localStorage.removeItem(CHARACTERS_KEY);
             localStorage.removeItem(PORTRAITS_KEY);
+            localStorage.removeItem(DECLARATIONS_KEY);
             localStorage.removeItem(DELETED_IDS_KEY);
         }
         setIsInitialLoad(false);
@@ -236,13 +307,14 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
                     history,
                     characters,
                     portraits,
+                    declarations,
                     deletedIds: deletedIdsRef.current
                 });
             } catch (e) {
                 console.error('Failed to save history to localStorage:', e);
             }
         }
-    }, [characters, history, isInitialLoad, portraits]);
+    }, [characters, declarations, history, isInitialLoad, portraits]);
 
     const applyCloudDoc = React.useCallback((doc: HistoryDoc) => {
         skipNextCloudPushRef.current = true;
@@ -251,9 +323,11 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
         historyRef.current = doc.history;
         charactersRef.current = doc.characters;
         portraitsRef.current = doc.portraits;
+        declarationsRef.current = doc.declarations;
         setHistory(doc.history);
         setCharacters(doc.characters);
         setPortraits(doc.portraits);
+        setDeclarations(doc.declarations);
         try {
             writeLocalHistory(doc);
         } catch (e) {
@@ -298,13 +372,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
 
     const pushDoc = React.useCallback(async (apiKey: string, doc: HistoryDoc) => {
         etagRef.current = await pushCloudState(
-            {
-                updatedAt: doc.updatedAt,
-                history: doc.history,
-                characters: doc.characters,
-                portraits: doc.portraits,
-                deletedIds: doc.deletedIds
-            },
+            { ...doc, declarations: withDeclarations(doc.declarations) },
             apiKey,
             etagRef.current
         );
@@ -414,30 +482,36 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
                 pushTimerRef.current = null;
             }
         };
-    }, [characters, history, isInitialLoad, localDoc, portraits, pushDocOrMerge, resolveKey]);
+    }, [characters, declarations, history, isInitialLoad, localDoc, portraits, pushDocOrMerge, resolveKey]);
 
     const mutateDoc = React.useCallback(
         (update: (prev: {
             history: VideoMetadata[];
             characters: VideoCharacter[];
             portraits: VideoPortrait[];
+            declarations: Record<string, ReferenceDeclaration>;
         }) => {
             history: VideoMetadata[];
             characters: VideoCharacter[];
             portraits: VideoPortrait[];
+            declarations: Record<string, ReferenceDeclaration>;
         }) => {
             const next = update({
                 history: historyRef.current,
                 characters: charactersRef.current,
-                portraits: portraitsRef.current
+                portraits: portraitsRef.current,
+                declarations: declarationsRef.current
             });
+            const nextDeclarations = withDeclarations(next.declarations);
             updatedAtRef.current = Date.now();
             historyRef.current = next.history;
             charactersRef.current = next.characters;
             portraitsRef.current = next.portraits;
+            declarationsRef.current = nextDeclarations;
             setHistory(next.history);
             setCharacters(next.characters);
             setPortraits(next.portraits);
+            setDeclarations(nextDeclarations);
         },
         []
     );
@@ -489,6 +563,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
             mutateDoc((prev) => ({
                 history: prev.history,
                 portraits: prev.portraits,
+                declarations: prev.declarations,
                 characters: [
                     ...prev.characters.filter((existing) => existing.id !== character.id),
                     { id: character.id, name, url }
@@ -504,6 +579,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
             mutateDoc((prev) => ({
                 history: prev.history,
                 portraits: prev.portraits,
+                declarations: prev.declarations,
                 characters: prev.characters.filter((character) => character.id !== id)
             }));
         },
@@ -520,6 +596,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
             mutateDoc((prev) => ({
                 history: prev.history,
                 characters: prev.characters,
+                declarations: prev.declarations,
                 portraits: [
                     ...prev.portraits.filter((existing) => existing.assetId !== assetId),
                     { assetId, groupId, name, thumbUrl }
@@ -535,16 +612,35 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
             mutateDoc((prev) => ({
                 history: prev.history,
                 characters: prev.characters,
+                declarations: prev.declarations,
                 portraits: prev.portraits.filter((portrait) => portrait.assetId !== assetId)
             }));
         },
         [mutateDoc, tombstone]
     );
 
+    const setDeclaration = React.useCallback(
+        (key: string, declaration: ReferenceDeclaration) => {
+            const cleanKey = key.trim();
+            if (!cleanKey) return;
+            mutateDoc((prev) => ({
+                history: prev.history,
+                characters: prev.characters,
+                portraits: prev.portraits,
+                declarations: {
+                    ...prev.declarations,
+                    [cleanKey]: declaration
+                }
+            }));
+        },
+        [mutateDoc]
+    );
+
     return {
         history,
         characters,
         portraits,
+        declarations,
         isInitialLoad,
         addItem,
         updateItem,
@@ -553,6 +649,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
         addCharacter,
         removeCharacter,
         addPortrait,
-        removePortrait
+        removePortrait,
+        setDeclaration
     };
 }

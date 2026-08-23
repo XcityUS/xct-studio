@@ -17,6 +17,13 @@ import type { VideoCharacter, VideoPortrait } from '@/hooks/use-video-history';
 import { calculateVideoCost } from '@/lib/cost-utils';
 import { PROMPT_TEMPLATE_CATEGORIES, applyPromptTemplate } from '@/lib/prompt-templates';
 import {
+    declarationBlockReason,
+    declarationSatisfied,
+    refKey,
+    type ReferenceDeclaration,
+    type ReferenceOrigin
+} from '@/lib/reference-origin';
+import {
     RATIOS,
     RESOLUTIONS,
     SEEDANCE_MODELS,
@@ -56,6 +63,8 @@ type CreationFormProps = {
     setCameraFixed: React.Dispatch<React.SetStateAction<boolean>>;
     referenceUrls: string[];
     setReferenceUrls: React.Dispatch<React.SetStateAction<string[]>>;
+    declarations: Record<string, ReferenceDeclaration>;
+    onDeclareReference: (url: string, origin: ReferenceOrigin) => void;
     characters: VideoCharacter[];
     portraits: VideoPortrait[];
     lastFrameUrl: string;
@@ -124,6 +133,8 @@ export function CreationForm({
     setCameraFixed,
     referenceUrls,
     setReferenceUrls,
+    declarations,
+    onDeclareReference,
     characters,
     portraits,
     lastFrameUrl,
@@ -152,6 +163,20 @@ export function CreationForm({
     const showMultiReferenceMedia = refCap > 1 && referenceUrls.length >= 2;
     const showReferenceAudio = showMultiReferenceMedia;
     const showReferenceVideos = showMultiReferenceMedia;
+    const attachedReferenceUrls = React.useMemo(() => {
+        const refs = referenceUrls.map((url) => url.trim()).filter(Boolean);
+        const lastFrame = lastFrameUrl.trim();
+        return lastFrame ? [...refs, lastFrame] : refs;
+    }, [lastFrameUrl, referenceUrls]);
+    const blockedReferences = React.useMemo(
+        () => attachedReferenceUrls.filter((url) => !declarationSatisfied(declarations[refKey(url)])),
+        [attachedReferenceUrls, declarations]
+    );
+    const firstBlockedReference = blockedReferences[0];
+    const referenceBlockReason = firstBlockedReference
+        ? declarationBlockReason(declarations[refKey(firstBlockedReference)])
+        : null;
+    const submitMessage = error ?? referenceBlockReason;
 
     const [isInspirationOpen, setIsInspirationOpen] = React.useState(false);
     const [isShotBuilderOpen, setIsShotBuilderOpen] = React.useState(false);
@@ -264,6 +289,7 @@ export function CreationForm({
 
     const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
+        if (blockedReferences.length > 0) return;
         const formData: CreationFormData = {
             model,
             prompt,
@@ -698,6 +724,8 @@ export function CreationForm({
                         lastFrameUrl={lastFrameUrl}
                         onLastFrameChange={setLastFrameUrl}
                         onUpload={onUploadImage}
+                        declarations={declarations}
+                        onDeclare={onDeclareReference}
                         disabled={isLoading}
                     />
                     {showReferenceAudio && (
@@ -757,7 +785,7 @@ export function CreationForm({
                     </div>
                     <Button
                         type='submit'
-                        disabled={isLoading || !prompt.trim()}
+                        disabled={isLoading || !prompt.trim() || blockedReferences.length > 0}
                         className='w-full bg-white text-black hover:bg-white/90 disabled:bg-white/40'>
                         {isLoading ? (
                             <>
@@ -777,11 +805,16 @@ export function CreationForm({
                             success
                         </p>
                     )}
-                    {error && (
+                    {submitMessage && (
                         <div
                             role='alert'
-                            className='w-full rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200'>
-                            {error}
+                            className={cn(
+                                'w-full rounded-md border px-3 py-2 text-sm',
+                                error
+                                    ? 'border-red-500/40 bg-red-500/10 text-red-200'
+                                    : 'border-amber-400/30 bg-amber-400/10 text-amber-100'
+                            )}>
+                            {submitMessage}
                         </div>
                     )}
                 </CardFooter>

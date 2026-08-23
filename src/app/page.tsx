@@ -61,6 +61,14 @@ import { providerLinkLikelyDead } from '@/lib/media-state';
 import { estimateVideoProgress } from '@/lib/progress';
 import { optimizePrompt } from '@/lib/prompt-optimizer';
 import {
+    declarationBlockReason,
+    declarationSatisfied,
+    originForGeneratedImage,
+    refKey,
+    type ReferenceDeclaration,
+    type ReferenceOrigin
+} from '@/lib/reference-origin';
+import {
     createPortraitAsset,
     createPortraitSession,
     fetchPortraitStatus,
@@ -215,6 +223,40 @@ function inputVideoSecondsFromParams(params: VideoJobCreate): number {
         .reduce((total, seconds) => (Number.isFinite(seconds) && seconds > 0 ? total + seconds : total), 0);
 }
 
+function portraitReferenceUrl(assetId: string): string {
+    return `asset://${assetId}`;
+}
+
+function imageReferenceUrlsFromParams(params: VideoJobCreate): string[] {
+    const refs = params.reference_image_urls ?? (params.input_reference_url ? [params.input_reference_url] : []);
+    const lastFrame = params.last_frame_url?.trim();
+    return [...refs, ...(lastFrame ? [lastFrame] : [])].map((url) => url.trim()).filter(Boolean);
+}
+
+function withVerifiedPortraitDeclarations(
+    declarations: Record<string, ReferenceDeclaration>,
+    portraits: { assetId: string; groupId: string }[]
+): Record<string, ReferenceDeclaration> {
+    const next = { ...declarations };
+    for (const portrait of portraits) {
+        const assetId = portrait.assetId.trim();
+        const groupId = portrait.groupId.trim();
+        if (!assetId || !groupId) continue;
+
+        const key = refKey(portraitReferenceUrl(assetId));
+        if (!key) continue;
+        const existing = next[key];
+        next[key] = {
+            ...(existing ?? {}),
+            origin: 'real-person',
+            declaredAt: existing?.declaredAt ?? 0,
+            assetId,
+            groupId
+        };
+    }
+    return next;
+}
+
 export default function HomePage() {
     // Errors are shown next to whatever raised them: 'create' renders under
     // the Create Video button, 'output' under the output panel's action row.
@@ -278,6 +320,7 @@ export default function HomePage() {
         history,
         characters,
         portraits,
+        declarations,
         isInitialLoad,
         addItem,
         updateItem,
@@ -286,10 +329,46 @@ export default function HomePage() {
         addCharacter,
         removeCharacter,
         addPortrait,
-        removePortrait
+        removePortrait,
+        setDeclaration
     } = useVideoHistory(resolveKey);
     const { getVideoSrc, getThumbnailSrc, setRemoteSource, removeSource, clearAllSources, hasLocalCopy, hasSource } =
         useVideoSources();
+    const effectiveDeclarations = React.useMemo(
+        () => withVerifiedPortraitDeclarations(declarations, portraits),
+        [declarations, portraits]
+    );
+
+    /**
+     * Images this studio produced declare themselves: a Seedream render, a
+     * frame captured from a Seedance clip, a gallery still. Making the user
+     * classify our own output would be busywork with one honest answer.
+     */
+    const declareGeneratedReference = React.useCallback(
+        (url: string, model?: string) => {
+            const key = refKey(url);
+            if (!key) return;
+            setDeclaration(key, {
+                origin: originForGeneratedImage(model),
+                declaredAt: Date.now(),
+                ...(model ? { model } : {})
+            });
+        },
+        [setDeclaration]
+    );
+
+    const handleDeclareReference = React.useCallback(
+        (url: string, origin: ReferenceOrigin) => {
+            const key = refKey(url);
+            if (!key) return;
+            setDeclaration(key, {
+                ...(declarations[key] ?? {}),
+                origin,
+                declaredAt: Date.now()
+            });
+        },
+        [declarations, setDeclaration]
+    );
 
     // Showcase → creation form. Settings are reconciled against the target
     // model first (see gallery-preset), because programmatic setState skips
@@ -363,6 +442,7 @@ export default function HomePage() {
     }, [loadSharedSettings]);
 
     const applyReferenceFrame = React.useCallback((item: GalleryItem, frameUrl: string) => {
+        declareGeneratedReference(frameUrl, item.params.model);
         setCreateModel(item.params.model);
         setCreateRatio(item.params.ratio);
         setCreateReferenceUrls([frameUrl]);
@@ -373,7 +453,7 @@ export default function HomePage() {
         // image-to-video, and inheriting the original prompt fights that.
         setCreatePrompt('');
         creationFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, []);
+    }, [declareGeneratedReference]);
 
     React.useEffect(() => {
         if (createReferenceUrls.length !== 1 && createLastFrameUrl) {
@@ -511,6 +591,7 @@ export default function HomePage() {
                 );
             }
 
+            declareGeneratedReference(url, record.model);
             setCreateReferenceUrls([url]);
             setCreateLastFrameUrl('');
             setCreateReferenceAudioUrl('');
@@ -518,7 +599,7 @@ export default function HomePage() {
             setActiveTab('video');
             window.scrollTo({ top: 0, behavior: 'smooth' });
         },
-        [resolveKey]
+        [declareGeneratedReference, resolveKey]
     );
 
     const handleLoadAssets = React.useCallback(async () => {
@@ -838,6 +919,22 @@ export default function HomePage() {
         enabled: !isInitialLoad
     });
 
+    const blockedReferencesForParams = React.useCallback(
+        (params: VideoJobCreate): string[] =>
+            imageReferenceUrlsFromParams(params).filter(
+                (url) => !declarationSatisfied(effectiveDeclarations[refKey(url)])
+            ),
+        [effectiveDeclarations]
+    );
+
+    const firstReferenceBlockReason = React.useCallback(
+        (urls: string[]): string | null => {
+            const first = urls[0];
+            return first ? declarationBlockReason(effectiveDeclarations[refKey(first)]) : null;
+        },
+        [effectiveDeclarations]
+    );
+
     // Resume polling for every in-flight history item — including ones
     // created on another device (cloud-synced) or before a crash. The gateway
     // retrieve is stateless, so an id is all it takes: stale tasks resolve to
@@ -881,6 +978,11 @@ export default function HomePage() {
     const handleCreateVideo = async (formData: CreationFormData) => {
         setError(null);
         setShareNotice(null);
+        const blockedReferences = blockedReferencesForParams(formData);
+        if (blockedReferences.length > 0) {
+            setError(firstReferenceBlockReason(blockedReferences) ?? 'Choose where this image came from.');
+            return;
+        }
         setIsSubmitting(true);
 
         // Resolve the key at submit time — an SSO key that lands after this
@@ -1223,37 +1325,65 @@ export default function HomePage() {
         [buildParamsFromItem, resolveKey]
     );
 
+    const applyParamsToCreationForm = React.useCallback((params: CreationFormData) => {
+        setCreateModel(params.model);
+        setCreatePrompt(params.prompt);
+        setCreateRatio(params.ratio);
+        setCreateResolution(
+            params.draft ? finalResolutionForDraft(params.model, params.final_resolution) : params.resolution
+        );
+        setCreateSeconds(params.seconds);
+        setCreateAudio(params.generate_audio);
+        setCreateCameraFixed(params.camera_fixed ?? false);
+        const refs = params.reference_image_urls ?? (params.input_reference_url ? [params.input_reference_url] : []);
+        setCreateReferenceUrls(refs);
+        setCreateLastFrameUrl(refs.length === 1 ? (params.last_frame_url ?? '') : '');
+        setCreateReferenceAudioUrl(refs.length >= 2 ? (params.reference_audio_url ?? '') : '');
+        setCreateReferenceVideoUrls(
+            refs.length >= 2 ? (params.reference_video_urls ?? []).slice(0, MAX_REFERENCE_VIDEOS) : []
+        );
+        setCreateSeed(params.seed);
+        setCreateWatermark(params.watermark ?? false);
+        setActiveTab('video');
+        if (creationFormRef.current) {
+            creationFormRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } else {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+    }, []);
+
+    const showReferenceDeclarationGate = React.useCallback(
+        (params: CreationFormData, blockedReferences: string[]) => {
+            applyParamsToCreationForm(params);
+            const reason = firstReferenceBlockReason(blockedReferences);
+            // Scope 'create': applyParamsToCreationForm just scrolled the user
+            // to the form, so the message has to be under the Create button.
+            setError(
+                reason
+                    ? `References need a source declaration first. ${reason}`
+                    : 'References need a source declaration first.'
+            );
+        },
+        [applyParamsToCreationForm, firstReferenceBlockReason, setError]
+    );
+
     /** 做同款 — fill the create form with an item's parameters. */
     const handleReuseItem = React.useCallback(
         (item: VideoMetadata) => {
-            const params = buildParamsFromItem(item);
-            setCreateModel(params.model);
-            setCreatePrompt(params.prompt);
-            setCreateRatio(params.ratio);
-            setCreateResolution(
-                params.draft ? finalResolutionForDraft(params.model, params.final_resolution) : params.resolution
-            );
-            setCreateSeconds(params.seconds);
-            setCreateAudio(params.generate_audio);
-            setCreateCameraFixed(params.camera_fixed ?? false);
-            const refs =
-                params.reference_image_urls ?? (params.input_reference_url ? [params.input_reference_url] : []);
-            setCreateReferenceUrls(refs);
-            setCreateLastFrameUrl(refs.length === 1 ? (params.last_frame_url ?? '') : '');
-            setCreateReferenceAudioUrl(refs.length >= 2 ? (params.reference_audio_url ?? '') : '');
-            setCreateReferenceVideoUrls(
-                refs.length >= 2 ? (params.reference_video_urls ?? []).slice(0, MAX_REFERENCE_VIDEOS) : []
-            );
-            setCreateSeed(params.seed);
-            setCreateWatermark(params.watermark ?? false);
-            window.scrollTo({ top: 0, behavior: 'smooth' });
+            applyParamsToCreationForm(buildParamsFromItem(item));
         },
-        [buildParamsFromItem]
+        [applyParamsToCreationForm, buildParamsFromItem]
     );
 
     /** 重新生成 — resubmit an item with its exact parameters. */
     const handleRegenerateItem = (item: VideoMetadata) => {
-        void handleCreateVideo(buildParamsFromItem(item));
+        const params = buildParamsFromItem(item);
+        const blockedReferences = blockedReferencesForParams(params);
+        if (blockedReferences.length > 0) {
+            showReferenceDeclarationGate(params, blockedReferences);
+            return;
+        }
+        void handleCreateVideo(params);
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
@@ -1270,6 +1400,11 @@ export default function HomePage() {
             resolution: finalResolution
         };
         delete finalParams.final_resolution;
+        const blockedReferences = blockedReferencesForParams(finalParams);
+        if (blockedReferences.length > 0) {
+            showReferenceDeclarationGate(finalParams, blockedReferences);
+            return;
+        }
         void handleCreateVideo(finalParams);
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
@@ -1317,6 +1452,7 @@ export default function HomePage() {
                     type: frameBlob.type || 'image/webp'
                 });
                 const frameUrl = await handleUploadImage(frameFile);
+                declareGeneratedReference(frameUrl, item.model);
                 const params = buildParamsFromItem(item);
 
                 setCreateModel(params.model);
@@ -1343,7 +1479,7 @@ export default function HomePage() {
                 }
             }
         },
-        [buildParamsFromItem, getVideoSrc, handleInvalidApiKey, handleUploadImage, setError]
+        [buildParamsFromItem, declareGeneratedReference, getVideoSrc, handleInvalidApiKey, handleUploadImage, setError]
     );
 
     const handleExtendCurrentVideo = React.useCallback(
@@ -1631,6 +1767,8 @@ export default function HomePage() {
                                 setCameraFixed={setCreateCameraFixed}
                                 referenceUrls={createReferenceUrls}
                                 setReferenceUrls={setCreateReferenceUrls}
+                                declarations={effectiveDeclarations}
+                                onDeclareReference={handleDeclareReference}
                                 characters={characters}
                                 portraits={portraits}
                                 lastFrameUrl={createLastFrameUrl}
