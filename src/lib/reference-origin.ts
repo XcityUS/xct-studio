@@ -1,9 +1,4 @@
-export type ReferenceOrigin =
-    | 'no-person'
-    | 'byteplus-ai'
-    | 'thirdparty-ai'
-    | 'real-person'
-    | 'licensed-ip';
+export type ReferenceOrigin = 'no-person' | 'byteplus-ai' | 'thirdparty-ai' | 'real-person' | 'licensed-ip';
 
 export type ReferenceDeclaration = {
     origin: ReferenceOrigin;
@@ -22,6 +17,9 @@ export const REFERENCE_ORIGINS: ReferenceOrigin[] = [
     'real-person',
     'licensed-ip'
 ];
+
+export const ASSET_LIBRARY_MODEL_BLOCK_REASON =
+    'Switch to Seedance 2.0 or 2.5 before using the portrait asset library. Seedance 1.5 Pro cannot attach asset:// references.';
 
 /** The form has to explain why an origin changes the submission path. */
 export const REFERENCE_ORIGIN_LABELS: Record<ReferenceOrigin, { label: string; hint: string }> = {
@@ -116,6 +114,24 @@ export function declarationBlockReason(decl: ReferenceDeclaration | undefined): 
 
 export function originRequiresAssetLibrary(origin: ReferenceOrigin): boolean {
     return origin === 'thirdparty-ai' || origin === 'real-person';
+}
+
+/** `asset://<id>` — a reference already living in a BytePlus portrait library. */
+export function isAssetReferenceUrl(url: string): boolean {
+    const value = url.trim();
+    return value.startsWith('asset://') && value.length > 'asset://'.length;
+}
+
+/**
+ * True when this reference can only be sent as an `asset://` id — which
+ * Seedance 1.5 Pro cannot take, so the caller has to say "switch model"
+ * before "go set this up".
+ */
+export function referenceRequiresAssetLibrary(
+    url: string,
+    declaration: ReferenceDeclaration | undefined
+): boolean {
+    return isAssetReferenceUrl(url) || (declaration ? originRequiresAssetLibrary(declaration.origin) : false);
 }
 
 /** Every model this studio can drive is BytePlus's; anything else is someone's third-party render. */

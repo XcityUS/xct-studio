@@ -58,23 +58,28 @@ import {
     videoUrlToDataUri
 } from '@/lib/media-archive';
 import { providerLinkLikelyDead } from '@/lib/media-state';
-import { estimateVideoProgress } from '@/lib/progress';
-import { optimizePrompt } from '@/lib/prompt-optimizer';
 import {
-    declarationBlockReason,
-    declarationSatisfied,
-    originForGeneratedImage,
-    refKey,
-    type ReferenceDeclaration,
-    type ReferenceOrigin
-} from '@/lib/reference-origin';
-import {
+    createPortraitGroup,
     createPortraitAsset,
     createPortraitSession,
     fetchPortraitStatus,
     getPortraitAsset,
-    listPortraitGroups
+    listPortraitGroups,
+    type PortraitGroupQueryType
 } from '@/lib/portrait';
+import { estimateVideoProgress } from '@/lib/progress';
+import { optimizePrompt } from '@/lib/prompt-optimizer';
+import {
+    ASSET_LIBRARY_MODEL_BLOCK_REASON,
+    declarationBlockReason,
+    declarationSatisfied,
+    isAssetReferenceUrl,
+    originForGeneratedImage,
+    refKey,
+    referenceRequiresAssetLibrary,
+    type ReferenceDeclaration,
+    type ReferenceOrigin
+} from '@/lib/reference-origin';
 import { breakdownScript } from '@/lib/script-breakdown';
 import {
     DEFAULT_MODEL,
@@ -109,7 +114,10 @@ function fileNameWithoutExtension(fileName: string): string {
 
 function voiceoverAssetName(text: string): string {
     const firstWords = text.trim().replace(/\s+/g, ' ').split(' ').slice(0, 5).join(' ');
-    const safeWords = firstWords.replace(/[\/\\?%*:|"<>]/g, '').slice(0, 60).trim();
+    const safeWords = firstWords
+        .replace(/[\/\\?%*:|"<>]/g, '')
+        .slice(0, 60)
+        .trim();
     return safeWords ? `voiceover-${safeWords}` : 'voiceover';
 }
 
@@ -118,11 +126,6 @@ type StudioTab = 'video' | 'image' | 'assets' | 'community';
 
 /** Where a message belongs, so it lands next to the control that raised it. */
 type ErrorScope = 'create' | 'output';
-
-function isAssetReferenceUrl(url: string): boolean {
-    const value = url.trim();
-    return value.startsWith('asset://') && value.length > 'asset://'.length;
-}
 
 function isVideoResolution(value: string | undefined): value is VideoResolution {
     return Boolean(value && RESOLUTIONS.includes(value as VideoResolution));
@@ -233,9 +236,9 @@ function imageReferenceUrlsFromParams(params: VideoJobCreate): string[] {
     return [...refs, ...(lastFrame ? [lastFrame] : [])].map((url) => url.trim()).filter(Boolean);
 }
 
-function withVerifiedPortraitDeclarations(
+function withPortraitDeclarations(
     declarations: Record<string, ReferenceDeclaration>,
-    portraits: { assetId: string; groupId: string }[]
+    portraits: { assetId: string; groupId: string; groupType: 'LivenessFace' | 'AIGC' }[]
 ): Record<string, ReferenceDeclaration> {
     const next = { ...declarations };
     for (const portrait of portraits) {
@@ -248,7 +251,7 @@ function withVerifiedPortraitDeclarations(
         const existing = next[key];
         next[key] = {
             ...(existing ?? {}),
-            origin: 'real-person',
+            origin: portrait.groupType === 'AIGC' ? 'thirdparty-ai' : 'real-person',
             declaredAt: existing?.declaredAt ?? 0,
             assetId,
             groupId
@@ -295,9 +298,7 @@ export default function HomePage() {
     const [shareDialogError, setShareDialogError] = React.useState<string | null>(null);
     const [sharingVideoId, setSharingVideoId] = React.useState<string | null>(null);
     const [shareUrlCopied, setShareUrlCopied] = React.useState(false);
-    const [shareCommunityStatus, setShareCommunityStatus] = React.useState<'idle' | 'submitting' | 'submitted'>(
-        'idle'
-    );
+    const [shareCommunityStatus, setShareCommunityStatus] = React.useState<'idle' | 'submitting' | 'submitted'>('idle');
     const [shareCommunityError, setShareCommunityError] = React.useState<string | null>(null);
 
     // Creation form state
@@ -335,7 +336,7 @@ export default function HomePage() {
     const { getVideoSrc, getThumbnailSrc, setRemoteSource, removeSource, clearAllSources, hasLocalCopy, hasSource } =
         useVideoSources();
     const effectiveDeclarations = React.useMemo(
-        () => withVerifiedPortraitDeclarations(declarations, portraits),
+        () => withPortraitDeclarations(declarations, portraits),
         [declarations, portraits]
     );
 
@@ -375,59 +376,65 @@ export default function HomePage() {
     // the form's own Select-driven correction.
     const creationFormRef = React.useRef<HTMLDivElement>(null);
 
-    const applyPreset = React.useCallback((item: GalleryItem) => {
-        const p = reconcilePreset(item.params);
-        const refs = p.reference_image_urls ?? (p.input_reference_url ? [p.input_reference_url] : []);
-        setCreateModel(p.model);
-        setCreatePrompt(p.prompt);
-        setCreateRatio(p.ratio);
-        setCreateResolution(p.resolution);
-        setCreateSeconds(p.seconds);
-        setCreateAudio(p.generate_audio);
-        setCreateCameraFixed(p.camera_fixed ?? false);
-        setCreateReferenceUrls(refs);
-        setCreateLastFrameUrl(p.input_reference_url ? (p.last_frame_url ?? '') : '');
-        setCreateReferenceAudioUrl(refs.length >= 2 ? (p.reference_audio_url ?? '') : '');
-        setCreateReferenceVideoUrls(
-            refs.length >= 2 ? (p.reference_video_urls ?? []).slice(0, MAX_REFERENCE_VIDEOS) : []
-        );
-        setCreateSeed(p.seed);
-        setCreateWatermark(p.watermark ?? false);
-        setError(p.adjusted.length ? `Adjusted for ${p.model}: ${p.adjusted.join(', ')}` : null);
-        creationFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, [setError]);
-
-    const loadSharedSettings = React.useCallback(async (shareId: string) => {
-        try {
-            const share = await fetchShare(shareId);
-            if (!share) {
-                setError('Shared settings were not found.');
-                return;
-            }
-
-            const { params, adjusted } = shareParamsToForm(share.prompt, share.params);
-            setCreateModel(params.model);
-            setCreatePrompt(params.prompt);
-            setCreateRatio(params.ratio);
-            setCreateResolution(params.resolution);
-            setCreateSeconds(params.seconds);
-            setCreateAudio(params.generate_audio);
-            setCreateCameraFixed(params.camera_fixed ?? false);
-            setCreateReferenceUrls([]);
-            setCreateLastFrameUrl('');
-            setCreateReferenceAudioUrl('');
-            setCreateReferenceVideoUrls([]);
-            setCreateSeed(params.seed);
-            setCreateWatermark(params.watermark ?? false);
-            setActiveTab('video');
-            setShareNotice('Loaded shared settings — generate to recreate');
-            setError(adjusted.length ? `Adjusted shared settings: ${adjusted.join(', ')}` : null);
+    const applyPreset = React.useCallback(
+        (item: GalleryItem) => {
+            const p = reconcilePreset(item.params);
+            const refs = p.reference_image_urls ?? (p.input_reference_url ? [p.input_reference_url] : []);
+            setCreateModel(p.model);
+            setCreatePrompt(p.prompt);
+            setCreateRatio(p.ratio);
+            setCreateResolution(p.resolution);
+            setCreateSeconds(p.seconds);
+            setCreateAudio(p.generate_audio);
+            setCreateCameraFixed(p.camera_fixed ?? false);
+            setCreateReferenceUrls(refs);
+            setCreateLastFrameUrl(p.input_reference_url ? (p.last_frame_url ?? '') : '');
+            setCreateReferenceAudioUrl(refs.length >= 2 ? (p.reference_audio_url ?? '') : '');
+            setCreateReferenceVideoUrls(
+                refs.length >= 2 ? (p.reference_video_urls ?? []).slice(0, MAX_REFERENCE_VIDEOS) : []
+            );
+            setCreateSeed(p.seed);
+            setCreateWatermark(p.watermark ?? false);
+            setError(p.adjusted.length ? `Adjusted for ${p.model}: ${p.adjusted.join(', ')}` : null);
             creationFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        } catch (err) {
-            console.error('Error loading share:', err);
-            setError(err instanceof Error ? err.message : 'Could not load shared settings.');
-        }
-    }, [setError]);
+        },
+        [setError]
+    );
+
+    const loadSharedSettings = React.useCallback(
+        async (shareId: string) => {
+            try {
+                const share = await fetchShare(shareId);
+                if (!share) {
+                    setError('Shared settings were not found.');
+                    return;
+                }
+
+                const { params, adjusted } = shareParamsToForm(share.prompt, share.params);
+                setCreateModel(params.model);
+                setCreatePrompt(params.prompt);
+                setCreateRatio(params.ratio);
+                setCreateResolution(params.resolution);
+                setCreateSeconds(params.seconds);
+                setCreateAudio(params.generate_audio);
+                setCreateCameraFixed(params.camera_fixed ?? false);
+                setCreateReferenceUrls([]);
+                setCreateLastFrameUrl('');
+                setCreateReferenceAudioUrl('');
+                setCreateReferenceVideoUrls([]);
+                setCreateSeed(params.seed);
+                setCreateWatermark(params.watermark ?? false);
+                setActiveTab('video');
+                setShareNotice('Loaded shared settings — generate to recreate');
+                setError(adjusted.length ? `Adjusted shared settings: ${adjusted.join(', ')}` : null);
+                creationFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } catch (err) {
+                console.error('Error loading share:', err);
+                setError(err instanceof Error ? err.message : 'Could not load shared settings.');
+            }
+        },
+        [setError]
+    );
 
     const loadedShareIdRef = React.useRef<string | null>(null);
     React.useEffect(() => {
@@ -441,19 +448,22 @@ export default function HomePage() {
         void loadSharedSettings(shareId);
     }, [loadSharedSettings]);
 
-    const applyReferenceFrame = React.useCallback((item: GalleryItem, frameUrl: string) => {
-        declareGeneratedReference(frameUrl, item.params.model);
-        setCreateModel(item.params.model);
-        setCreateRatio(item.params.ratio);
-        setCreateReferenceUrls([frameUrl]);
-        setCreateLastFrameUrl('');
-        setCreateReferenceAudioUrl('');
-        setCreateReferenceVideoUrls([]);
-        // Leave the prompt to the user: describing the motion is the point of
-        // image-to-video, and inheriting the original prompt fights that.
-        setCreatePrompt('');
-        creationFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, [declareGeneratedReference]);
+    const applyReferenceFrame = React.useCallback(
+        (item: GalleryItem, frameUrl: string) => {
+            declareGeneratedReference(frameUrl, item.params.model);
+            setCreateModel(item.params.model);
+            setCreateRatio(item.params.ratio);
+            setCreateReferenceUrls([frameUrl]);
+            setCreateLastFrameUrl('');
+            setCreateReferenceAudioUrl('');
+            setCreateReferenceVideoUrls([]);
+            // Leave the prompt to the user: describing the motion is the point of
+            // image-to-video, and inheriting the original prompt fights that.
+            setCreatePrompt('');
+            creationFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        },
+        [declareGeneratedReference]
+    );
 
     React.useEffect(() => {
         if (createReferenceUrls.length !== 1 && createLastFrameUrl) {
@@ -528,13 +538,7 @@ export default function HomePage() {
                 throw new Error('Voiceover generation is not configured on this deployment.');
             }
 
-            const speech = await synthesizeSpeech(
-                text,
-                key,
-                model,
-                process.env.NEXT_PUBLIC_OPENAI_API_BASE_URL,
-                voice
-            );
+            const speech = await synthesizeSpeech(text, key, model, process.env.NEXT_PUBLIC_OPENAI_API_BASE_URL, voice);
             const assetName = voiceoverAssetName(text);
             const file = new File([speech], `${assetName}.mp3`, { type: 'audio/mpeg' });
             return uploadReferenceAudio(file, key, assetName);
@@ -622,19 +626,33 @@ export default function HomePage() {
         [resolveKey]
     );
 
-    const handleLoadPortraitGroups = React.useCallback(async () => {
-        const key = await resolveKey();
-        if (!key) {
-            throw new Error('Sign in at xcity.ai (or set an API key) to view verified people.');
-        }
-        return (await listPortraitGroups(key)).groups;
-    }, [resolveKey]);
-
-    const handleCreatePortraitAsset = React.useCallback(
-        async (input: { groupId: string; url: string; name: string }) => {
+    const handleLoadPortraitGroups = React.useCallback(
+        async (type?: PortraitGroupQueryType) => {
             const key = await resolveKey();
             if (!key) {
-                throw new Error('Sign in at xcity.ai (or set an API key) before adding a verified photo.');
+                throw new Error('Sign in at xcity.ai (or set an API key) to view portrait groups.');
+            }
+            return (await listPortraitGroups(key, type)).groups;
+        },
+        [resolveKey]
+    );
+
+    const handleCreatePortraitGroup = React.useCallback(
+        async (name: string) => {
+            const key = await resolveKey();
+            if (!key) {
+                throw new Error('Sign in at xcity.ai (or set an API key) before creating a virtual character.');
+            }
+            return createPortraitGroup(name, key);
+        },
+        [resolveKey]
+    );
+
+    const handleCreatePortraitAsset = React.useCallback(
+        async (input: { groupId: string; url: string; name: string; assetType?: 'Image' | 'Video' | 'Audio' }) => {
+            const key = await resolveKey();
+            if (!key) {
+                throw new Error('Sign in at xcity.ai (or set an API key) before adding a portrait image.');
             }
             return createPortraitAsset(input, key);
         },
@@ -645,7 +663,7 @@ export default function HomePage() {
         async (assetId: string) => {
             const key = await resolveKey();
             if (!key) {
-                throw new Error('Sign in at xcity.ai (or set an API key) to check verified photo status.');
+                throw new Error('Sign in at xcity.ai (or set an API key) to check portrait image status.');
             }
             return getPortraitAsset(assetId, key);
         },
@@ -921,16 +939,23 @@ export default function HomePage() {
 
     const blockedReferencesForParams = React.useCallback(
         (params: VideoJobCreate): string[] =>
-            imageReferenceUrlsFromParams(params).filter(
-                (url) => !declarationSatisfied(effectiveDeclarations[refKey(url)])
-            ),
+            imageReferenceUrlsFromParams(params).filter((url) => {
+                const declaration = effectiveDeclarations[refKey(url)];
+                if (!declarationSatisfied(declaration)) return true;
+                return maxReferenceImages(params.model) <= 1 && referenceRequiresAssetLibrary(url, declaration);
+            }),
         [effectiveDeclarations]
     );
 
     const firstReferenceBlockReason = React.useCallback(
-        (urls: string[]): string | null => {
+        (model: VideoModel, urls: string[]): string | null => {
             const first = urls[0];
-            return first ? declarationBlockReason(effectiveDeclarations[refKey(first)]) : null;
+            if (!first) return null;
+            const declaration = effectiveDeclarations[refKey(first)];
+            if (maxReferenceImages(model) <= 1 && referenceRequiresAssetLibrary(first, declaration)) {
+                return ASSET_LIBRARY_MODEL_BLOCK_REASON;
+            }
+            return declarationBlockReason(declaration);
         },
         [effectiveDeclarations]
     );
@@ -948,10 +973,7 @@ export default function HomePage() {
         if (isInitialLoad || !apiKey) return;
 
         const processingItems = history.filter(
-            (item) =>
-                item.status === 'processing' &&
-                !resumedIdsRef.current.has(item.id) &&
-                !activeJobs.has(item.id)
+            (item) => item.status === 'processing' && !resumedIdsRef.current.has(item.id) && !activeJobs.has(item.id)
         );
         if (processingItems.length === 0) return;
 
@@ -980,7 +1002,9 @@ export default function HomePage() {
         setShareNotice(null);
         const blockedReferences = blockedReferencesForParams(formData);
         if (blockedReferences.length > 0) {
-            setError(firstReferenceBlockReason(blockedReferences) ?? 'Choose where this image came from.');
+            setError(
+                firstReferenceBlockReason(formData.model, blockedReferences) ?? 'Choose where this image came from.'
+            );
             return;
         }
         setIsSubmitting(true);
@@ -1355,7 +1379,7 @@ export default function HomePage() {
     const showReferenceDeclarationGate = React.useCallback(
         (params: CreationFormData, blockedReferences: string[]) => {
             applyParamsToCreationForm(params);
-            const reason = firstReferenceBlockReason(blockedReferences);
+            const reason = firstReferenceBlockReason(params.model, blockedReferences);
             // Scope 'create': applyParamsToCreationForm just scrolled the user
             // to the form, so the message has to be under the Create button.
             setError(
@@ -1390,10 +1414,7 @@ export default function HomePage() {
     /** Finalize — rerun a draft at its selected final resolution with the same seed. */
     const handleFinalizeItem = (item: VideoMetadata) => {
         const params = buildParamsFromItem(item);
-        const finalResolution = finalResolutionForDraft(
-            params.model,
-            item.finalResolution ?? params.final_resolution
-        );
+        const finalResolution = finalResolutionForDraft(params.model, item.finalResolution ?? params.final_resolution);
         const finalParams: CreationFormData = {
             ...params,
             draft: false,
@@ -1787,6 +1808,11 @@ export default function HomePage() {
                                 onUploadVideo={uploadEnabled ? handleUploadVideo : undefined}
                                 onOptimizePrompt={handleOptimizePrompt}
                                 onBreakdownScript={handleBreakdownScript}
+                                // Only offer the jump when the Assets tab actually exists —
+                                // it is gated on the media worker / portrait library.
+                                onOpenAssets={
+                                    uploadEnabled || isPortraitEnabled ? () => setActiveTab('assets') : undefined
+                                }
                                 error={createError}
                             />
                         )}
@@ -1901,11 +1927,7 @@ export default function HomePage() {
                                     variant='secondary'
                                     onClick={handleCopyShareUrl}
                                     className='bg-white/10 text-white hover:bg-white/20'>
-                                    {shareUrlCopied ? (
-                                        <Check className='h-4 w-4' />
-                                    ) : (
-                                        <Copy className='h-4 w-4' />
-                                    )}
+                                    {shareUrlCopied ? <Check className='h-4 w-4' /> : <Copy className='h-4 w-4' />}
                                     {shareUrlCopied ? 'Copied' : 'Copy'}
                                 </Button>
                                 <Button asChild className='bg-white text-black hover:bg-white/90'>
@@ -1973,6 +1995,7 @@ export default function HomePage() {
                                         removePortrait={removePortrait}
                                         startPortraitSession={handleStartPortraitSession}
                                         loadPortraitGroups={handleLoadPortraitGroups}
+                                        createPortraitGroup={handleCreatePortraitGroup}
                                         createPortraitAsset={handleCreatePortraitAsset}
                                         getPortraitAsset={handleGetPortraitAsset}
                                         getPortraitStatus={handleGetPortraitStatus}

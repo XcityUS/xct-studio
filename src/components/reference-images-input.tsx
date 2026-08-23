@@ -4,9 +4,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
+    ASSET_LIBRARY_MODEL_BLOCK_REASON,
     REFERENCE_ORIGINS,
     REFERENCE_ORIGIN_LABELS,
     declarationSatisfied,
+    isAssetReferenceUrl,
+    originRequiresAssetLibrary,
     refKey,
     type ReferenceDeclaration,
     type ReferenceOrigin
@@ -28,6 +31,7 @@ interface ReferenceImagesInputProps {
     onUpload?: (file: File) => Promise<string>;
     declarations: Record<string, ReferenceDeclaration>;
     onDeclare: (url: string, origin: ReferenceOrigin) => void;
+    onOpenAssets?: () => void;
     disabled?: boolean;
 }
 
@@ -38,11 +42,6 @@ function isHttpImageUrl(url: string): boolean {
     } catch {
         return false;
     }
-}
-
-function isAssetReferenceUrl(url: string): boolean {
-    const value = url.trim();
-    return value.startsWith('asset://') && value.length > 'asset://'.length;
 }
 
 function isReferenceImageUrl(url: string): boolean {
@@ -63,8 +62,7 @@ function declarationForUrl(
 }
 
 function declarationActionLabel(origin: ReferenceOrigin): string | null {
-    if (origin === 'thirdparty-ai') return 'Add to virtual portrait library';
-    if (origin === 'real-person') return 'Verify this person';
+    if (origin === 'thirdparty-ai' || origin === 'real-person') return 'Set this up in Assets';
     if (origin === 'licensed-ip') return 'Submit authorization';
     return null;
 }
@@ -79,13 +77,7 @@ function ReferenceStatusBadge({ declaration }: { declaration: ReferenceDeclarati
                 'absolute right-0 bottom-0 flex h-4 w-4 items-center justify-center rounded-tl border border-black/50 text-[10px] font-semibold',
                 satisfied ? 'bg-emerald-400 text-black' : 'bg-amber-400 text-black'
             )}>
-            {satisfied ? (
-                <Check className='h-3 w-3' />
-            ) : declaration ? (
-                <AlertTriangle className='h-3 w-3' />
-            ) : (
-                '?'
-            )}
+            {satisfied ? <Check className='h-3 w-3' /> : declaration ? <AlertTriangle className='h-3 w-3' /> : '?'}
         </span>
     );
 }
@@ -314,6 +306,7 @@ export function ReferenceImagesInput({
     onUpload,
     declarations,
     onDeclare,
+    onOpenAssets,
     disabled
 }: ReferenceImagesInputProps) {
     const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -335,9 +328,7 @@ export function ReferenceImagesInput({
 
     const addUrls = React.useCallback(
         (added: string[]) => {
-            const cleaned = added
-                .map((u) => u.trim())
-                .filter(isReferenceImageUrl);
+            const cleaned = added.map((u) => u.trim()).filter(isReferenceImageUrl);
             if (!cleaned.length) return;
             const next = [...urls, ...cleaned.filter((u) => !urls.includes(u))].slice(0, maxImages);
             onChange(next);
@@ -463,6 +454,15 @@ export function ReferenceImagesInput({
                         {unresolvedDeclarations.map((item) => {
                             const declaration = declarationForUrl(declarations, item.url);
                             const actionLabel = declaration?.origin ? declarationActionLabel(declaration.origin) : null;
+                            const assetLibraryUnsupported =
+                                maxImages <= 1 &&
+                                Boolean(declaration && originRequiresAssetLibrary(declaration.origin));
+                            const canOpenAssets =
+                                Boolean(onOpenAssets) &&
+                                Boolean(
+                                    declaration?.origin === 'thirdparty-ai' || declaration?.origin === 'real-person'
+                                ) &&
+                                !assetLibraryUnsupported;
                             return (
                                 <div
                                     key={`${item.label}-${item.url}`}
@@ -496,14 +496,23 @@ export function ReferenceImagesInput({
                                     {declaration?.origin && actionLabel && (
                                         <div className='flex flex-wrap items-center gap-2 text-xs text-amber-100/80'>
                                             <span className='min-w-0 flex-1'>
-                                                {REFERENCE_ORIGIN_LABELS[declaration.origin].hint}
+                                                {assetLibraryUnsupported
+                                                    ? ASSET_LIBRARY_MODEL_BLOCK_REASON
+                                                    : REFERENCE_ORIGIN_LABELS[declaration.origin].hint}
                                             </span>
                                             <button
                                                 type='button'
-                                                title='Coming in the next release'
-                                                disabled
-                                                className='shrink-0 rounded-md border border-white/15 bg-white/5 px-2 py-1 text-xs text-white/40 disabled:cursor-not-allowed'>
-                                                {actionLabel}
+                                                title={
+                                                    canOpenAssets
+                                                        ? 'Open Assets'
+                                                        : assetLibraryUnsupported
+                                                          ? 'Switch model first'
+                                                          : 'Coming in a later release'
+                                                }
+                                                onClick={() => canOpenAssets && onOpenAssets?.()}
+                                                disabled={!canOpenAssets || disabled}
+                                                className='shrink-0 rounded-md border border-white/15 bg-white/5 px-2 py-1 text-xs text-white/65 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:text-white/40'>
+                                                {assetLibraryUnsupported ? 'Switch model first' : actionLabel}
                                             </button>
                                         </div>
                                     )}

@@ -6,8 +6,12 @@ export type PortraitSession = {
 export type PortraitGroup = {
     id: string;
     name: string;
+    groupType: PortraitGroupType;
 };
 
+export type PortraitGroupType = 'LivenessFace' | 'AIGC';
+export type PortraitGroupQueryType = 'liveness' | 'aigc' | 'all';
+export type PortraitAssetType = 'Image' | 'Video' | 'Audio';
 export type PortraitAssetStatus = 'Processing' | 'Active' | 'Failed' | string;
 
 export type PortraitAsset = {
@@ -36,6 +40,10 @@ async function portraitRequest<T>(
     return body as T;
 }
 
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export function createPortraitSession(origin: string, apiKey: string): Promise<PortraitSession> {
     return portraitRequest<PortraitSession>('/api/portrait/session', apiKey, {
         method: 'POST',
@@ -50,12 +58,28 @@ export function resolvePortraitResult(bytedToken: string, apiKey: string): Promi
     });
 }
 
-export function listPortraitGroups(apiKey: string): Promise<{ groups: PortraitGroup[] }> {
-    return portraitRequest<{ groups: PortraitGroup[] }>('/api/portrait/groups', apiKey);
+export function listPortraitGroups(
+    apiKey: string,
+    type: PortraitGroupQueryType = 'liveness'
+): Promise<{ groups: PortraitGroup[] }> {
+    return portraitRequest<{ groups: PortraitGroup[] }>(
+        `/api/portrait/groups?type=${encodeURIComponent(type)}`,
+        apiKey
+    );
+}
+
+export function createPortraitGroup(
+    name: string,
+    apiKey: string
+): Promise<{ groupId: string; slug: string; created: boolean }> {
+    return portraitRequest<{ groupId: string; slug: string; created: boolean }>('/api/portrait/groups', apiKey, {
+        method: 'POST',
+        body: JSON.stringify({ name })
+    });
 }
 
 export function createPortraitAsset(
-    input: { groupId: string; url: string; name: string },
+    input: { groupId: string; url: string; name: string; assetType?: PortraitAssetType },
     apiKey: string
 ): Promise<{ assetId: string }> {
     return portraitRequest<{ assetId: string }>('/api/portrait/asset', apiKey, {
@@ -68,14 +92,40 @@ export function getPortraitAsset(assetId: string, apiKey: string): Promise<Portr
     return portraitRequest<PortraitAsset>(`/api/portrait/asset?id=${encodeURIComponent(assetId)}`, apiKey);
 }
 
+export async function waitForPortraitAsset(
+    assetId: string,
+    loadAsset: (assetId: string) => Promise<PortraitAsset>
+): Promise<void> {
+    const startedAt = Date.now();
+    let lastStatus = '';
+    while (Date.now() - startedAt <= 120_000) {
+        const asset = await loadAsset(assetId);
+        lastStatus = asset.status;
+        if (asset.status === 'Active') return;
+        if (asset.status === 'Failed') {
+            throw new Error(
+                'BytePlus rejected this image. Common causes: more than one face in a real-person photo, the face not matching the liveness capture, or the image being outside BytePlus size or ratio limits.'
+            );
+        }
+        await sleep(3000);
+    }
+    throw new Error(
+        lastStatus
+            ? `Portrait image is still ${lastStatus.toLowerCase()}. Try again in a moment.`
+            : 'Portrait image processing timed out.'
+    );
+}
+
 export type PortraitStatus = {
     configured: boolean;
     ok: boolean;
+    livenessOk: boolean;
+    aigcOk: boolean;
     projectName: string;
     error?: string;
 };
 
-/** Operator-facing self-test: is the real-human library actually usable here? */
+/** Operator-facing self-test: are the portrait libraries actually usable here? */
 export async function fetchPortraitStatus(apiKey: string): Promise<PortraitStatus> {
     const res = await fetch('/api/portrait/status', {
         headers: { Authorization: `Bearer ${apiKey}` },

@@ -4,7 +4,6 @@
  * Split out of use-video-history because this is the data-safety core: it
  * decides what survives when two devices (or a stale tab) disagree.
  */
-
 import type { ReferenceDeclaration } from '@/lib/reference-origin';
 import type { VideoMetadata } from '@/types/video';
 
@@ -14,9 +13,12 @@ export type VideoCharacter = {
     url: string;
 };
 
+export type VideoPortraitGroupType = 'LivenessFace' | 'AIGC';
+
 export type VideoPortrait = {
     assetId: string;
     groupId: string;
+    groupType: VideoPortraitGroupType;
     name: string;
     thumbUrl: string;
 };
@@ -49,13 +51,13 @@ export function withTombstones(existing: string[], ids: string[]): string[] {
     return next.length > MAX_TOMBSTONES ? next.slice(next.length - MAX_TOMBSTONES) : next;
 }
 
-export function withDeclarations(declarations: Record<string, ReferenceDeclaration>): Record<string, ReferenceDeclaration> {
+export function withDeclarations(
+    declarations: Record<string, ReferenceDeclaration>
+): Record<string, ReferenceDeclaration> {
     const entries = Object.entries(declarations);
     if (entries.length <= MAX_DECLARATIONS) return declarations;
 
-    return Object.fromEntries(
-        entries.sort(([, a], [, b]) => b.declaredAt - a.declaredAt).slice(0, MAX_DECLARATIONS)
-    );
+    return Object.fromEntries(entries.sort(([, a], [, b]) => b.declaredAt - a.declaredAt).slice(0, MAX_DECLARATIONS));
 }
 
 /** Terminal beats in-flight; an archived copy beats a local-only one. */

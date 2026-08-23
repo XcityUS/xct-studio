@@ -1,5 +1,6 @@
 import { byteplusPortraitConfigured } from '@/lib/server/byteplus-openapi';
 import { NextResponse } from 'next/server';
+import { createHash } from 'node:crypto';
 
 export type PortraitAuth = {
     bearer: string;
@@ -24,6 +25,31 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export function ownerTag(userId: string): string {
     return `xcity:${userId}`;
+}
+
+export function portraitGroupSlug(name: string): string {
+    const slug = name
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 40)
+        .replace(/-+$/g, '');
+    if (slug) return slug;
+
+    // Non-Latin names can be valid display names while still producing no
+    // BytePlus-safe slug. Hash the original so retries reuse the same group.
+    return `character-${createHash('sha256').update(name).digest('hex').slice(0, 10)}`;
+}
+
+export function ownerGroupName(userId: string, slug: string): string {
+    return `${ownerTag(userId)}:${slug}`;
+}
+
+export function isOwnedGroupName(name: string, userId: string): boolean {
+    const tag = ownerTag(userId);
+    return name === tag || name.startsWith(`${tag}:`);
 }
 
 export function jsonError(error: string, status: number): NextResponse {

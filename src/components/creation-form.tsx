@@ -17,9 +17,11 @@ import type { VideoCharacter, VideoPortrait } from '@/hooks/use-video-history';
 import { calculateVideoCost } from '@/lib/cost-utils';
 import { PROMPT_TEMPLATE_CATEGORIES, applyPromptTemplate } from '@/lib/prompt-templates';
 import {
+    ASSET_LIBRARY_MODEL_BLOCK_REASON,
     declarationBlockReason,
     declarationSatisfied,
     refKey,
+    referenceRequiresAssetLibrary,
     type ReferenceDeclaration,
     type ReferenceOrigin
 } from '@/lib/reference-origin';
@@ -89,6 +91,8 @@ type CreationFormProps = {
     onOptimizePrompt?: (prompt: string) => Promise<string>;
     /** Splits a script into Seedance shot rows via the gateway's chat API. */
     onBreakdownScript?: (script: string) => Promise<ShotDraft[]>;
+    /** Opens the Assets tab for portrait-library setup. */
+    onOpenAssets?: () => void;
     /** Message from the last submission — rendered under the Create button. */
     error?: string | null;
 };
@@ -153,6 +157,7 @@ export function CreationForm({
     onUploadVideo,
     onOptimizePrompt,
     onBreakdownScript,
+    onOpenAssets,
     error
 }: CreationFormProps) {
     const { min: minSeconds, max: maxSeconds } = secondsRange(model);
@@ -169,12 +174,20 @@ export function CreationForm({
         return lastFrame ? [...refs, lastFrame] : refs;
     }, [lastFrameUrl, referenceUrls]);
     const blockedReferences = React.useMemo(
-        () => attachedReferenceUrls.filter((url) => !declarationSatisfied(declarations[refKey(url)])),
-        [attachedReferenceUrls, declarations]
+        () =>
+            attachedReferenceUrls.filter((url) => {
+                const declaration = declarations[refKey(url)];
+                if (!declarationSatisfied(declaration)) return true;
+                return refCap <= 1 && referenceRequiresAssetLibrary(url, declaration);
+            }),
+        [attachedReferenceUrls, declarations, refCap]
     );
     const firstBlockedReference = blockedReferences[0];
     const referenceBlockReason = firstBlockedReference
-        ? declarationBlockReason(declarations[refKey(firstBlockedReference)])
+        ? refCap <= 1 &&
+          referenceRequiresAssetLibrary(firstBlockedReference, declarations[refKey(firstBlockedReference)])
+            ? ASSET_LIBRARY_MODEL_BLOCK_REASON
+            : declarationBlockReason(declarations[refKey(firstBlockedReference)])
         : null;
     const submitMessage = error ?? referenceBlockReason;
 
@@ -197,6 +210,14 @@ export function CreationForm({
         ]);
         return referenceUrls.map((url) => labelsByUrl.get(url) ?? null);
     }, [characters, portraits, referenceUrls]);
+    const verifiedPortraits = React.useMemo(
+        () => portraits.filter((portrait) => portrait.groupType === 'LivenessFace'),
+        [portraits]
+    );
+    const virtualPortraits = React.useMemo(
+        () => portraits.filter((portrait) => portrait.groupType === 'AIGC'),
+        [portraits]
+    );
 
     React.useEffect(() => {
         if (!supportsDraftMode) {
@@ -684,12 +705,12 @@ export function CreationForm({
                         </div>
                     )}
 
-                    {portraits.length > 0 && (
+                    {verifiedPortraits.length > 0 && (
                         <div className='space-y-2'>
                             <div className='flex flex-wrap items-center gap-2'>
                                 <span className='text-sm text-white'>Verified people:</span>
                                 <div className='flex min-w-0 flex-1 flex-wrap gap-1.5'>
-                                    {portraits.map((portrait) => {
+                                    {verifiedPortraits.map((portrait) => {
                                         const referenceUrl = portraitReferenceUrl(portrait.assetId);
                                         const isAttached = referenceUrls.includes(referenceUrl);
                                         const disabled = isLoading || (!isAttached && referenceUrls.length >= refCap);
@@ -717,6 +738,39 @@ export function CreationForm({
                         </div>
                     )}
 
+                    {virtualPortraits.length > 0 && (
+                        <div className='space-y-2'>
+                            <div className='flex flex-wrap items-center gap-2'>
+                                <span className='text-sm text-white'>Virtual characters:</span>
+                                <div className='flex min-w-0 flex-1 flex-wrap gap-1.5'>
+                                    {virtualPortraits.map((portrait) => {
+                                        const referenceUrl = portraitReferenceUrl(portrait.assetId);
+                                        const isAttached = referenceUrls.includes(referenceUrl);
+                                        const disabled = isLoading || (!isAttached && referenceUrls.length >= refCap);
+                                        return (
+                                            <button
+                                                key={portrait.assetId}
+                                                type='button'
+                                                title={
+                                                    disabled && !isAttached
+                                                        ? `Reference limit reached (${refCap})`
+                                                        : `Attach ${portrait.name}`
+                                                }
+                                                onClick={() => handleAttachPortrait(portrait)}
+                                                disabled={disabled}
+                                                className='inline-flex max-w-full items-center gap-1.5 rounded-full border border-cyan-300/25 bg-cyan-300/[0.06] py-1 pr-2 pl-1 text-xs text-white/80 transition-colors hover:border-cyan-200/50 hover:bg-cyan-300/[0.1] hover:text-white disabled:cursor-not-allowed disabled:opacity-40'>
+                                                <span className='flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden rounded-full border border-cyan-200/30 bg-cyan-200/10'>
+                                                    <Sparkles className='h-3 w-3 text-cyan-200' />
+                                                </span>
+                                                <span className='max-w-32 truncate'>{portrait.name}</span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     <ReferenceImagesInput
                         urls={referenceUrls}
                         onChange={setReferenceUrls}
@@ -726,6 +780,7 @@ export function CreationForm({
                         onUpload={onUploadImage}
                         declarations={declarations}
                         onDeclare={onDeclareReference}
+                        onOpenAssets={onOpenAssets}
                         disabled={isLoading}
                     />
                     {showReferenceAudio && (

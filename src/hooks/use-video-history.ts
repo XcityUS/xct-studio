@@ -8,14 +8,11 @@ import {
     withTombstones,
     type HistoryDoc,
     type VideoCharacter,
-    type VideoPortrait
+    type VideoPortrait,
+    type VideoPortraitGroupType
 } from '@/lib/history-merge';
 import { fetchCloudState, mediaArchiveEnabled, pushCloudState } from '@/lib/media-archive';
-import {
-    REFERENCE_ORIGINS,
-    type ReferenceDeclaration,
-    type ReferenceOrigin
-} from '@/lib/reference-origin';
+import { REFERENCE_ORIGINS, type ReferenceDeclaration, type ReferenceOrigin } from '@/lib/reference-origin';
 import type { VideoMetadata } from '@/types/video';
 import * as React from 'react';
 
@@ -48,6 +45,10 @@ function optionalString(value: unknown): string | undefined {
     if (typeof value !== 'string') return undefined;
     const trimmed = value.trim();
     return trimmed ? trimmed : undefined;
+}
+
+function parsePortraitGroupType(value: unknown): VideoPortraitGroupType {
+    return value === 'AIGC' ? 'AIGC' : 'LivenessFace';
 }
 
 function readStoredUpdatedAt(): number {
@@ -93,7 +94,7 @@ function parsePortraits(value: unknown): VideoPortrait[] {
         const name = item.name.trim();
         const thumbUrl = item.thumbUrl.trim();
         if (!assetId || !groupId || !name || !thumbUrl) return [];
-        return [{ assetId, groupId, name, thumbUrl }];
+        return [{ assetId, groupId, groupType: parsePortraitGroupType(item.groupType), name, thumbUrl }];
     });
 }
 
@@ -485,17 +486,19 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
     }, [characters, declarations, history, isInitialLoad, localDoc, portraits, pushDocOrMerge, resolveKey]);
 
     const mutateDoc = React.useCallback(
-        (update: (prev: {
-            history: VideoMetadata[];
-            characters: VideoCharacter[];
-            portraits: VideoPortrait[];
-            declarations: Record<string, ReferenceDeclaration>;
-        }) => {
-            history: VideoMetadata[];
-            characters: VideoCharacter[];
-            portraits: VideoPortrait[];
-            declarations: Record<string, ReferenceDeclaration>;
-        }) => {
+        (
+            update: (prev: {
+                history: VideoMetadata[];
+                characters: VideoCharacter[];
+                portraits: VideoPortrait[];
+                declarations: Record<string, ReferenceDeclaration>;
+            }) => {
+                history: VideoMetadata[];
+                characters: VideoCharacter[];
+                portraits: VideoPortrait[];
+                declarations: Record<string, ReferenceDeclaration>;
+            }
+        ) => {
             const next = update({
                 history: historyRef.current,
                 characters: charactersRef.current,
@@ -538,9 +541,12 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
         [mutateHistory]
     );
 
-    const updateItem = React.useCallback((id: string, patch: Partial<VideoMetadata>) => {
-        mutateHistory((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
-    }, [mutateHistory]);
+    const updateItem = React.useCallback(
+        (id: string, patch: Partial<VideoMetadata>) => {
+            mutateHistory((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+        },
+        [mutateHistory]
+    );
 
     const removeItem = React.useCallback(
         (id: string) => {
@@ -590,6 +596,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
         (portrait: VideoPortrait) => {
             const assetId = portrait.assetId.trim();
             const groupId = portrait.groupId.trim();
+            const groupType = parsePortraitGroupType(portrait.groupType);
             const name = portrait.name.trim();
             const thumbUrl = portrait.thumbUrl.trim();
             if (!assetId || !groupId || !name || !thumbUrl) return;
@@ -599,7 +606,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
                 declarations: prev.declarations,
                 portraits: [
                     ...prev.portraits.filter((existing) => existing.assetId !== assetId),
-                    { assetId, groupId, name, thumbUrl }
+                    { assetId, groupId, groupType, name, thumbUrl }
                 ]
             }));
         },
