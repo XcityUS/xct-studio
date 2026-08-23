@@ -33,7 +33,13 @@ import { db, type ImageRecord } from '@/lib/db';
 import { InvalidApiKeyError, RealPersonImageError } from '@/lib/errors';
 import type { GalleryItem } from '@/lib/gallery';
 import { reconcilePreset } from '@/lib/gallery-preset';
-import { IMAGE_GENERATION_ENABLED, generateImages, type GeneratedImage, type ImageSizeId } from '@/lib/image-service';
+import {
+    generateImages,
+    loadImageModels,
+    type GeneratedImage,
+    type ImageModel,
+    type ImageSizeId
+} from '@/lib/image-service';
 import {
     audioUrlToDataUri,
     createShare,
@@ -499,10 +505,13 @@ export default function HomePage() {
     // (checked at runtime via /api/config).
     const [uploadEnabled, setUploadEnabled] = React.useState(false);
     const [isPortraitEnabled, setIsPortraitEnabled] = React.useState(false);
+    const [imageModels, setImageModels] = React.useState<ImageModel[]>([]);
     React.useEffect(() => {
         void mediaArchiveEnabled().then(setUploadEnabled);
         void loadPortraitEnabled().then(setIsPortraitEnabled);
+        void loadImageModels().then(setImageModels);
     }, []);
+    const imageGenerationEnabled = imageModels.length > 0;
 
     const handleUploadImage = React.useCallback(
         async (file: File): Promise<string> => {
@@ -1942,7 +1951,7 @@ export default function HomePage() {
             </Dialog>
 
             <div className='w-full max-w-7xl space-y-6'>
-                {IMAGE_GENERATION_ENABLED || uploadEnabled || isPortraitEnabled ? (
+                {imageGenerationEnabled || uploadEnabled || isPortraitEnabled ? (
                     <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as StudioTab)}>
                         <TabsList className='mb-4 border border-white/10 bg-white/5'>
                             <TabsTrigger
@@ -1950,7 +1959,7 @@ export default function HomePage() {
                                 className='px-6 text-white/60 data-[state=active]:bg-white data-[state=active]:text-black'>
                                 Video
                             </TabsTrigger>
-                            {IMAGE_GENERATION_ENABLED && (
+                            {imageGenerationEnabled && (
                                 <TabsTrigger
                                     value='image'
                                     className='px-6 text-white/60 data-[state=active]:bg-white data-[state=active]:text-black'>
@@ -1975,9 +1984,13 @@ export default function HomePage() {
                         <TabsContent value='video' className='space-y-6'>
                             {videoTabContent}
                         </TabsContent>
-                        {IMAGE_GENERATION_ENABLED && (
+                        {imageGenerationEnabled && (
                             <TabsContent value='image'>
-                                <ImageStudio onGenerate={handleGenerateImages} onAnimate={handleAnimateImage} />
+                                <ImageStudio
+                                    imageModels={imageModels}
+                                    onGenerate={handleGenerateImages}
+                                    onAnimate={handleAnimateImage}
+                                />
                             </TabsContent>
                         )}
                         {(uploadEnabled || isPortraitEnabled) && (
