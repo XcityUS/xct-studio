@@ -40,6 +40,8 @@ type VideoOutputProps = {
     isSharePending?: boolean;
     /** The gateway has no playable link for this completed job (yet). */
     previewUnavailable?: boolean;
+    /** A completed job is still being probed for a playable source. */
+    isPreviewResolving?: boolean;
     /** Re-resolves a playback source for the current job. */
     onRetryPreview?: () => void;
     /** Message for an action taken from this panel — rendered under the buttons. */
@@ -123,6 +125,7 @@ export function VideoOutput({
     shareItem,
     isSharePending,
     previewUnavailable = false,
+    isPreviewResolving = false,
     onRetryPreview,
     error
 }: VideoOutputProps) {
@@ -368,13 +371,30 @@ export function VideoOutput({
                                     </Button>
                                 )}
                             </>
+                        ) : isPreviewResolving ? (
+                            <>
+                                <p className='text-white/60'>Render complete — waiting for playback link…</p>
+                                <p className='mt-2 max-w-md text-sm text-white/40'>
+                                    The provider has marked the job complete, but the downloadable video URL has not
+                                    been published yet.
+                                </p>
+                            </>
                         ) : (
                             <>
-                                <p className='text-white/60'>Video ready — loading preview…</p>
-                                <p className='mt-2 text-sm text-white/40'>
-                                    Fetching the finished video from the gateway — long clips and 4K clips can take a
-                                    few minutes of provider post-processing before the link appears
+                                <p className='text-white/60'>Preview source missing</p>
+                                <p className='mt-2 max-w-md text-sm text-white/40'>
+                                    This job is complete, but this browser does not currently have a local copy, R2
+                                    URL, or provider playback URL for it.
                                 </p>
+                                {onRetryPreview && (
+                                    <Button
+                                        onClick={onRetryPreview}
+                                        variant='outline'
+                                        className='mt-4 border-white/20 bg-black text-white hover:bg-white/10 hover:text-white'>
+                                        <RotateCcw className='mr-2 h-4 w-4' />
+                                        Retry
+                                    </Button>
+                                )}
                             </>
                         )}
                     </div>
@@ -383,7 +403,7 @@ export function VideoOutput({
                 {completedOutput && (
                     <div className='flex h-full min-h-0 w-full flex-col gap-4'>
                         <CompletedVideoPlayer
-                            key={completedOutput.job.id}
+                            key={`${completedOutput.job.id}:${completedOutput.videoSrc}`}
                             jobId={completedOutput.job.id}
                             videoSrc={completedOutput.videoSrc}
                             thumbnailSrc={thumbnailSrc}
@@ -581,16 +601,21 @@ function CompletedVideoPlayer({ jobId, videoSrc, thumbnailSrc, onSourceError }: 
         if (!video) return;
 
         if (video.paused || video.ended) {
+            if (video.ended || (duration > 0 && video.currentTime >= duration - 0.05)) {
+                video.currentTime = 0;
+                setCurrentTime(0);
+                positionRef.current = 0;
+            }
             const playPromise = video.play();
             if (playPromise !== undefined) {
                 playPromise.catch((error) => {
-                    console.error('Video playback failed to start:', error);
+                    console.warn('Video playback failed to start:', error);
                 });
             }
         } else {
             video.pause();
         }
-    }, []);
+    }, [duration]);
 
     const handleSliderChange = React.useCallback(
         (value: number[]) => {
@@ -689,7 +714,7 @@ function CompletedVideoPlayer({ jobId, videoSrc, thumbnailSrc, onSourceError }: 
                         if (time > 0) positionRef.current = time;
                     }}
                     onError={(error) => {
-                        console.error('Video playback error:', error);
+                        console.warn('Video playback error; attempting to resolve another source.', error);
                         onSourceError?.();
                     }}
                 />
