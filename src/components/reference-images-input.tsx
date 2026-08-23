@@ -31,7 +31,8 @@ interface ReferenceImagesInputProps {
     onUpload?: (file: File) => Promise<string>;
     declarations: Record<string, ReferenceDeclaration>;
     onDeclare: (url: string, origin: ReferenceOrigin) => void;
-    onOpenAssets?: () => void;
+    approvedAuthorizationIds: ReadonlySet<string>;
+    onOpenAssets?: (referenceKey?: string) => void;
     disabled?: boolean;
 }
 
@@ -67,8 +68,14 @@ function declarationActionLabel(origin: ReferenceOrigin): string | null {
     return null;
 }
 
-function ReferenceStatusBadge({ declaration }: { declaration: ReferenceDeclaration | undefined }) {
-    const satisfied = declarationSatisfied(declaration);
+function ReferenceStatusBadge({
+    declaration,
+    approvedAuthorizationIds
+}: {
+    declaration: ReferenceDeclaration | undefined;
+    approvedAuthorizationIds: ReadonlySet<string>;
+}) {
+    const satisfied = declarationSatisfied(declaration, approvedAuthorizationIds);
     const title = satisfied ? 'Declaration complete' : declaration ? 'Needs setup before submit' : 'Choose origin';
     return (
         <span
@@ -115,10 +122,18 @@ type LastFrameSlotProps = {
     onChange: (url: string) => void;
     onUpload?: (file: File) => Promise<string>;
     declaration?: ReferenceDeclaration;
+    approvedAuthorizationIds: ReadonlySet<string>;
     disabled?: boolean;
 };
 
-function LastFrameSlot({ url, onChange, onUpload, declaration, disabled }: LastFrameSlotProps) {
+function LastFrameSlot({
+    url,
+    onChange,
+    onUpload,
+    declaration,
+    approvedAuthorizationIds,
+    disabled
+}: LastFrameSlotProps) {
     const fileInputRef = React.useRef<HTMLInputElement>(null);
     const [isUploading, setIsUploading] = React.useState(false);
     const [uploadError, setUploadError] = React.useState<string | null>(null);
@@ -181,7 +196,10 @@ function LastFrameSlot({ url, onChange, onUpload, declaration, disabled }: LastF
                         aria-label='Remove last frame'>
                         <X className='h-3 w-3' />
                     </button>
-                    <ReferenceStatusBadge declaration={declaration} />
+                    <ReferenceStatusBadge
+                        declaration={declaration}
+                        approvedAuthorizationIds={approvedAuthorizationIds}
+                    />
                 </div>
             ) : (
                 <>
@@ -306,6 +324,7 @@ export function ReferenceImagesInput({
     onUpload,
     declarations,
     onDeclare,
+    approvedAuthorizationIds,
     onOpenAssets,
     disabled
 }: ReferenceImagesInputProps) {
@@ -323,8 +342,10 @@ export function ReferenceImagesInput({
         if (lastFrameUrl.trim()) {
             items.push({ url: lastFrameUrl, label: 'Last frame' });
         }
-        return items.filter((item) => !declarationSatisfied(declarationForUrl(declarations, item.url)));
-    }, [declarations, lastFrameUrl, urls]);
+        return items.filter(
+            (item) => !declarationSatisfied(declarationForUrl(declarations, item.url), approvedAuthorizationIds)
+        );
+    }, [approvedAuthorizationIds, declarations, lastFrameUrl, urls]);
 
     const addUrls = React.useCallback(
         (added: string[]) => {
@@ -431,7 +452,10 @@ export function ReferenceImagesInput({
                                 aria-label={`Remove reference image ${i + 1}`}>
                                 <X className='h-3 w-3' />
                             </button>
-                            <ReferenceStatusBadge declaration={declarationForUrl(declarations, url)} />
+                            <ReferenceStatusBadge
+                                declaration={declarationForUrl(declarations, url)}
+                                approvedAuthorizationIds={approvedAuthorizationIds}
+                            />
                         </div>
                     ))}
                 </div>
@@ -443,6 +467,7 @@ export function ReferenceImagesInput({
                     onChange={onLastFrameChange}
                     onUpload={onUpload}
                     declaration={declarationForUrl(declarations, lastFrameUrl)}
+                    approvedAuthorizationIds={approvedAuthorizationIds}
                     disabled={disabled}
                 />
             )}
@@ -460,9 +485,12 @@ export function ReferenceImagesInput({
                             const canOpenAssets =
                                 Boolean(onOpenAssets) &&
                                 Boolean(
-                                    declaration?.origin === 'thirdparty-ai' || declaration?.origin === 'real-person'
+                                    declaration?.origin === 'thirdparty-ai' ||
+                                        declaration?.origin === 'real-person' ||
+                                        declaration?.origin === 'licensed-ip'
                                 ) &&
                                 !assetLibraryUnsupported;
+                            const referenceKey = refKey(item.url);
                             return (
                                 <div
                                     key={`${item.label}-${item.url}`}
@@ -507,9 +535,14 @@ export function ReferenceImagesInput({
                                                         ? 'Open Assets'
                                                         : assetLibraryUnsupported
                                                           ? 'Switch model first'
-                                                          : 'Coming in a later release'
+                                                          : 'Open Assets'
                                                 }
-                                                onClick={() => canOpenAssets && onOpenAssets?.()}
+                                                onClick={() =>
+                                                    canOpenAssets &&
+                                                    onOpenAssets?.(
+                                                        declaration?.origin === 'licensed-ip' ? referenceKey : undefined
+                                                    )
+                                                }
                                                 disabled={!canOpenAssets || disabled}
                                                 className='shrink-0 rounded-md border border-white/15 bg-white/5 px-2 py-1 text-xs text-white/65 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:text-white/40'>
                                                 {assetLibraryUnsupported ? 'Switch model first' : actionLabel}

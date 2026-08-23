@@ -13,6 +13,12 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { VideoCharacter, VideoPortrait } from '@/hooks/use-video-history';
+import type {
+    AuthorizationItem,
+    AuthorizationQueueItem,
+    AuthorizationReviewAction,
+    CreatedAuthorization
+} from '@/lib/authorization';
 import { validateAssetImage } from '@/lib/image-constraints';
 import type { UserAsset } from '@/lib/media-archive';
 import {
@@ -27,6 +33,7 @@ import {
 import {
     Check,
     Copy,
+    FileText,
     ImagePlus,
     Loader2,
     Music,
@@ -35,7 +42,8 @@ import {
     Sparkles,
     Trash2,
     UserPlus,
-    Video
+    Video,
+    X
 } from 'lucide-react';
 import * as React from 'react';
 
@@ -43,6 +51,19 @@ type AssetsPanelProps = {
     /** Fetches the caller's stored assets (uploads + archived videos). */
     loadAssets: () => Promise<UserAsset[]>;
     deleteAsset: (key: string) => Promise<void>;
+    loadAuthorizations: () => Promise<AuthorizationItem[]>;
+    submitAuthorization: (input: {
+        subjectName: string;
+        referenceKey: string;
+        note: string;
+        file: File;
+    }) => Promise<CreatedAuthorization>;
+    loadAuthorizationQueue: () => Promise<AuthorizationQueueItem[] | null>;
+    reviewAuthorization: (id: string, action: AuthorizationReviewAction, note: string) => Promise<void>;
+    fetchAuthorizationDoc: (id: string) => Promise<Blob>;
+    authorizationTargets: { key: string; label: string; url: string; authorizationId?: string }[];
+    selectedAuthorizationReferenceKey: string | null;
+    onAuthorizationSubmitted: (referenceKey: string, authorizationId: string) => void;
     characters: VideoCharacter[];
     addCharacter: (character: VideoCharacter) => void;
     removeCharacter: (id: string) => void;
@@ -74,6 +95,34 @@ function formatBytes(bytes: number | null): string {
     if (!bytes) return '';
     if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatDate(value: string): string {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function authorizationStatusClass(status: AuthorizationItem['status']): string {
+    if (status === 'approved') return 'border-emerald-400/30 bg-emerald-400/[0.08] text-emerald-200';
+    if (status === 'rejected') return 'border-red-400/30 bg-red-400/[0.08] text-red-200';
+    return 'border-amber-300/30 bg-amber-300/[0.08] text-amber-100';
+}
+
+function AuthorizationStatusBadge({ status }: { status: AuthorizationItem['status'] }) {
+    return (
+        <span
+            className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium capitalize ${authorizationStatusClass(
+                status
+            )}`}>
+            {status}
+        </span>
+    );
+}
+
+function shortReferenceKey(value: string): string {
+    return value.length > 14 ? `${value.slice(0, 7)}...${value.slice(-6)}` : value;
 }
 
 function defaultCharacterName(asset: UserAsset): string {
@@ -119,6 +168,161 @@ function CopyUrlButton({ url }: { url: string }) {
     );
 }
 
+function AuthorizationDocButton({
+    item,
+    fetchAuthorizationDoc
+}: {
+    item: Pick<AuthorizationItem, 'id' | 'has_doc' | 'doc_bytes' | 'doc_content_type'>;
+    fetchAuthorizationDoc: (id: string) => Promise<Blob>;
+}) {
+    const [objectUrl, setObjectUrl] = React.useState<string | null>(null);
+    const [isLoadingDoc, setIsLoadingDoc] = React.useState(false);
+    const [error, setError] = React.useState<string | null>(null);
+
+    React.useEffect(() => {
+        return () => {
+            if (objectUrl) URL.revokeObjectURL(objectUrl);
+        };
+    }, [objectUrl]);
+
+    const openDoc = async () => {
+        if (!item.has_doc || isLoadingDoc) return;
+        setError(null);
+        if (objectUrl) {
+            window.open(objectUrl, '_blank', 'noopener,noreferrer');
+            return;
+        }
+        setIsLoadingDoc(true);
+        try {
+            const blob = await fetchAuthorizationDoc(item.id);
+            const url = URL.createObjectURL(blob);
+            setObjectUrl(url);
+            window.open(url, '_blank', 'noopener,noreferrer');
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Could not open document.');
+        } finally {
+            setIsLoadingDoc(false);
+        }
+    };
+
+    return (
+        <div className='space-y-1'>
+            <button
+                type='button'
+                onClick={() => void openDoc()}
+                disabled={!item.has_doc || isLoadingDoc}
+                className='inline-flex items-center gap-1 rounded bg-white/10 px-2 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-40'>
+                {isLoadingDoc ? <Loader2 className='h-3 w-3 animate-spin' /> : <FileText className='h-3 w-3' />}
+                {item.has_doc ? 'Open doc' : 'No doc'}
+            </button>
+            {item.has_doc && (
+                <p className='text-[10px] text-white/35'>
+                    {item.doc_content_type || 'document'} {formatBytes(item.doc_bytes)}
+                </p>
+            )}
+            {error && <p className='text-[10px] text-red-300'>{error}</p>}
+        </div>
+    );
+}
+
+function AuthorizationListItem({
+    item,
+    fetchAuthorizationDoc
+}: {
+    item: AuthorizationItem;
+    fetchAuthorizationDoc: (id: string) => Promise<Blob>;
+}) {
+    return (
+        <div className='space-y-2 rounded-md border border-white/10 bg-white/[0.03] p-2'>
+            <div className='flex items-start justify-between gap-2'>
+                <div className='min-w-0'>
+                    <div className='truncate text-sm font-medium text-white' title={item.subject_name}>
+                        {item.subject_name}
+                    </div>
+                    <div className='mt-0.5 font-mono text-[10px] text-white/35' title={item.reference_key}>
+                        {shortReferenceKey(item.reference_key)}
+                    </div>
+                </div>
+                <AuthorizationStatusBadge status={item.status} />
+            </div>
+            {item.note && <p className='line-clamp-2 text-xs leading-5 text-white/50'>{item.note}</p>}
+            <div className='flex flex-wrap items-end justify-between gap-2'>
+                <div className='text-[10px] text-white/35'>
+                    <div>Submitted {formatDate(item.created_at)}</div>
+                    {item.reviewed_at && <div>Reviewed {formatDate(item.reviewed_at)}</div>}
+                </div>
+                <AuthorizationDocButton item={item} fetchAuthorizationDoc={fetchAuthorizationDoc} />
+            </div>
+            {item.review_note && <p className='text-xs text-white/45'>Review note: {item.review_note}</p>}
+        </div>
+    );
+}
+
+function AuthorizationQueueCard({
+    item,
+    reviewingId,
+    reviewNote,
+    onReviewNoteChange,
+    onReview,
+    fetchAuthorizationDoc
+}: {
+    item: AuthorizationQueueItem;
+    reviewingId: string | null;
+    reviewNote: string;
+    onReviewNoteChange: (id: string, note: string) => void;
+    onReview: (item: AuthorizationQueueItem, action: AuthorizationReviewAction) => void;
+    fetchAuthorizationDoc: (id: string) => Promise<Blob>;
+}) {
+    const approving = reviewingId === `${item.id}:approve`;
+    const rejecting = reviewingId === `${item.id}:reject`;
+
+    return (
+        <div className='space-y-3 rounded-md border border-white/15 bg-white/[0.04] p-3'>
+            <div className='flex items-start justify-between gap-2'>
+                <div className='min-w-0'>
+                    <div className='truncate text-sm font-medium text-white' title={item.subject_name}>
+                        {item.subject_name}
+                    </div>
+                    <div className='mt-0.5 truncate text-[10px] text-white/35'>{item.owner}</div>
+                </div>
+                <span className='shrink-0 text-[10px] text-white/35'>{formatDate(item.created_at)}</span>
+            </div>
+            <div className='font-mono text-[10px] text-white/35' title={item.reference_key}>
+                {shortReferenceKey(item.reference_key)}
+            </div>
+            {item.note && <p className='line-clamp-3 text-xs leading-5 text-white/55'>{item.note}</p>}
+            <AuthorizationDocButton item={item} fetchAuthorizationDoc={fetchAuthorizationDoc} />
+            <Input
+                value={reviewNote}
+                onChange={(event) => onReviewNoteChange(item.id, event.target.value)}
+                placeholder='Review note'
+                disabled={Boolean(reviewingId)}
+                className='h-8 rounded-md border border-white/20 bg-black text-xs text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
+            />
+            <div className='flex items-center justify-end gap-1.5'>
+                <Button
+                    type='button'
+                    size='sm'
+                    disabled={Boolean(reviewingId)}
+                    onClick={() => onReview(item, 'approve')}
+                    className='h-7 bg-white px-2 text-xs text-black hover:bg-white/90'>
+                    {approving ? <Loader2 className='h-3 w-3 animate-spin' /> : <Check className='h-3 w-3' />}
+                    Approve
+                </Button>
+                <Button
+                    type='button'
+                    size='sm'
+                    disabled={Boolean(reviewingId)}
+                    onClick={() => onReview(item, 'reject')}
+                    className='h-7 bg-red-600/70 px-2 text-xs text-white hover:bg-red-500/80'>
+                    {rejecting ? <Loader2 className='h-3 w-3 animate-spin' /> : <X className='h-3 w-3' />}
+                    Reject
+                </Button>
+            </div>
+        </div>
+    );
+}
+
 /**
  * Cloud assets stored by the media worker under the user's namespace:
  * uploaded reference media and R2-archived videos. Images and videos can be
@@ -127,6 +331,14 @@ function CopyUrlButton({ url }: { url: string }) {
 export function AssetsPanel({
     loadAssets,
     deleteAsset,
+    loadAuthorizations,
+    submitAuthorization,
+    loadAuthorizationQueue,
+    reviewAuthorization,
+    fetchAuthorizationDoc,
+    authorizationTargets,
+    selectedAuthorizationReferenceKey,
+    onAuthorizationSubmitted,
     characters,
     addCharacter,
     removeCharacter,
@@ -148,6 +360,19 @@ export function AssetsPanel({
     const [isLoading, setIsLoading] = React.useState(false);
     const [error, setError] = React.useState<string | null>(null);
     const [kindFilter, setKindFilter] = React.useState<'all' | 'image' | 'audio' | 'video'>('all');
+    const [authorizations, setAuthorizations] = React.useState<AuthorizationItem[] | null>(null);
+    const [authorizationQueue, setAuthorizationQueue] = React.useState<AuthorizationQueueItem[] | null>(null);
+    const [isLoadingAuthorizations, setIsLoadingAuthorizations] = React.useState(false);
+    const [authorizationError, setAuthorizationError] = React.useState<string | null>(null);
+    const [authorizationNotice, setAuthorizationNotice] = React.useState<string | null>(null);
+    const [authorizationReferenceKey, setAuthorizationReferenceKey] = React.useState('');
+    const [authorizationSubjectName, setAuthorizationSubjectName] = React.useState('');
+    const [authorizationNote, setAuthorizationNote] = React.useState('');
+    const [authorizationFile, setAuthorizationFile] = React.useState<File | null>(null);
+    const [isSubmittingAuthorization, setIsSubmittingAuthorization] = React.useState(false);
+    const [reviewingAuthorizationId, setReviewingAuthorizationId] = React.useState<string | null>(null);
+    const [authorizationReviewNotes, setAuthorizationReviewNotes] = React.useState<Record<string, string>>({});
+    const authorizationFileInputRef = React.useRef<HTMLInputElement>(null);
     const [characterAsset, setCharacterAsset] = React.useState<UserAsset | null>(null);
     const [characterName, setCharacterName] = React.useState('');
     const [portraitGroups, setPortraitGroups] = React.useState<PortraitGroup[] | null>(null);
@@ -191,6 +416,25 @@ export function AssetsPanel({
         }
     }, [loadAssets]);
 
+    const refreshAuthorizations = React.useCallback(async () => {
+        setIsLoadingAuthorizations(true);
+        setAuthorizationError(null);
+        const queuePromise = loadAuthorizationQueue().catch((err) => {
+            console.warn('Could not load authorization review queue:', err);
+            return null;
+        });
+
+        try {
+            const [loadedItems, loadedQueue] = await Promise.all([loadAuthorizations(), queuePromise]);
+            setAuthorizations(loadedItems);
+            setAuthorizationQueue(loadedQueue);
+        } catch (err) {
+            setAuthorizationError(err instanceof Error ? err.message : 'Could not load authorizations.');
+        } finally {
+            setIsLoadingAuthorizations(false);
+        }
+    }, [loadAuthorizationQueue, loadAuthorizations]);
+
     const refreshPortraitGroups = React.useCallback(async () => {
         if (!portraitEnabled) return;
         setIsLoadingPortraitGroups(true);
@@ -210,8 +454,24 @@ export function AssetsPanel({
         if (active && !fetchedRef.current) {
             fetchedRef.current = true;
             void refresh();
+            void refreshAuthorizations();
         }
-    }, [active, refresh]);
+    }, [active, refresh, refreshAuthorizations]);
+
+    React.useEffect(() => {
+        if (
+            selectedAuthorizationReferenceKey &&
+            authorizationTargets.some((target) => target.key === selectedAuthorizationReferenceKey)
+        ) {
+            setAuthorizationReferenceKey(selectedAuthorizationReferenceKey);
+            return;
+        }
+        setAuthorizationReferenceKey((current) =>
+            current && authorizationTargets.some((target) => target.key === current)
+                ? current
+                : (authorizationTargets[0]?.key ?? '')
+        );
+    }, [authorizationTargets, selectedAuthorizationReferenceKey]);
 
     const fetchedPortraitGroupsRef = React.useRef(false);
     React.useEffect(() => {
@@ -359,6 +619,68 @@ export function AssetsPanel({
         }
     };
 
+    const handleSubmitAuthorization = async (event: React.FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        const referenceKey = authorizationReferenceKey.trim();
+        const subjectName = authorizationSubjectName.trim();
+        const note = authorizationNote.trim();
+        if (!referenceKey) {
+            setAuthorizationError('Choose a licensed reference image first.');
+            return;
+        }
+        if (!subjectName) {
+            setAuthorizationError('Enter the celebrity or character name.');
+            return;
+        }
+        if (!authorizationFile) {
+            setAuthorizationError('Choose a PDF, PNG, JPEG, or WebP authorization document.');
+            return;
+        }
+
+        setIsSubmittingAuthorization(true);
+        setAuthorizationError(null);
+        setAuthorizationNotice(null);
+        try {
+            const created = await submitAuthorization({
+                subjectName,
+                referenceKey,
+                note,
+                file: authorizationFile
+            });
+            onAuthorizationSubmitted(referenceKey, created.id);
+            setAuthorizationSubjectName('');
+            setAuthorizationNote('');
+            setAuthorizationFile(null);
+            if (authorizationFileInputRef.current) authorizationFileInputRef.current.value = '';
+            setAuthorizationNotice(
+                'Authorization submitted for review. Approval only unblocks this studio check; BytePlus may still refuse the image during moderation.'
+            );
+            await refreshAuthorizations();
+        } catch (err) {
+            setAuthorizationError(err instanceof Error ? err.message : 'Authorization submission failed.');
+        } finally {
+            setIsSubmittingAuthorization(false);
+        }
+    };
+
+    const handleReviewAuthorization = React.useCallback(
+        async (item: AuthorizationQueueItem, action: AuthorizationReviewAction) => {
+            setReviewingAuthorizationId(`${item.id}:${action}`);
+            setAuthorizationError(null);
+            try {
+                await reviewAuthorization(item.id, action, authorizationReviewNotes[item.id]?.trim() ?? '');
+                setAuthorizationQueue((prev) => prev?.filter((candidate) => candidate.id !== item.id) ?? prev);
+                setAuthorizations(await loadAuthorizations());
+            } catch (err) {
+                setAuthorizationError(err instanceof Error ? err.message : 'Authorization review failed.');
+            } finally {
+                setReviewingAuthorizationId(null);
+            }
+        },
+        [authorizationReviewNotes, loadAuthorizations, reviewAuthorization]
+    );
+
+    const selectedAuthorizationTarget = authorizationTargets.find((target) => target.key === authorizationReferenceKey);
     const visible = (assets ?? []).filter((a) => kindFilter === 'all' || a.kind === kindFilter);
 
     return (
@@ -412,10 +734,16 @@ export function AssetsPanel({
                 <Button
                     variant='ghost'
                     size='sm'
-                    onClick={() => void refresh()}
-                    disabled={isLoading}
+                    onClick={() => {
+                        void refresh();
+                        void refreshAuthorizations();
+                    }}
+                    disabled={isLoading || isLoadingAuthorizations}
                     className='h-auto rounded-md px-2 py-1 text-white/60 hover:bg-white/10 hover:text-white'>
-                    <RefreshCw size={14} className={isLoading ? 'animate-spin' : undefined} />
+                    <RefreshCw
+                        size={14}
+                        className={isLoading || isLoadingAuthorizations ? 'animate-spin' : undefined}
+                    />
                     <span className='ml-1'>Refresh</span>
                 </Button>
             </CardHeader>
@@ -766,6 +1094,196 @@ export function AssetsPanel({
                         </div>
                     </div>
                 )}
+
+                <div className='mb-4 space-y-3 border-b border-white/10 pb-4'>
+                    <div className='flex flex-wrap items-start justify-between gap-3'>
+                        <div className='min-w-0 flex-1'>
+                            <h3 className='text-xs font-medium text-white/50'>Licensed characters</h3>
+                            <p className='mt-1 text-xs leading-5 text-white/40'>
+                                Submit proof that you can use a celebrity likeness or copyrighted character. Approval
+                                only unblocks this studio&apos;s own reference check; BytePlus may still refuse the
+                                image during automated moderation.
+                            </p>
+                        </div>
+                        <Button
+                            type='button'
+                            variant='ghost'
+                            size='sm'
+                            onClick={() => void refreshAuthorizations()}
+                            disabled={isLoadingAuthorizations}
+                            className='h-auto rounded-md px-2 py-1 text-white/50 hover:bg-white/10 hover:text-white'>
+                            <RefreshCw size={13} className={isLoadingAuthorizations ? 'animate-spin' : undefined} />
+                            <span className='ml-1'>Refresh</span>
+                        </Button>
+                    </div>
+
+                    {authorizationNotice && <p className='text-xs text-emerald-300'>{authorizationNotice}</p>}
+                    {authorizationError && <p className='text-xs text-red-400'>{authorizationError}</p>}
+
+                    {authorizationQueue !== null && (
+                        <section className='space-y-3 rounded-md border border-white/10 bg-white/[0.03] p-3'>
+                            <div className='flex items-center justify-between gap-3'>
+                                <h4 className='text-sm font-medium text-white'>
+                                    Authorization review queue ({authorizationQueue.length})
+                                </h4>
+                            </div>
+                            {authorizationQueue.length === 0 ? (
+                                <p className='text-sm text-white/40'>
+                                    No authorization submissions waiting for review.
+                                </p>
+                            ) : (
+                                <div className='grid gap-3 lg:grid-cols-2'>
+                                    {authorizationQueue.map((item) => (
+                                        <AuthorizationQueueCard
+                                            key={item.id}
+                                            item={item}
+                                            reviewingId={reviewingAuthorizationId}
+                                            reviewNote={authorizationReviewNotes[item.id] ?? ''}
+                                            onReviewNoteChange={(id, note) =>
+                                                setAuthorizationReviewNotes((prev) => ({ ...prev, [id]: note }))
+                                            }
+                                            onReview={handleReviewAuthorization}
+                                            fetchAuthorizationDoc={fetchAuthorizationDoc}
+                                        />
+                                    ))}
+                                </div>
+                            )}
+                        </section>
+                    )}
+
+                    <form
+                        onSubmit={(event) => void handleSubmitAuthorization(event)}
+                        className='space-y-3 rounded-md border border-white/10 bg-white/[0.03] p-3'>
+                        <div className='grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]'>
+                            <div className='space-y-2'>
+                                <Label htmlFor='authorization-reference' className='text-xs text-white/70'>
+                                    Reference image
+                                </Label>
+                                {authorizationTargets.length > 0 ? (
+                                    <div className='flex gap-2'>
+                                        {selectedAuthorizationTarget && (
+                                            <div className='h-9 w-9 shrink-0 overflow-hidden rounded border border-white/15 bg-white/5'>
+                                                {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary reference URL */}
+                                                <img
+                                                    src={selectedAuthorizationTarget.url}
+                                                    alt={selectedAuthorizationTarget.label}
+                                                    className='h-full w-full object-cover'
+                                                />
+                                            </div>
+                                        )}
+                                        <select
+                                            id='authorization-reference'
+                                            value={authorizationReferenceKey}
+                                            onChange={(event) => setAuthorizationReferenceKey(event.target.value)}
+                                            disabled={isSubmittingAuthorization}
+                                            className='h-9 min-w-0 flex-1 rounded-md border border-white/20 bg-black px-2 text-xs text-white disabled:opacity-40'>
+                                            {authorizationTargets.map((target) => (
+                                                <option key={target.key} value={target.key}>
+                                                    {target.label}
+                                                    {target.authorizationId ? ` · ${target.authorizationId}` : ''}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                ) : (
+                                    <p className='rounded-md border border-amber-300/20 bg-amber-300/[0.06] px-3 py-2 text-xs text-amber-100/80'>
+                                        Mark a video reference image as a celebrity or licensed character first.
+                                    </p>
+                                )}
+                            </div>
+                            <div className='space-y-2'>
+                                <Label htmlFor='authorization-subject' className='text-xs text-white/70'>
+                                    Subject name
+                                </Label>
+                                <Input
+                                    id='authorization-subject'
+                                    value={authorizationSubjectName}
+                                    onChange={(event) => setAuthorizationSubjectName(event.target.value)}
+                                    placeholder='Celebrity or character name'
+                                    disabled={isSubmittingAuthorization || authorizationTargets.length === 0}
+                                    className='h-9 rounded-md border border-white/20 bg-black text-xs text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
+                                />
+                            </div>
+                        </div>
+                        <div className='space-y-2'>
+                            <Label htmlFor='authorization-note' className='text-xs text-white/70'>
+                                Note
+                            </Label>
+                            <textarea
+                                id='authorization-note'
+                                value={authorizationNote}
+                                onChange={(event) => setAuthorizationNote(event.target.value)}
+                                placeholder='Agreement summary, usage scope, reviewer context'
+                                disabled={isSubmittingAuthorization || authorizationTargets.length === 0}
+                                className='min-h-20 w-full resize-y rounded-md border border-white/20 bg-black px-3 py-2 text-xs text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
+                            />
+                        </div>
+                        <div className='grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end'>
+                            <div className='space-y-2'>
+                                <Label htmlFor='authorization-doc' className='text-xs text-white/70'>
+                                    Authorization document
+                                </Label>
+                                <Input
+                                    ref={authorizationFileInputRef}
+                                    id='authorization-doc'
+                                    type='file'
+                                    accept='application/pdf,image/png,image/jpeg,image/webp'
+                                    onChange={(event) => setAuthorizationFile(event.target.files?.[0] ?? null)}
+                                    disabled={isSubmittingAuthorization || authorizationTargets.length === 0}
+                                    className='h-9 rounded-md border border-white/20 bg-black text-xs text-white file:mr-3 file:rounded file:border-0 file:bg-white/10 file:px-2 file:py-1 file:text-xs file:text-white hover:file:bg-white/20 disabled:opacity-40'
+                                />
+                                <p className='text-[10px] text-white/35'>PDF · PNG · JPEG · WebP · up to 5 MB</p>
+                            </div>
+                            <Button
+                                type='submit'
+                                disabled={
+                                    isSubmittingAuthorization ||
+                                    authorizationTargets.length === 0 ||
+                                    !authorizationReferenceKey ||
+                                    !authorizationSubjectName.trim() ||
+                                    !authorizationFile
+                                }
+                                className='h-9 bg-white text-xs text-black hover:bg-white/90 disabled:bg-white/40'>
+                                {isSubmittingAuthorization ? (
+                                    <Loader2 className='h-3 w-3 animate-spin' />
+                                ) : (
+                                    <ShieldCheck className='h-3 w-3' />
+                                )}
+                                Submit for review
+                            </Button>
+                        </div>
+                    </form>
+
+                    <div className='space-y-2'>
+                        <div className='flex items-center justify-between gap-2'>
+                            <h4 className='text-sm font-medium text-white'>Your submissions</h4>
+                            {isLoadingAuthorizations && (
+                                <span className='inline-flex items-center gap-1 text-[10px] text-white/40'>
+                                    <Loader2 className='h-3 w-3 animate-spin' />
+                                    Loading
+                                </span>
+                            )}
+                        </div>
+                        {authorizations === null && isLoadingAuthorizations ? (
+                            <div className='flex items-center gap-2 text-xs text-white/40'>
+                                <Loader2 className='h-3 w-3 animate-spin' />
+                                Loading authorizations...
+                            </div>
+                        ) : (authorizations ?? []).length === 0 ? (
+                            <p className='text-xs text-white/40'>No authorization submissions yet.</p>
+                        ) : (
+                            <div className='grid gap-2 lg:grid-cols-2'>
+                                {(authorizations ?? []).map((item) => (
+                                    <AuthorizationListItem
+                                        key={item.id}
+                                        item={item}
+                                        fetchAuthorizationDoc={fetchAuthorizationDoc}
+                                    />
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
 
                 {characters.length > 0 && (
                     <div className='mb-4 space-y-2'>
