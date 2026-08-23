@@ -88,16 +88,21 @@ export function refKey(url: string): string {
 /**
  * Phase 1 only lets images through when no downstream library work is needed.
  */
-export function declarationSatisfied(decl: ReferenceDeclaration | undefined): boolean {
+export function declarationSatisfied(
+    decl: ReferenceDeclaration | undefined,
+    approvedAuthorizationIds: ReadonlySet<string> = new Set()
+): boolean {
     if (!decl) return false;
     if (decl.origin === 'no-person' || decl.origin === 'byteplus-ai') return true;
     if (decl.origin === 'thirdparty-ai' || decl.origin === 'real-person') return Boolean(decl.assetId);
-    // Phase 4 unblocks licensed IP via an approved authorizationId.
-    return false;
+    return Boolean(decl.authorizationId && approvedAuthorizationIds.has(decl.authorizationId));
 }
 
-export function declarationBlockReason(decl: ReferenceDeclaration | undefined): string | null {
-    if (declarationSatisfied(decl)) return null;
+export function declarationBlockReason(
+    decl: ReferenceDeclaration | undefined,
+    approvedAuthorizationIds: ReadonlySet<string> = new Set()
+): string | null {
+    if (declarationSatisfied(decl, approvedAuthorizationIds)) return null;
     if (!decl) return 'Choose where this image came from.';
 
     if (decl.origin === 'thirdparty-ai') {
@@ -107,7 +112,9 @@ export function declarationBlockReason(decl: ReferenceDeclaration | undefined): 
         return 'Verify this person in the real-human library before submitting.';
     }
     if (decl.origin === 'licensed-ip') {
-        return 'Submit an approved authorization document before using this celebrity or licensed character.';
+        return decl.authorizationId
+            ? 'This authorization is not approved yet. Studio approval only unblocks this check; BytePlus may still reject the image during moderation.'
+            : 'Submit an approved authorization document before using this celebrity or licensed character. Studio approval only unblocks this check; BytePlus may still reject the image during moderation.';
     }
     return 'Choose where this image came from.';
 }
@@ -127,10 +134,7 @@ export function isAssetReferenceUrl(url: string): boolean {
  * Seedance 1.5 Pro cannot take, so the caller has to say "switch model"
  * before "go set this up".
  */
-export function referenceRequiresAssetLibrary(
-    url: string,
-    declaration: ReferenceDeclaration | undefined
-): boolean {
+export function referenceRequiresAssetLibrary(url: string, declaration: ReferenceDeclaration | undefined): boolean {
     return isAssetReferenceUrl(url) || (declaration ? originRequiresAssetLibrary(declaration.origin) : false);
 }
 

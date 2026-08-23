@@ -67,6 +67,7 @@ type CreationFormProps = {
     setReferenceUrls: React.Dispatch<React.SetStateAction<string[]>>;
     declarations: Record<string, ReferenceDeclaration>;
     onDeclareReference: (url: string, origin: ReferenceOrigin) => void;
+    approvedAuthorizationIds: ReadonlySet<string>;
     characters: VideoCharacter[];
     portraits: VideoPortrait[];
     lastFrameUrl: string;
@@ -92,7 +93,7 @@ type CreationFormProps = {
     /** Splits a script into Seedance shot rows via the gateway's chat API. */
     onBreakdownScript?: (script: string) => Promise<ShotDraft[]>;
     /** Opens the Assets tab for portrait-library setup. */
-    onOpenAssets?: () => void;
+    onOpenAssets?: (referenceKey?: string) => void;
     /** Message from the last submission — rendered under the Create button. */
     error?: string | null;
 };
@@ -139,6 +140,7 @@ export function CreationForm({
     setReferenceUrls,
     declarations,
     onDeclareReference,
+    approvedAuthorizationIds,
     characters,
     portraits,
     lastFrameUrl,
@@ -177,17 +179,17 @@ export function CreationForm({
         () =>
             attachedReferenceUrls.filter((url) => {
                 const declaration = declarations[refKey(url)];
-                if (!declarationSatisfied(declaration)) return true;
+                if (!declarationSatisfied(declaration, approvedAuthorizationIds)) return true;
                 return refCap <= 1 && referenceRequiresAssetLibrary(url, declaration);
             }),
-        [attachedReferenceUrls, declarations, refCap]
+        [approvedAuthorizationIds, attachedReferenceUrls, declarations, refCap]
     );
     const firstBlockedReference = blockedReferences[0];
     const referenceBlockReason = firstBlockedReference
         ? refCap <= 1 &&
           referenceRequiresAssetLibrary(firstBlockedReference, declarations[refKey(firstBlockedReference)])
             ? ASSET_LIBRARY_MODEL_BLOCK_REASON
-            : declarationBlockReason(declarations[refKey(firstBlockedReference)])
+            : declarationBlockReason(declarations[refKey(firstBlockedReference)], approvedAuthorizationIds)
         : null;
     const submitMessage = error ?? referenceBlockReason;
 
@@ -780,6 +782,7 @@ export function CreationForm({
                         onUpload={onUploadImage}
                         declarations={declarations}
                         onDeclare={onDeclareReference}
+                        approvedAuthorizationIds={approvedAuthorizationIds}
                         onOpenAssets={onOpenAssets}
                         disabled={isLoading}
                     />

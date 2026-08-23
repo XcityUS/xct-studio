@@ -27,6 +27,16 @@ import { useVideoHistory } from '@/hooks/use-video-history';
 import { useVideoJobs } from '@/hooks/use-video-jobs';
 import { useVideoSources } from '@/hooks/use-video-sources';
 import { useXcityKey } from '@/hooks/use-xcity-key';
+import {
+    createAuthorization,
+    fetchAuthorizationDoc,
+    fetchAuthorizationQueue,
+    listAuthorizations,
+    reviewAuthorization,
+    uploadAuthorizationDoc,
+    type AuthorizationItem,
+    type AuthorizationReviewAction
+} from '@/lib/authorization';
 import { transcribeVideo, type CaptionSegment } from '@/lib/captions';
 import { calculateVideoCost } from '@/lib/cost-utils';
 import { db, type ImageRecord } from '@/lib/db';
@@ -129,6 +139,7 @@ function voiceoverAssetName(text: string): string {
 
 const MAX_REFERENCE_VIDEOS = 2;
 type StudioTab = 'video' | 'image' | 'assets' | 'community';
+type AuthorizationTarget = { key: string; label: string; url: string; authorizationId?: string };
 
 /** Where a message belongs, so it lands next to the control that raised it. */
 type ErrorScope = 'create' | 'output';
@@ -309,6 +320,12 @@ export default function HomePage() {
     const [currentJobId, setCurrentJobId] = React.useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = React.useState(false);
     const [activeTab, setActiveTab] = React.useState<StudioTab>('video');
+    const [approvedAuthorizationIds, setApprovedAuthorizationIds] = React.useState<ReadonlySet<string>>(
+        () => new Set()
+    );
+    const [selectedAuthorizationReferenceKey, setSelectedAuthorizationReferenceKey] = React.useState<string | null>(
+        null
+    );
     const [shareNotice, setShareNotice] = React.useState<string | null>(null);
     const [isShareDialogOpen, setIsShareDialogOpen] = React.useState(false);
     const [shareDialogId, setShareDialogId] = React.useState('');
@@ -357,6 +374,32 @@ export default function HomePage() {
         () => withPortraitDeclarations(declarations, portraits),
         [declarations, portraits]
     );
+    const applyAuthorizationItems = React.useCallback((items: AuthorizationItem[]) => {
+        setApprovedAuthorizationIds(new Set(items.filter((item) => item.status === 'approved').map((item) => item.id)));
+    }, []);
+    const authorizationTargets = React.useMemo<AuthorizationTarget[]>(() => {
+        const candidates = createReferenceUrls.map((url, index) => ({ url, label: `Image ${index + 1}` }));
+        if (createLastFrameUrl.trim()) {
+            candidates.push({ url: createLastFrameUrl, label: 'Last frame' });
+        }
+
+        const seen = new Set<string>();
+        return candidates.flatMap((item) => {
+            const key = refKey(item.url);
+            if (!key || seen.has(key)) return [];
+            const declaration = effectiveDeclarations[key];
+            if (declaration?.origin !== 'licensed-ip') return [];
+            seen.add(key);
+            return [
+                {
+                    key,
+                    label: item.label,
+                    url: item.url,
+                    ...(declaration.authorizationId ? { authorizationId: declaration.authorizationId } : {})
+                }
+            ];
+        });
+    }, [createLastFrameUrl, createReferenceUrls, effectiveDeclarations]);
 
     /**
      * Images this studio produced declare themselves: a Seedream render, a
@@ -525,6 +568,23 @@ export default function HomePage() {
     }, []);
     const imageGenerationEnabled = imageModels.length > 0;
 
+    React.useEffect(() => {
+        if (!uploadEnabled || !apiKey) {
+            setApprovedAuthorizationIds(new Set());
+            return;
+        }
+
+        let cancelled = false;
+        void listAuthorizations(apiKey)
+            .then((items) => {
+                if (!cancelled) applyAuthorizationItems(items);
+            })
+            .catch((err) => console.warn('Could not load authorizations:', err));
+        return () => {
+            cancelled = true;
+        };
+    }, [apiKey, applyAuthorizationItems, uploadEnabled]);
+
     const handleUploadImage = React.useCallback(
         async (file: File): Promise<string> => {
             const key = await resolveKey();
@@ -635,6 +695,83 @@ export default function HomePage() {
         }
         return listUserAssets(key);
     }, [resolveKey, uploadEnabled]);
+
+    const handleLoadAuthorizations = React.useCallback(async () => {
+        if (!uploadEnabled) return [];
+        const key = await resolveKey();
+        if (!key) {
+            throw new Error('Sign in at xcity.ai (or set an API key) to view your authorizations.');
+        }
+        const items = await listAuthorizations(key);
+        applyAuthorizationItems(items);
+        return items;
+    }, [applyAuthorizationItems, resolveKey, uploadEnabled]);
+
+    const handleSubmitAuthorization = React.useCallback(
+        async (input: { subjectName: string; referenceKey: string; note: string; file: File }) => {
+            const key = await resolveKey();
+            if (!key) {
+                throw new Error('Sign in at xcity.ai (or set an API key) before submitting authorization.');
+            }
+            const created = await createAuthorization(
+                {
+                    subjectName: input.subjectName,
+                    referenceKey: input.referenceKey,
+                    note: input.note
+                },
+                key
+            );
+            await uploadAuthorizationDoc(created.id, input.file, key);
+            return created;
+        },
+        [resolveKey]
+    );
+
+    const handleLoadAuthorizationQueue = React.useCallback(async () => {
+        const key = await resolveKey();
+        if (!key) return null;
+        return fetchAuthorizationQueue(key);
+    }, [resolveKey]);
+
+    const handleReviewAuthorization = React.useCallback(
+        async (id: string, action: AuthorizationReviewAction, note: string) => {
+            const key = await resolveKey();
+            if (!key) {
+                throw new Error('Sign in at xcity.ai (or set an API key) to review authorizations.');
+            }
+            await reviewAuthorization(id, action, note, key);
+            const items = await listAuthorizations(key).catch((err) => {
+                console.warn('Could not refresh authorizations after review:', err);
+                return null;
+            });
+            if (items) applyAuthorizationItems(items);
+        },
+        [applyAuthorizationItems, resolveKey]
+    );
+
+    const handleFetchAuthorizationDoc = React.useCallback(
+        async (id: string) => {
+            const key = await resolveKey();
+            if (!key) {
+                throw new Error('Sign in at xcity.ai (or set an API key) to view authorization documents.');
+            }
+            return fetchAuthorizationDoc(id, key);
+        },
+        [resolveKey]
+    );
+
+    const handleAuthorizationSubmitted = React.useCallback(
+        (referenceKey: string, authorizationId: string) => {
+            const existing = declarations[referenceKey] ?? effectiveDeclarations[referenceKey];
+            setDeclaration(referenceKey, {
+                ...(existing ?? {}),
+                origin: 'licensed-ip',
+                declaredAt: Date.now(),
+                authorizationId
+            });
+        },
+        [declarations, effectiveDeclarations, setDeclaration]
+    );
 
     const handleStartPortraitSession = React.useCallback(
         async (origin: string) => {
@@ -985,10 +1122,10 @@ export default function HomePage() {
         (params: VideoJobCreate): string[] =>
             imageReferenceUrlsFromParams(params).filter((url) => {
                 const declaration = effectiveDeclarations[refKey(url)];
-                if (!declarationSatisfied(declaration)) return true;
+                if (!declarationSatisfied(declaration, approvedAuthorizationIds)) return true;
                 return maxReferenceImages(params.model) <= 1 && referenceRequiresAssetLibrary(url, declaration);
             }),
-        [effectiveDeclarations]
+        [approvedAuthorizationIds, effectiveDeclarations]
     );
 
     const firstReferenceBlockReason = React.useCallback(
@@ -999,9 +1136,9 @@ export default function HomePage() {
             if (maxReferenceImages(model) <= 1 && referenceRequiresAssetLibrary(first, declaration)) {
                 return ASSET_LIBRARY_MODEL_BLOCK_REASON;
             }
-            return declarationBlockReason(declaration);
+            return declarationBlockReason(declaration, approvedAuthorizationIds);
         },
-        [effectiveDeclarations]
+        [approvedAuthorizationIds, effectiveDeclarations]
     );
 
     // Repair local metadata when the browser already has the MP4 but the last
@@ -1721,14 +1858,7 @@ export default function HomePage() {
                 markPreviewResolving(item.id, false);
             }
         })();
-    }, [
-        currentJobId,
-        history,
-        markPreviewResolving,
-        markPreviewUnresolved,
-        resolvePlaybackSource,
-        retryArchive
-    ]);
+    }, [currentJobId, history, markPreviewResolving, markPreviewUnresolved, resolvePlaybackSource, retryArchive]);
 
     const handleClearHistory = async () => {
         const confirmed = window.confirm(
@@ -1909,6 +2039,7 @@ export default function HomePage() {
                                 setReferenceUrls={setCreateReferenceUrls}
                                 declarations={effectiveDeclarations}
                                 onDeclareReference={handleDeclareReference}
+                                approvedAuthorizationIds={approvedAuthorizationIds}
                                 characters={characters}
                                 portraits={portraits}
                                 lastFrameUrl={createLastFrameUrl}
@@ -1930,7 +2061,12 @@ export default function HomePage() {
                                 // Only offer the jump when the Assets tab actually exists —
                                 // it is gated on the media worker / portrait library.
                                 onOpenAssets={
-                                    uploadEnabled || isPortraitEnabled ? () => setActiveTab('assets') : undefined
+                                    uploadEnabled || isPortraitEnabled
+                                        ? (referenceKey) => {
+                                              if (referenceKey) setSelectedAuthorizationReferenceKey(referenceKey);
+                                              setActiveTab('assets');
+                                          }
+                                        : undefined
                                 }
                                 error={createError}
                             />
@@ -2110,6 +2246,14 @@ export default function HomePage() {
                                     <AssetsPanel
                                         loadAssets={handleLoadAssets}
                                         deleteAsset={handleDeleteAsset}
+                                        loadAuthorizations={handleLoadAuthorizations}
+                                        submitAuthorization={handleSubmitAuthorization}
+                                        loadAuthorizationQueue={handleLoadAuthorizationQueue}
+                                        reviewAuthorization={handleReviewAuthorization}
+                                        fetchAuthorizationDoc={handleFetchAuthorizationDoc}
+                                        authorizationTargets={authorizationTargets}
+                                        selectedAuthorizationReferenceKey={selectedAuthorizationReferenceKey}
+                                        onAuthorizationSubmitted={handleAuthorizationSubmitted}
                                         characters={characters}
                                         addCharacter={addCharacter}
                                         removeCharacter={removeCharacter}
