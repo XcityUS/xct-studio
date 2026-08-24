@@ -50,8 +50,9 @@ public/ffmpeg/
 # wrangler dev artifacts
 media-worker/.wrangler/
 
-# local Claude Code session config
-.claude/
+# local Claude Code session config, minus the shared skills
+.claude/*
+!.claude/skills/
 
 # local code intelligence index
 .codegraph/

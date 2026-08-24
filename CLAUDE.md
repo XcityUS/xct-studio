@@ -4,6 +4,34 @@ Next.js 15 App Router studio for Seedance video (and optional Seedream image)
 generation through the Xcity TokenHub gateway (LiteLLM, OpenAI-style API).
 Deployed on Railway at studio.xcity.ai; media worker on Cloudflare (R2).
 
+## How to write code here (ponytail)
+
+Before writing code, stop at the first rung that holds:
+
+1. Does this need to exist at all? (YAGNI) — say so in one line and skip it.
+2. Already in this codebase? A hook, util, or type a few files over → reuse it.
+3. Stdlib / Web API does it? Use it.
+4. Native platform feature covers it? `<input type="date">` over a picker lib,
+   CSS over JS, a DB/worker guard over app code.
+5. Already-installed dependency solves it? Use it. No new dep for a few lines.
+6. Can it be one line? One line.
+7. Only then: the minimum that works.
+
+The ladder runs *after* you understand the problem, never instead of it — this
+codebase's invariants above are exactly the reading a small-but-wrong diff
+skips. Bug fix = root cause: grep every caller and fix the shared function once.
+
+Never simplified away: trust-boundary validation (worker auth, admin gates,
+the reference-origin gate), error handling that loses media or history,
+security, accessibility, anything explicitly requested.
+
+Deliberate shortcuts get a `// ponytail: <ceiling>, <upgrade path>` comment so
+`/ponytail-debt` can harvest them.
+
+Skills live in `.claude/skills/ponytail*`: `/ponytail [lite|full|ultra]`,
+`/ponytail-review` (diff), `/ponytail-audit` (repo), `/ponytail-debt`,
+`/ponytail-help`. Vendored from github.com/DietrichGebert/ponytail (MIT).
+
 ## Architecture invariants (learned the hard way — keep them)
 
 - **Keys are resolved at call time, never captured.** SSO keys arrive async
