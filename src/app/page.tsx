@@ -731,7 +731,11 @@ export default function HomePage() {
         async (item: VideoMetadata): Promise<boolean> => {
             if (item.status !== 'completed' || hasLocalCopy(item.id)) return false;
 
-            const providerExpired = item.mediaExpired || Date.now() - completedAtMs(item) >= PROVIDER_LINK_TTL_MS;
+            const previewConfirmedMissing = unresolvedPreviewIdsRef.current.has(item.id);
+            const providerExpired =
+                item.mediaExpired ||
+                previewConfirmedMissing ||
+                Date.now() - completedAtMs(item) >= PROVIDER_LINK_TTL_MS;
             if (!item.storedUrl) {
                 return providerExpired;
             }
