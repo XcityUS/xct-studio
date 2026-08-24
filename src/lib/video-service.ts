@@ -250,7 +250,7 @@ export class VideoService {
         }
 
         const inflight = this.retrieveInflight.get(videoId);
-        if (!options.force && inflight) return inflight;
+        if (inflight) return inflight;
 
         try {
             // Raw GET, not the typed videos.retrieve helper: the SDK models

@@ -1293,27 +1293,9 @@ export default function HomePage() {
             const replacedItem = item.replacesId
                 ? history.find((candidate) => candidate.id === item.replacesId)
                 : undefined;
-            const now = Date.now();
-            const staleSamePromptItems = history.filter((candidate) => {
-                if (candidate.id === item.id || candidate.id === replacedItem?.id) return false;
-                if (candidate.status !== 'completed') return false;
-                if (candidate.timestamp >= item.timestamp) return false;
-                if (candidate.prompt !== item.prompt) return false;
-                if (
-                    candidate.model !== item.model ||
-                    candidate.size !== item.size ||
-                    candidate.seconds !== item.seconds
-                )
-                    return false;
-                const hasFreshProvider = candidate.providerUrl && !providerLinkLikelyDead(candidate, now);
-                if (candidate.storedUrl || hasFreshProvider || hasLocalCopy(candidate.id) || hasSource(candidate.id))
-                    return false;
-                return true;
-            });
 
             const itemsToRemove = new Map<string, VideoMetadata>();
             if (replacedItem) itemsToRemove.set(replacedItem.id, replacedItem);
-            for (const staleItem of staleSamePromptItems) itemsToRemove.set(staleItem.id, staleItem);
 
             if (!itemsToRemove.size) {
                 if (item.replacesId) updateItem(item.id, { replacesId: undefined });
