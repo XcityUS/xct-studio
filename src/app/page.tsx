@@ -51,14 +51,20 @@ import {
     type ImageSizeId
 } from '@/lib/image-service';
 import {
+    ArchiveSourceFetchError,
+    archiveLocalVideo,
+    archiveVideo,
     audioUrlToDataUri,
     createShare,
     deleteUserAsset,
     fetchCommunityList,
     fetchCommunityQueue,
+    fetchArchivedVideo,
     fetchShare,
     imageUrlToDataUri,
     listUserAssets,
+    lookupArchivedVideo,
+    mediaKeyFromUrl,
     mediaArchiveEnabled,
     mediaWorkerUrl,
     portraitEnabled as loadPortraitEnabled,
@@ -333,6 +339,8 @@ export default function HomePage() {
     const [shareDialogError, setShareDialogError] = React.useState<string | null>(null);
     const [sharingVideoId, setSharingVideoId] = React.useState<string | null>(null);
     const [shareUrlCopied, setShareUrlCopied] = React.useState(false);
+    const [manualArchiveIds, setManualArchiveIds] = React.useState<Set<string>>(new Set());
+    const regenerateReplacementRef = React.useRef<Map<string, VideoMetadata>>(new Map());
     const [shareCommunityStatus, setShareCommunityStatus] = React.useState<'idle' | 'submitting' | 'submitted'>('idle');
     const [shareCommunityError, setShareCommunityError] = React.useState<string | null>(null);
 
@@ -359,9 +367,12 @@ export default function HomePage() {
         declarations,
         isInitialLoad,
         addItem,
+        replaceItem,
         updateItem,
         removeItem,
         clearAll,
+        syncNow,
+        syncCloudNow,
         addCharacter,
         removeCharacter,
         addPortrait,
@@ -952,11 +963,37 @@ export default function HomePage() {
         [invalidateKey, setError]
     );
 
-    /** Downloads a finished video into IndexedDB and finalizes its history entry. */
+    const resolveArchivedPlayback = React.useCallback(
+        async (videoId: string): Promise<boolean> => {
+            const key = await resolveKey();
+            if (!key) return false;
+
+            const archived = await fetchArchivedVideo(videoId, key);
+            if (!archived) return false;
+
+            setRemoteSource(videoId, archived.url);
+            markPreviewUnresolved(videoId, false);
+            markPreviewResolving(videoId, false);
+            updateItem(videoId, { storedUrl: archived.url, mediaExpired: false });
+            return true;
+        },
+        [markPreviewResolving, markPreviewUnresolved, resolveKey, setRemoteSource, updateItem]
+    );
+
+    /** Finalizes a finished video, archives it to R2, then caches locally best-effort. */
     const downloadAndStoreVideo = React.useCallback(
-        async (job: VideoJob) => {
+        async (job: VideoJob): Promise<boolean> => {
             console.log(`Downloading video for job: ${job.id}`);
             markPreviewResolving(job.id, true);
+
+            if (await resolveArchivedPlayback(job.id)) {
+                updateItem(job.id, {
+                    durationMs: Date.now() - job.created_at * 1000,
+                    storageModeUsed: 'r2',
+                    status: 'completed'
+                });
+                return true;
+            }
 
             // Ark attaches the CDN link AFTER the job first reports completed,
             // and the gap scales with the render: short clips take seconds,
@@ -971,15 +1008,15 @@ export default function HomePage() {
                 if (sourceUrl) break;
                 await new Promise((resolve) => setTimeout(resolve, delay));
                 try {
-                    sourceUrl = (await videoService.retrieveVideo(job.id)).output_url;
+                    sourceUrl = (await videoService.retrieveVideo(job.id, { force: true })).output_url;
                 } catch (err) {
                     console.warn(`Could not re-read output_url for ${job.id}:`, err);
                 }
             }
 
-            // Register the CDN link first so the video is watchable even if
-            // the download below fails. Archiving to R2 is handled separately
-            // by the reconciliation hook once history shows the completion.
+            // Register the CDN link first as a short-lived playback fallback.
+            // The durable path is Worker -> R2; IndexedDB caching below is
+            // best-effort and must not decide whether the job is completed.
             if (sourceUrl) {
                 setRemoteSource(job.id, sourceUrl);
                 updateItem(job.id, { providerUrl: sourceUrl });
@@ -992,11 +1029,47 @@ export default function HomePage() {
                         'Use Retry in a moment, or select it from History to probe again.',
                     'output'
                 );
-                return;
+                return false;
+            }
+
+            let playbackUrl = sourceUrl;
+            let archivedToR2 = false;
+            try {
+                const key = await resolveKey();
+                if (key) {
+                    const archived = await archiveVideo(job.id, sourceUrl, key);
+                    if (archived?.url) {
+                        playbackUrl = archived.url;
+                        archivedToR2 = true;
+                        setRemoteSource(job.id, archived.url);
+                        markPreviewUnresolved(job.id, false);
+                        markPreviewResolving(job.id, false);
+                        updateItem(job.id, {
+                            durationMs: Date.now() - job.created_at * 1000,
+                            providerUrl: sourceUrl,
+                            storedUrl: archived.url,
+                            storageModeUsed: 'r2',
+                            status: 'completed',
+                            mediaExpired: false
+                        });
+                        await syncNow();
+                    }
+                }
+            } catch (err) {
+                console.warn(`Could not archive video ${job.id} to R2; using provider playback for now.`, err);
+            }
+
+            if (!archivedToR2) {
+                updateItem(job.id, {
+                    durationMs: Date.now() - job.created_at * 1000,
+                    providerUrl: sourceUrl,
+                    status: 'completed',
+                    mediaExpired: false
+                });
             }
 
             try {
-                const blob = await videoService.downloadContent(job.id, sourceUrl);
+                const blob = await videoService.downloadContent(job.id, playbackUrl);
                 // The gateway serves only the raw MP4 — capture a poster frame
                 // client-side for the history thumbnails.
                 const thumbnailBlob = await captureVideoPoster(blob);
@@ -1009,46 +1082,98 @@ export default function HomePage() {
                     created_at: job.created_at
                 });
 
-                updateItem(job.id, {
-                    durationMs: Date.now() - job.created_at * 1000,
-                    storageModeUsed: 'indexeddb',
-                    status: 'completed'
-                });
-                console.log(`Video ${job.id} completed and stored`);
-            } catch (err) {
-                markPreviewResolving(job.id, false);
-                if (err instanceof InvalidApiKeyError) {
-                    handleInvalidApiKey();
-                    return;
-                }
-                if (sourceUrl) {
-                    // Playable from the CDN link — local storage is
-                    // best-effort, so mark it done rather than failing it.
-                    console.warn(`Could not cache video ${job.id}; using the remote playback URL instead.`, err);
+                if (!archivedToR2) {
+                    let localArchiveUrl: string | undefined;
+                    try {
+                        const key = await resolveKey();
+                        if (key) {
+                            const archived = await archiveLocalVideo(job.id, blob, key, `${job.id}.mp4`);
+                            if (archived?.url) {
+                                localArchiveUrl = archived.url;
+                                setRemoteSource(job.id, archived.url);
+                            }
+                        }
+                    } catch (err) {
+                        console.warn(`Could not archive locally cached video ${job.id} to R2.`, err);
+                    }
+
                     updateItem(job.id, {
                         durationMs: Date.now() - job.created_at * 1000,
-                        status: 'completed'
+                        storageModeUsed: localArchiveUrl ? 'r2' : 'indexeddb',
+                        status: 'completed',
+                        ...(localArchiveUrl ? { storedUrl: localArchiveUrl, mediaExpired: false } : {})
                     });
-                } else {
-                    console.error(`Error storing video ${job.id}:`, err);
-                    markPreviewUnresolved(job.id, true);
-                    setError(
-                        `The gateway reported the video as completed but never exposed its download link (job ${job.id}). ` +
-                            'Select it from History in a moment to retry, or check the TokenHub logs.',
-                        'output'
-                    );
+                    if (localArchiveUrl) {
+                        markPreviewUnresolved(job.id, false);
+                        await syncNow();
+                    }
                 }
+                console.log(`Video ${job.id} cached locally`);
+            } catch (err) {
+                if (err instanceof InvalidApiKeyError) {
+                    handleInvalidApiKey();
+                    return false;
+                }
+                console.warn(`Could not cache video ${job.id} locally; playback will use the remote source.`, err);
             }
+
+            return true;
         },
         [
+            resolveKey,
             videoService,
             setRemoteSource,
             updateItem,
             handleInvalidApiKey,
             markPreviewResolving,
             markPreviewUnresolved,
-            setError
+            resolveArchivedPlayback,
+            setError,
+            syncNow
         ]
+    );
+
+    const archivedKeysForItem = React.useCallback(
+        async (item: Pick<VideoMetadata, 'id' | 'storedUrl'>, key: string) => {
+            const keys = new Set<string>();
+            if (item.storedUrl) {
+                const storedKey = mediaKeyFromUrl(item.storedUrl);
+                if (storedKey) keys.add(storedKey);
+            }
+
+            if (!keys.size) {
+                const archived = await lookupArchivedVideo(item.id, key);
+                if (archived.status === 'found') {
+                    const archivedKey = archived.media.key ?? mediaKeyFromUrl(archived.media.url);
+                    if (archivedKey) keys.add(archivedKey);
+                }
+            }
+
+            return keys;
+        },
+        []
+    );
+
+    const protectedArchiveKeysForVideo = React.useCallback(
+        async (id: string) => {
+            const key = await resolveKey();
+            if (!key) return new Set<string>();
+            return archivedKeysForItem({ id }, key);
+        },
+        [archivedKeysForItem, resolveKey]
+    );
+
+    const deleteCloudCopyForItem = React.useCallback(
+        async (item: VideoMetadata, protectedKeys: Set<string> = new Set()) => {
+            const key = await resolveKey();
+            if (!key) return;
+
+            const keys = await archivedKeysForItem(item, key);
+            for (const protectedKey of protectedKeys) keys.delete(protectedKey);
+
+            await Promise.all(Array.from(keys).map((assetKey) => deleteUserAsset(assetKey, key)));
+        },
+        [archivedKeysForItem, resolveKey]
     );
 
     const jobCallbacks = React.useMemo(
@@ -1074,9 +1199,33 @@ export default function HomePage() {
                     status: 'completed',
                     ...(createParams ? { createParams } : {})
                 });
-                void downloadAndStoreVideo(job);
+                const refReplacedItem = regenerateReplacementRef.current.get(job.id);
+                const replacesId = refReplacedItem?.id ?? historyItem?.replacesId;
+                const replacedItem =
+                    refReplacedItem ?? (replacesId ? history.find((item) => item.id === replacesId) : undefined);
+                void (async () => {
+                    console.log('video completed', job);
+                    const hasPlaybackSource = await downloadAndStoreVideo(job);
+                    console.log('hasPlaybackSource', hasPlaybackSource);
+                    if (!replacedItem || !hasPlaybackSource) return;
+                    regenerateReplacementRef.current.delete(job.id);
+
+                    const protectedKeys = await protectedArchiveKeysForVideo(job.id);
+                    await deleteCloudCopyForItem(replacedItem, protectedKeys).catch((err) => {
+                        console.warn(`Could not delete replaced cloud copy for ${replacedItem.id}:`, err);
+                    });
+                    await db.videos.where('id').equals(replacedItem.id).delete();
+                    removeSource(replacedItem.id);
+                    removeItem(replacedItem.id);
+                    updateItem(job.id, { replacesId: undefined });
+                    console.log('currentJobId === replacedItem.id', currentJobId, replacedItem.id);
+                    if (currentJobId === replacedItem.id) setCurrentJobId(job.id);
+                    console.log('syncNow job', job);
+                    await syncNow();
+                })();
             },
             onFailed: (job: VideoJob) => {
+                regenerateReplacementRef.current.delete(job.id);
                 updateItem(job.id, {
                     status: 'failed',
                     costDetails: null,
@@ -1086,7 +1235,19 @@ export default function HomePage() {
             },
             onInvalidKey: () => handleInvalidApiKey()
         }),
-        [history, updateItem, downloadAndStoreVideo, handleInvalidApiKey, setError]
+        [
+            history,
+            updateItem,
+            deleteCloudCopyForItem,
+            protectedArchiveKeysForVideo,
+            removeSource,
+            removeItem,
+            currentJobId,
+            downloadAndStoreVideo,
+            handleInvalidApiKey,
+            setError,
+            syncNow
+        ]
     );
 
     const { activeJobs, addJob, replaceJob, removeJob, restoreJobs, clearJobs } = useVideoJobs(
@@ -1104,7 +1265,14 @@ export default function HomePage() {
             setRemoteSource(id, url);
             markPreviewUnresolved(id, false);
             markPreviewResolving(id, false);
-            updateItem(id, { storedUrl: url, mediaExpired: false });
+            updateItem(id, {
+                storedUrl: url,
+                storageModeUsed: 'r2',
+                status: 'completed',
+                progress: 100,
+                mediaExpired: false
+            });
+            void syncNow();
         },
         onExpired: (id) => {
             const item = history.find((candidate) => candidate.id === id);
@@ -1112,6 +1280,67 @@ export default function HomePage() {
             updateItem(id, { mediaExpired: true });
         }
     });
+
+    const replacementCleanupIdsRef = React.useRef<Set<string>>(new Set());
+
+    React.useEffect(() => {
+        if (isInitialLoad) return;
+
+        for (const item of history) {
+            if (item.status !== 'completed') continue;
+            if (replacementCleanupIdsRef.current.has(item.id)) continue;
+
+            const replacedItem = item.replacesId
+                ? history.find((candidate) => candidate.id === item.replacesId)
+                : undefined;
+
+            const itemsToRemove = new Map<string, VideoMetadata>();
+            if (replacedItem) itemsToRemove.set(replacedItem.id, replacedItem);
+
+            if (!itemsToRemove.size) {
+                if (item.replacesId) updateItem(item.id, { replacesId: undefined });
+                continue;
+            }
+
+            const newVideoHasPlayback =
+                Boolean(item.storedUrl || item.providerUrl) || hasLocalCopy(item.id) || hasSource(item.id);
+            if (!newVideoHasPlayback) continue;
+
+            replacementCleanupIdsRef.current.add(item.id);
+            void (async () => {
+                try {
+                    if (!item.storedUrl) retryArchive(item.id);
+                    const protectedKeys = await protectedArchiveKeysForVideo(item.id);
+                    for (const oldItem of itemsToRemove.values()) {
+                        await deleteCloudCopyForItem(oldItem, protectedKeys).catch((err) => {
+                            console.warn(`Could not delete replaced cloud copy for ${oldItem.id}:`, err);
+                        });
+                        await db.videos.where('id').equals(oldItem.id).delete();
+                        removeSource(oldItem.id);
+                        removeItem(oldItem.id);
+                    }
+                    updateItem(item.id, { replacesId: undefined });
+                    if (Array.from(itemsToRemove.keys()).includes(currentJobId ?? '')) setCurrentJobId(item.id);
+                    await syncNow();
+                } finally {
+                    replacementCleanupIdsRef.current.delete(item.id);
+                }
+            })();
+        }
+    }, [
+        currentJobId,
+        deleteCloudCopyForItem,
+        hasLocalCopy,
+        hasSource,
+        history,
+        isInitialLoad,
+        removeItem,
+        removeSource,
+        protectedArchiveKeysForVideo,
+        retryArchive,
+        syncNow,
+        updateItem
+    ]);
 
     usePosterBackfill({
         history,
@@ -1189,7 +1418,10 @@ export default function HomePage() {
         );
     }, [isInitialLoad, apiKey, history, activeJobs, restoreJobs]);
 
-    const handleCreateVideo = async (formData: CreationFormData) => {
+    const handleCreateVideo = async (
+        formData: CreationFormData,
+        options: { replacesItem?: VideoMetadata } = {}
+    ): Promise<string | null> => {
         setError(null);
         setShareNotice(null);
         const blockedReferences = blockedReferencesForParams(formData);
@@ -1197,7 +1429,7 @@ export default function HomePage() {
             setError(
                 firstReferenceBlockReason(formData.model, blockedReferences) ?? 'Choose where this image came from.'
             );
-            return;
+            return null;
         }
         setIsSubmitting(true);
 
@@ -1207,7 +1439,7 @@ export default function HomePage() {
         if (!activeKey) {
             setError('Could not read your Xcity API key. Sign in at xcity.ai and retry.');
             setIsSubmitting(false);
-            return;
+            return null;
         }
 
         // The provider downloads every reference image server-side; a stale
@@ -1282,7 +1514,7 @@ export default function HomePage() {
                             `Reference image ${i + 1} is no longer accessible — it may have been deleted from Assets. Remove it from the list and upload it again.`
                         );
                         setIsSubmitting(false);
-                        return;
+                        return null;
                     }
                     // External host without CORS: pass the URL through and let
                     // the provider try fetching it directly.
@@ -1312,7 +1544,7 @@ export default function HomePage() {
                         'Background audio is no longer accessible — it may have been deleted from Assets. Remove it and upload it again.'
                     );
                     setIsSubmitting(false);
-                    return;
+                    return null;
                 }
             } else {
                 totalChars += dataUri.length;
@@ -1331,7 +1563,7 @@ export default function HomePage() {
                             `Reference video ${i + 1} is no longer accessible — it may have been deleted from Assets. Remove it from the list and upload it again.`
                         );
                         setIsSubmitting(false);
-                        return;
+                        return null;
                     }
                     // External host without CORS: pass the URL through and let
                     // the provider try fetching it directly.
@@ -1346,7 +1578,7 @@ export default function HomePage() {
         if (totalChars > 30_000_000) {
             setError('Reference media are too large to submit (over ~20 MB combined). Use fewer or smaller files.');
             setIsSubmitting(false);
-            return;
+            return null;
         }
 
         // Optimistic placeholder so the output panel reacts immediately.
@@ -1377,6 +1609,9 @@ export default function HomePage() {
                 size: displaySize,
                 seconds: String(formData.seconds)
             };
+            if (options.replacesItem) {
+                regenerateReplacementRef.current.set(job.id, options.replacesItem);
+            }
             const createParams =
                 typeof job.seed === 'number' && formData.seed === undefined
                     ? { ...formData, seed: job.seed }
@@ -1385,7 +1620,7 @@ export default function HomePage() {
             replaceJob(tempId, job);
             setCurrentJobId(job.id);
 
-            addItem({
+            const historyItem: VideoMetadata = {
                 id: job.id,
                 timestamp: Date.now(),
                 filename: `${job.id}.mp4`,
@@ -1407,9 +1642,22 @@ export default function HomePage() {
                 }),
                 draft: formData.draft || undefined,
                 finalResolution: formData.draft ? formData.final_resolution : undefined,
+                replacesId: options.replacesItem?.id,
                 status: 'processing',
                 progress: 0
-            });
+            };
+            if (options.replacesItem) {
+                replaceItem(options.replacesItem.id, historyItem);
+            } else {
+                addItem(historyItem);
+            }
+
+            if (job.status === 'completed') {
+                queueMicrotask(() => jobCallbacks.onCompleted(job));
+            } else if (job.status === 'failed') {
+                queueMicrotask(() => jobCallbacks.onFailed(job));
+            }
+            return job.id;
         } catch (err: unknown) {
             console.error('Error creating video:', err);
             if (err instanceof InvalidApiKeyError) {
@@ -1430,6 +1678,7 @@ export default function HomePage() {
             }
             removeJob(tempId);
             setCurrentJobId(null);
+            return null;
         } finally {
             setIsSubmitting(false);
         }
@@ -1599,7 +1848,9 @@ export default function HomePage() {
             showReferenceDeclarationGate(params, blockedReferences);
             return;
         }
-        void handleCreateVideo(params);
+        void (async () => {
+            await handleCreateVideo(params, { replacesItem: item });
+        })();
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
@@ -1751,7 +2002,10 @@ export default function HomePage() {
      * the panel used to keep replaying that corpse.
      */
     const resolvePlaybackSource = React.useCallback(
-        async (item: VideoMetadata, options: { force?: boolean; ignoreLocal?: boolean } = {}) => {
+        async (
+            item: VideoMetadata,
+            options: { force?: boolean; ignoreLocal?: boolean; allowProviderProbe?: boolean } = {}
+        ) => {
             if (!options.ignoreLocal && hasLocalCopy(item.id)) {
                 markPreviewResolving(item.id, false);
                 markPreviewUnresolved(item.id, false);
@@ -1762,6 +2016,10 @@ export default function HomePage() {
                 if (getVideoSrc(item.id) !== item.storedUrl) setRemoteSource(item.id, item.storedUrl);
                 markPreviewResolving(item.id, false);
                 markPreviewUnresolved(item.id, false);
+                return;
+            }
+
+            if (await resolveArchivedPlayback(item.id)) {
                 return;
             }
 
@@ -1780,13 +2038,15 @@ export default function HomePage() {
                 return;
             }
 
+            if (options.allowProviderProbe === false) return;
+
             // Without force, don't re-probe what already plays or what we
             // already know the gateway has nothing for.
             if (!options.force && (hasSource(item.id) || unresolvedPreviewIdsRef.current.has(item.id))) return;
 
             markPreviewResolving(item.id, true);
             try {
-                const fresh = await videoService.retrieveVideo(item.id);
+                const fresh = await videoService.retrieveVideo(item.id, { force: true });
                 if (fresh.output_url) {
                     setRemoteSource(item.id, fresh.output_url);
                     updateItem(item.id, { providerUrl: fresh.output_url });
@@ -1807,11 +2067,42 @@ export default function HomePage() {
             hasSource,
             markPreviewResolving,
             markPreviewUnresolved,
+            resolveArchivedPlayback,
             setRemoteSource,
             updateItem,
             videoService
         ]
     );
+
+    const bootSourceHydrationRef = React.useRef<Map<string, string>>(new Map());
+    React.useEffect(() => {
+        if (isInitialLoad) return;
+
+        const candidates = history.filter((item) => item.status === 'completed');
+        if (candidates.length === 0) return;
+
+        let cancelled = false;
+        void (async () => {
+            for (const item of candidates) {
+                if (cancelled) return;
+
+                const fingerprint = [
+                    item.storedUrl ?? '',
+                    item.providerUrl ?? '',
+                    String(item.mediaExpired ?? false),
+                    String(item.durationMs ?? 0)
+                ].join('|');
+                if (bootSourceHydrationRef.current.get(item.id) === fingerprint) continue;
+                bootSourceHydrationRef.current.set(item.id, fingerprint);
+
+                await resolvePlaybackSource(item, { allowProviderProbe: false });
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [history, isInitialLoad, resolvePlaybackSource]);
 
     const handleHistorySelect = (item: VideoMetadata) => {
         setCurrentJobId(item.id);
@@ -1860,12 +2151,139 @@ export default function HomePage() {
         })();
     }, [currentJobId, history, markPreviewResolving, markPreviewUnresolved, resolvePlaybackSource, retryArchive]);
 
+    const markManualArchive = React.useCallback((id: string, pending: boolean) => {
+        setManualArchiveIds((prev) => {
+            if (prev.has(id) === pending) return prev;
+            const next = new Set(prev);
+            if (pending) next.add(id);
+            else next.delete(id);
+            return next;
+        });
+    }, []);
+
+    const handleRetryArchive = React.useCallback(
+        async (id: string) => {
+            console.log('handleRetryArchive:', id, manualArchiveIds);
+            if (manualArchiveIds.has(id)) return;
+
+            const item = history.find((candidate) => candidate.id === id);
+            if (!item || item.storedUrl) return;
+
+            markManualArchive(id, true);
+            markPreviewUnresolved(id, false);
+            markPreviewResolving(id, true);
+            setError(null);
+
+            try {
+                const key = await resolveKey();
+                if (!key) {
+                    setIsApiKeyDialogOpen(true);
+                    setError('Sign in or enter your Xcity API key before archiving.', 'output');
+                    return;
+                }
+
+                let archived = await fetchArchivedVideo(id, key);
+                if (!archived) {
+                    const localRecord = await db.videos.get(id);
+                    if (localRecord?.blob) {
+                        archived = await archiveLocalVideo(id, localRecord.blob, key, localRecord.filename);
+                    }
+                }
+
+                if (!archived) {
+                    let sourceUrl =
+                        item.providerUrl && !providerLinkLikelyDead(item, Date.now()) ? item.providerUrl : undefined;
+
+                    if (!sourceUrl) {
+                        try {
+                            sourceUrl = (await videoService.retrieveVideo(id, { force: true })).output_url;
+                        } catch (err) {
+                            console.warn(`Could not re-read output_url for ${id}:`, err);
+                        }
+                    }
+
+                    if (sourceUrl) {
+                        setRemoteSource(id, sourceUrl);
+                        updateItem(id, { providerUrl: sourceUrl, mediaExpired: false });
+                        try {
+                            archived = await archiveVideo(id, sourceUrl, key);
+                        } catch (err) {
+                            if (!(err instanceof ArchiveSourceFetchError)) throw err;
+
+                            const freshSourceUrl = (
+                                await videoService.retrieveVideo(id, { force: true }).catch((readErr) => {
+                                    console.warn(`Could not refresh output_url for ${id}:`, readErr);
+                                    return null;
+                                })
+                            )?.output_url;
+
+                            if (!freshSourceUrl || freshSourceUrl === sourceUrl) throw err;
+
+                            setRemoteSource(id, freshSourceUrl);
+                            updateItem(id, { providerUrl: freshSourceUrl, mediaExpired: false });
+                            archived = await archiveVideo(id, freshSourceUrl, key);
+                        }
+                    }
+                }
+
+                if (archived?.url) {
+                    setRemoteSource(id, archived.url);
+                    markPreviewUnresolved(id, false);
+                    updateItem(id, {
+                        storedUrl: archived.url,
+                        storageModeUsed: 'r2',
+                        status: 'completed',
+                        progress: 100,
+                        mediaExpired: false
+                    });
+                    await syncNow();
+                    return;
+                }
+
+                retryArchive(id);
+                if (!hasLocalCopy(id) && providerLinkLikelyDead(item, Date.now())) {
+                    updateItem(id, { mediaExpired: true });
+                    setError(
+                        'Archive failed because this video has no local cache and the provider playback link has expired. Regenerate it to create a new video id.',
+                        'output'
+                    );
+                    return;
+                }
+
+                setError('Archive did not complete. The background archiver will retry automatically.', 'output');
+            } catch (err) {
+                console.error(`Manual archive failed for ${id}:`, err);
+                retryArchive(id);
+                setError(err instanceof Error ? err.message : 'Archive failed', 'output');
+            } finally {
+                markPreviewResolving(id, false);
+                markManualArchive(id, false);
+            }
+        },
+        [
+            hasLocalCopy,
+            history,
+            manualArchiveIds,
+            markManualArchive,
+            markPreviewResolving,
+            markPreviewUnresolved,
+            resolveKey,
+            retryArchive,
+            setError,
+            setRemoteSource,
+            syncNow,
+            updateItem,
+            videoService
+        ]
+    );
+
     const handleClearHistory = async () => {
         const confirmed = window.confirm(
-            'Clear the entire video history? This deletes the videos stored in your browser. Archived cloud copies and your Xcity billing history are not affected. This cannot be undone.'
+            'Clear the entire video history? This deletes videos from this browser and attempts to remove archived cloud copies. Your Xcity billing history is not affected. This cannot be undone.'
         );
         if (!confirmed) return;
 
+        const itemsToDelete = [...history];
         clearAll();
         clearJobs();
         setCurrentJobId(null);
@@ -1874,6 +2292,8 @@ export default function HomePage() {
         try {
             await db.videos.clear();
             clearAllSources();
+            await Promise.allSettled(itemsToDelete.map((item) => deleteCloudCopyForItem(item)));
+            await syncNow();
         } catch (e) {
             console.error('Failed during history clearing:', e);
             setError(`Failed to clear history: ${e instanceof Error ? e.message : String(e)}`);
@@ -1885,6 +2305,9 @@ export default function HomePage() {
         setError(null);
 
         try {
+            await deleteCloudCopyForItem(item).catch((err) => {
+                console.warn(`Could not delete archived cloud copy for ${item.id}:`, err);
+            });
             await db.videos.where('id').equals(item.id).delete();
             removeSource(item.id);
             removeItem(item.id);
@@ -1892,6 +2315,7 @@ export default function HomePage() {
             if (currentJobId === item.id) {
                 setCurrentJobId(null);
             }
+            await syncNow();
         } catch (err) {
             console.error('Error deleting video:', err);
             setError(err instanceof Error ? err.message : 'Failed to delete video', 'output');
@@ -1922,6 +2346,7 @@ export default function HomePage() {
 
     const handleSaveApiKey = async (rawKey: string) => {
         await saveManualKey(rawKey);
+        await syncCloudNow();
         setError(null);
     };
 
@@ -2107,7 +2532,8 @@ export default function HomePage() {
                     getVideoSrc={getVideoSrc}
                     getThumbnailSrc={getThumbnailSrc}
                     hasLocalCopy={hasLocalCopy}
-                    onRetryArchive={retryArchive}
+                    onRetryArchive={handleRetryArchive}
+                    archivePendingIds={manualArchiveIds}
                     onDeleteItem={handleDeleteVideo}
                     onReuseItem={handleReuseItem}
                     onRegenerateItem={handleRegenerateItem}

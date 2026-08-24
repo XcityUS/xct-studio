@@ -159,8 +159,11 @@ export class VideoService {
                 const retryAt =
                     headers instanceof Headers
                         ? (headers.get('x-ratelimit-reset-requests') ?? headers.get('retry-after') ?? undefined)
-                        : headers?.['x-ratelimit-reset-requests'] ?? headers?.['retry-after'];
-                throw new RateLimitError(gatewayMessage || 'The gateway is rate-limiting this API key right now.', retryAt);
+                        : (headers?.['x-ratelimit-reset-requests'] ?? headers?.['retry-after']);
+                throw new RateLimitError(
+                    gatewayMessage || 'The gateway is rate-limiting this API key right now.',
+                    retryAt
+                );
             }
 
             if (
@@ -240,9 +243,9 @@ export class VideoService {
         }
     }
 
-    async retrieveVideo(videoId: string): Promise<VideoJob> {
+    async retrieveVideo(videoId: string, options: { force?: boolean } = {}): Promise<VideoJob> {
         const cached = this.retrieveCache.get(videoId);
-        if (cached && Date.now() - cached.fetchedAt < MIN_RETRIEVE_INTERVAL_MS) {
+        if (!options.force && cached && Date.now() - cached.fetchedAt < MIN_RETRIEVE_INTERVAL_MS) {
             return cached.job;
         }
 

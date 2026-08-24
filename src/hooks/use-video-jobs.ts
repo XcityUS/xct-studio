@@ -136,6 +136,7 @@ export function useVideoJobs(service: VideoService, callbacks: VideoJobCallbacks
             // display fields we set at submit time.
             const merged: VideoJob = {
                 ...update,
+                id: jobId,
                 prompt: knownJob.prompt || update.prompt,
                 size: knownJob.size || update.size,
                 seconds: knownJob.seconds || update.seconds,

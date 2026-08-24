@@ -32,6 +32,20 @@ function archivedAssetNameMatches(item: VideoMetadata, name: string | null) {
     return normalized === item.id || normalized === item.filename || normalized === `${item.id}.mp4`;
 }
 
+function archivePriority(item: VideoMetadata, now: number) {
+    let score = 0;
+
+    // Fresh provider links are the only source the worker can pull without
+    // needing this browser's IndexedDB blob, so archive them before stale
+    // historical rows. Otherwise one old missing item can keep newer playable
+    // completions from reaching R2.
+    if (item.providerUrl && !providerLinkLikelyDead(item, now)) score += 100;
+    if (item.providerUrl && providerLinkLikelyDead(item, now)) score -= 20;
+    if (!item.providerUrl && providerLinkLikelyDead(item, now)) score -= 50;
+
+    return score;
+}
+
 interface UseMediaArchiveOptions {
     history: VideoMetadata[];
     /** Gate on the initial localStorage load so we don't archive against an empty list. */
@@ -103,16 +117,20 @@ export function useMediaArchive({
         });
         if (candidates.length === 0) return;
 
-        const due = candidates.find((item) => {
+        const orderedCandidates = [...candidates].sort((a, b) => {
+            const priorityDelta = archivePriority(b, now) - archivePriority(a, now);
+            if (priorityDelta !== 0) return priorityDelta;
+            return b.timestamp - a.timestamp;
+        });
+
+        const due = orderedCandidates.find((item) => {
             const state = attemptsRef.current.get(item.id);
             return !state || state.nextAt <= now;
         });
 
         if (!due) {
             // Nothing due yet — wake up when the earliest backoff expires.
-            const earliest = Math.min(
-                ...candidates.map((item) => attemptsRef.current.get(item.id)?.nextAt ?? now)
-            );
+            const earliest = Math.min(...candidates.map((item) => attemptsRef.current.get(item.id)?.nextAt ?? now));
             if (timerRef.current) clearTimeout(timerRef.current);
             timerRef.current = setTimeout(() => setPass((p) => p + 1), Math.max(earliest - now, 1000));
             return;
@@ -163,7 +181,7 @@ export function useMediaArchive({
 
                 if (!archived) {
                     // Ark's link expires, so always read the job's current one.
-                    const job = await serviceRef.current.retrieveVideo(due.id);
+                    const job = await serviceRef.current.retrieveVideo(due.id, { force: true });
                     if (!job.output_url) {
                         expired = providerLinkLikelyDead(due, Date.now());
                         if (expired) {
