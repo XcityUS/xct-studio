@@ -1500,7 +1500,10 @@ export default function HomePage() {
      * the panel used to keep replaying that corpse.
      */
     const resolvePlaybackSource = React.useCallback(
-        async (item: VideoMetadata, options: { force?: boolean; ignoreLocal?: boolean } = {}) => {
+        async (
+            item: VideoMetadata,
+            options: { force?: boolean; ignoreLocal?: boolean; allowProviderProbe?: boolean } = {}
+        ) => {
             if (!options.ignoreLocal && hasLocalCopy(item.id)) {
                 markPreviewResolving(item.id, false);
                 markPreviewUnresolved(item.id, false);
@@ -1532,6 +1535,8 @@ export default function HomePage() {
                 updateItem(item.id, { mediaExpired: true });
                 return;
             }
+
+            if (options.allowProviderProbe === false) return;
 
             // Without force, don't re-probe what already plays or what we
             // already know the gateway has nothing for.
@@ -1566,6 +1571,36 @@ export default function HomePage() {
             videoService
         ]
     );
+
+    const bootSourceHydrationRef = React.useRef<Map<string, string>>(new Map());
+    React.useEffect(() => {
+        if (isInitialLoad) return;
+
+        const candidates = history.filter((item) => item.status === 'completed');
+        if (candidates.length === 0) return;
+
+        let cancelled = false;
+        void (async () => {
+            for (const item of candidates) {
+                if (cancelled) return;
+
+                const fingerprint = [
+                    item.storedUrl ?? '',
+                    item.providerUrl ?? '',
+                    String(item.mediaExpired ?? false),
+                    String(item.durationMs ?? 0)
+                ].join('|');
+                if (bootSourceHydrationRef.current.get(item.id) === fingerprint) continue;
+                bootSourceHydrationRef.current.set(item.id, fingerprint);
+
+                await resolvePlaybackSource(item, { allowProviderProbe: false });
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [history, isInitialLoad, resolvePlaybackSource]);
 
     const handleHistorySelect = (item: VideoMetadata) => {
         setCurrentJobId(item.id);
