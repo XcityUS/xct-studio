@@ -59,6 +59,13 @@ function json(body, status, extraHeaders) {
     });
 }
 
+function providerVideoHeaders() {
+    return {
+        Accept: 'video/mp4,video/*;q=0.9,*/*;q=0.8',
+        Range: 'bytes=0-'
+    };
+}
+
 /**
  * Verifies the bearer against the gateway and returns a stable per-user
  * namespace. Falls back to a hash of the key when the gateway reports no
@@ -1010,7 +1017,9 @@ async function handleArchive(request, env, cors) {
         return json(archivedVideoPayload(request, key, existing, true), 200, cors);
     }
 
-    const upstream = await fetch(source.toString());
+    const upstream = await fetch(source.toString(), {
+        headers: providerVideoHeaders()
+    });
     if (!upstream.ok || !upstream.body) {
         return json({ error: `source fetch failed (${upstream.status})` }, 502, cors);
     }

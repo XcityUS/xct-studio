@@ -62,7 +62,8 @@ type VideoHistoryPanelProps = {
     /** Share — create a public share page for this completed video. */
     onShareItem?: (item: VideoMetadata) => void;
     /** Retry permanent R2 archival for a completed item. */
-    onRetryArchive?: (id: string) => void;
+    onRetryArchive?: (id: string) => void | Promise<void>;
+    archivePendingIds?: Set<string>;
     sharePendingId?: string | null;
     /** Fetches user audio assets for the assembly editor's BGM picker. */
     loadAudioAssets?: () => Promise<UserAsset[]>;
@@ -160,6 +161,7 @@ export function VideoHistoryPanel({
     onExtendItem,
     onShareItem,
     onRetryArchive,
+    archivePendingIds,
     sharePendingId,
     loadAudioAssets,
     onTranscribeVideo
@@ -578,6 +580,7 @@ export function VideoHistoryPanel({
                                     const selectionOrder = selectedClipIds.indexOf(item.id) + 1;
                                     const isSelectedForAssembly = selectionOrder > 0;
                                     const isSharePending = sharePendingId === item.id;
+                                    const isArchivePending = archivePendingIds?.has(item.id) ?? false;
                                     const costDetails = item.costDetails;
                                     const tokenCostDetails = hasTokenCostDetails(costDetails);
                                     const displayProgress = isProcessing
@@ -868,7 +871,7 @@ export function VideoHistoryPanel({
                                                             const message =
                                                                 item.status === 'failed'
                                                                     ? 'Are you sure you want to delete this failed request from your history?'
-                                                                    : 'Delete this video from your history? This removes it from your browser storage. Archived cloud copies are not affected.';
+                                                                    : 'Delete this video from your history? This removes it from browser storage and attempts to remove the archived cloud copy.';
                                                             if (confirm(message)) {
                                                                 onDeleteItem(item);
                                                             }
@@ -907,11 +910,24 @@ export function VideoHistoryPanel({
                                                             {onRetryArchive && needsCloudArchive && (
                                                                 <button
                                                                     type='button'
-                                                                    onClick={() => onRetryArchive(item.id)}
-                                                                    title='Archive now'
-                                                                    className='flex flex-1 items-center justify-center gap-1 rounded bg-amber-500/15 px-1.5 py-1 text-[10px] text-amber-100 transition-colors hover:bg-amber-500/25 hover:text-white'>
-                                                                    <CloudUpload size={11} />
-                                                                    Archive now
+                                                                    onClick={() => void onRetryArchive(item.id)}
+                                                                    disabled={isArchivePending}
+                                                                    title={
+                                                                        isArchivePending
+                                                                            ? 'Archiving to cloud'
+                                                                            : 'Archive now'
+                                                                    }
+                                                                    className={cn(
+                                                                        'flex flex-1 items-center justify-center gap-1 rounded bg-amber-500/15 px-1.5 py-1 text-[10px] text-amber-100 transition-colors hover:bg-amber-500/25 hover:text-white',
+                                                                        isArchivePending &&
+                                                                            'cursor-wait opacity-70 hover:bg-amber-500/15 hover:text-amber-100'
+                                                                    )}>
+                                                                    {isArchivePending ? (
+                                                                        <Loader2 size={11} className='animate-spin' />
+                                                                    ) : (
+                                                                        <CloudUpload size={11} />
+                                                                    )}
+                                                                    {isArchivePending ? 'Archiving...' : 'Archive now'}
                                                                 </button>
                                                             )}
                                                             {onShareItem && isCompleted && !isExpired && (

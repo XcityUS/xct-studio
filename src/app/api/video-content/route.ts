@@ -14,6 +14,13 @@ function isAllowedProviderUrl(value: string): URL | null {
     return url;
 }
 
+function providerVideoHeaders(): HeadersInit {
+    return {
+        Accept: 'video/mp4,video/*;q=0.9,*/*;q=0.8',
+        Range: 'bytes=0-'
+    };
+}
+
 export async function POST(request: Request) {
     const body = (await request.json().catch(() => null)) as { url?: unknown } | null;
     const url = typeof body?.url === 'string' ? isAllowedProviderUrl(body.url) : null;
@@ -21,7 +28,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Unsupported video source URL.' }, { status: 400 });
     }
 
-    const upstream = await fetch(url, { cache: 'no-store' });
+    const upstream = await fetch(url, { cache: 'no-store', headers: providerVideoHeaders() });
     if (!upstream.ok || !upstream.body) {
         return NextResponse.json({ error: `Provider download failed (${upstream.status}).` }, { status: upstream.status });
     }

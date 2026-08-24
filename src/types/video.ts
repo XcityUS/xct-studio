@@ -54,6 +54,8 @@ export type VideoMetadata = {
     draft?: boolean;
     finalResolution?: string;
     remix_of?: string;
+    /** Temporary link used by regenerate: this completed item should replace the old history id. */
+    replacesId?: string;
     status?: 'processing' | 'completed' | 'failed';
     /** True when finished media bytes are no longer reachable from provider storage. */
     mediaExpired?: boolean;

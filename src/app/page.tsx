@@ -35,6 +35,8 @@ import type { GalleryItem } from '@/lib/gallery';
 import { reconcilePreset } from '@/lib/gallery-preset';
 import { IMAGE_GENERATION_ENABLED, generateImages, type GeneratedImage, type ImageSizeId } from '@/lib/image-service';
 import {
+    ArchiveSourceFetchError,
+    archiveLocalVideo,
     archiveVideo,
     audioUrlToDataUri,
     createShare,
@@ -46,6 +48,7 @@ import {
     imageUrlToDataUri,
     listUserAssets,
     lookupArchivedVideo,
+    mediaKeyFromUrl,
     mediaArchiveEnabled,
     mediaWorkerUrl,
     portraitEnabled as loadPortraitEnabled,
@@ -60,9 +63,7 @@ import {
     uploadReferenceVideo,
     videoUrlToDataUri
 } from '@/lib/media-archive';
-import { completedAtMs, PROVIDER_LINK_TTL_MS, providerLinkLikelyDead } from '@/lib/media-state';
-import { estimateVideoProgress } from '@/lib/progress';
-import { optimizePrompt } from '@/lib/prompt-optimizer';
+import { providerLinkLikelyDead } from '@/lib/media-state';
 import {
     createPortraitAsset,
     createPortraitSession,
@@ -70,6 +71,8 @@ import {
     getPortraitAsset,
     listPortraitGroups
 } from '@/lib/portrait';
+import { estimateVideoProgress } from '@/lib/progress';
+import { optimizePrompt } from '@/lib/prompt-optimizer';
 import { breakdownScript } from '@/lib/script-breakdown';
 import {
     DEFAULT_MODEL,
@@ -104,7 +107,10 @@ function fileNameWithoutExtension(fileName: string): string {
 
 function voiceoverAssetName(text: string): string {
     const firstWords = text.trim().replace(/\s+/g, ' ').split(' ').slice(0, 5).join(' ');
-    const safeWords = firstWords.replace(/[\/\\?%*:|"<>]/g, '').slice(0, 60).trim();
+    const safeWords = firstWords
+        .replace(/[\/\\?%*:|"<>]/g, '')
+        .slice(0, 60)
+        .trim();
     return safeWords ? `voiceover-${safeWords}` : 'voiceover';
 }
 
@@ -268,10 +274,9 @@ export default function HomePage() {
     const [shareDialogError, setShareDialogError] = React.useState<string | null>(null);
     const [sharingVideoId, setSharingVideoId] = React.useState<string | null>(null);
     const [shareUrlCopied, setShareUrlCopied] = React.useState(false);
-    const regenerateReplacementRef = React.useRef<Map<string, string>>(new Map());
-    const [shareCommunityStatus, setShareCommunityStatus] = React.useState<'idle' | 'submitting' | 'submitted'>(
-        'idle'
-    );
+    const [manualArchiveIds, setManualArchiveIds] = React.useState<Set<string>>(new Set());
+    const regenerateReplacementRef = React.useRef<Map<string, VideoMetadata>>(new Map());
+    const [shareCommunityStatus, setShareCommunityStatus] = React.useState<'idle' | 'submitting' | 'submitted'>('idle');
     const [shareCommunityError, setShareCommunityError] = React.useState<string | null>(null);
 
     // Creation form state
@@ -296,9 +301,12 @@ export default function HomePage() {
         portraits,
         isInitialLoad,
         addItem,
+        replaceItem,
         updateItem,
         removeItem,
         clearAll,
+        syncNow,
+        syncCloudNow,
         addCharacter,
         removeCharacter,
         addPortrait,
@@ -312,59 +320,65 @@ export default function HomePage() {
     // the form's own Select-driven correction.
     const creationFormRef = React.useRef<HTMLDivElement>(null);
 
-    const applyPreset = React.useCallback((item: GalleryItem) => {
-        const p = reconcilePreset(item.params);
-        const refs = p.reference_image_urls ?? (p.input_reference_url ? [p.input_reference_url] : []);
-        setCreateModel(p.model);
-        setCreatePrompt(p.prompt);
-        setCreateRatio(p.ratio);
-        setCreateResolution(p.resolution);
-        setCreateSeconds(p.seconds);
-        setCreateAudio(p.generate_audio);
-        setCreateCameraFixed(p.camera_fixed ?? false);
-        setCreateReferenceUrls(refs);
-        setCreateLastFrameUrl(p.input_reference_url ? (p.last_frame_url ?? '') : '');
-        setCreateReferenceAudioUrl(refs.length >= 2 ? (p.reference_audio_url ?? '') : '');
-        setCreateReferenceVideoUrls(
-            refs.length >= 2 ? (p.reference_video_urls ?? []).slice(0, MAX_REFERENCE_VIDEOS) : []
-        );
-        setCreateSeed(p.seed);
-        setCreateWatermark(p.watermark ?? false);
-        setError(p.adjusted.length ? `Adjusted for ${p.model}: ${p.adjusted.join(', ')}` : null);
-        creationFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, [setError]);
-
-    const loadSharedSettings = React.useCallback(async (shareId: string) => {
-        try {
-            const share = await fetchShare(shareId);
-            if (!share) {
-                setError('Shared settings were not found.');
-                return;
-            }
-
-            const { params, adjusted } = shareParamsToForm(share.prompt, share.params);
-            setCreateModel(params.model);
-            setCreatePrompt(params.prompt);
-            setCreateRatio(params.ratio);
-            setCreateResolution(params.resolution);
-            setCreateSeconds(params.seconds);
-            setCreateAudio(params.generate_audio);
-            setCreateCameraFixed(params.camera_fixed ?? false);
-            setCreateReferenceUrls([]);
-            setCreateLastFrameUrl('');
-            setCreateReferenceAudioUrl('');
-            setCreateReferenceVideoUrls([]);
-            setCreateSeed(params.seed);
-            setCreateWatermark(params.watermark ?? false);
-            setActiveTab('video');
-            setShareNotice('Loaded shared settings — generate to recreate');
-            setError(adjusted.length ? `Adjusted shared settings: ${adjusted.join(', ')}` : null);
+    const applyPreset = React.useCallback(
+        (item: GalleryItem) => {
+            const p = reconcilePreset(item.params);
+            const refs = p.reference_image_urls ?? (p.input_reference_url ? [p.input_reference_url] : []);
+            setCreateModel(p.model);
+            setCreatePrompt(p.prompt);
+            setCreateRatio(p.ratio);
+            setCreateResolution(p.resolution);
+            setCreateSeconds(p.seconds);
+            setCreateAudio(p.generate_audio);
+            setCreateCameraFixed(p.camera_fixed ?? false);
+            setCreateReferenceUrls(refs);
+            setCreateLastFrameUrl(p.input_reference_url ? (p.last_frame_url ?? '') : '');
+            setCreateReferenceAudioUrl(refs.length >= 2 ? (p.reference_audio_url ?? '') : '');
+            setCreateReferenceVideoUrls(
+                refs.length >= 2 ? (p.reference_video_urls ?? []).slice(0, MAX_REFERENCE_VIDEOS) : []
+            );
+            setCreateSeed(p.seed);
+            setCreateWatermark(p.watermark ?? false);
+            setError(p.adjusted.length ? `Adjusted for ${p.model}: ${p.adjusted.join(', ')}` : null);
             creationFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        } catch (err) {
-            console.error('Error loading share:', err);
-            setError(err instanceof Error ? err.message : 'Could not load shared settings.');
-        }
-    }, [setError]);
+        },
+        [setError]
+    );
+
+    const loadSharedSettings = React.useCallback(
+        async (shareId: string) => {
+            try {
+                const share = await fetchShare(shareId);
+                if (!share) {
+                    setError('Shared settings were not found.');
+                    return;
+                }
+
+                const { params, adjusted } = shareParamsToForm(share.prompt, share.params);
+                setCreateModel(params.model);
+                setCreatePrompt(params.prompt);
+                setCreateRatio(params.ratio);
+                setCreateResolution(params.resolution);
+                setCreateSeconds(params.seconds);
+                setCreateAudio(params.generate_audio);
+                setCreateCameraFixed(params.camera_fixed ?? false);
+                setCreateReferenceUrls([]);
+                setCreateLastFrameUrl('');
+                setCreateReferenceAudioUrl('');
+                setCreateReferenceVideoUrls([]);
+                setCreateSeed(params.seed);
+                setCreateWatermark(params.watermark ?? false);
+                setActiveTab('video');
+                setShareNotice('Loaded shared settings — generate to recreate');
+                setError(adjusted.length ? `Adjusted shared settings: ${adjusted.join(', ')}` : null);
+                creationFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } catch (err) {
+                console.error('Error loading share:', err);
+                setError(err instanceof Error ? err.message : 'Could not load shared settings.');
+            }
+        },
+        [setError]
+    );
 
     const loadedShareIdRef = React.useRef<string | null>(null);
     React.useEffect(() => {
@@ -464,13 +478,7 @@ export default function HomePage() {
                 throw new Error('Voiceover generation is not configured on this deployment.');
             }
 
-            const speech = await synthesizeSpeech(
-                text,
-                key,
-                model,
-                process.env.NEXT_PUBLIC_OPENAI_API_BASE_URL,
-                voice
-            );
+            const speech = await synthesizeSpeech(text, key, model, process.env.NEXT_PUBLIC_OPENAI_API_BASE_URL, voice);
             const assetName = voiceoverAssetName(text);
             const file = new File([speech], `${assetName}.mp3`, { type: 'audio/mpeg' });
             return uploadReferenceAudio(file, key, assetName);
@@ -728,54 +736,9 @@ export default function HomePage() {
         [markPreviewResolving, markPreviewUnresolved, resolveKey, setRemoteSource, updateItem]
     );
 
-    const shouldReplaceOldAfterRegenerate = React.useCallback(
-        async (item: VideoMetadata): Promise<boolean> => {
-            if (item.status !== 'completed' || hasLocalCopy(item.id)) return false;
-
-            const previewConfirmedMissing = unresolvedPreviewIdsRef.current.has(item.id);
-            const noKnownPlayableSource = !item.storedUrl && !hasSource(item.id);
-            const providerExpired =
-                item.mediaExpired ||
-                previewConfirmedMissing ||
-                noKnownPlayableSource ||
-                Date.now() - completedAtMs(item) >= PROVIDER_LINK_TTL_MS;
-            if (!item.storedUrl) {
-                return providerExpired;
-            }
-
-            const key = await resolveKey();
-            if (!key) return false;
-
-            const archived = await lookupArchivedVideo(item.id, key);
-            if (archived.status === 'found') {
-                setRemoteSource(item.id, archived.media.url);
-                markPreviewUnresolved(item.id, false);
-                markPreviewResolving(item.id, false);
-                updateItem(item.id, { storedUrl: archived.media.url, mediaExpired: false });
-                return false;
-            }
-
-            if (archived.status === 'unavailable') {
-                return false;
-            }
-
-            updateItem(item.id, { storedUrl: undefined, mediaExpired: providerExpired });
-            return providerExpired;
-        },
-        [
-            hasLocalCopy,
-            hasSource,
-            markPreviewResolving,
-            markPreviewUnresolved,
-            resolveKey,
-            setRemoteSource,
-            updateItem
-        ]
-    );
-
     /** Finalizes a finished video, archives it to R2, then caches locally best-effort. */
     const downloadAndStoreVideo = React.useCallback(
-        async (job: VideoJob) => {
+        async (job: VideoJob): Promise<boolean> => {
             console.log(`Downloading video for job: ${job.id}`);
             markPreviewResolving(job.id, true);
 
@@ -785,7 +748,7 @@ export default function HomePage() {
                     storageModeUsed: 'r2',
                     status: 'completed'
                 });
-                return;
+                return true;
             }
 
             // Ark attaches the CDN link AFTER the job first reports completed,
@@ -801,7 +764,7 @@ export default function HomePage() {
                 if (sourceUrl) break;
                 await new Promise((resolve) => setTimeout(resolve, delay));
                 try {
-                    sourceUrl = (await videoService.retrieveVideo(job.id)).output_url;
+                    sourceUrl = (await videoService.retrieveVideo(job.id, { force: true })).output_url;
                 } catch (err) {
                     console.warn(`Could not re-read output_url for ${job.id}:`, err);
                 }
@@ -822,7 +785,7 @@ export default function HomePage() {
                         'Use Retry in a moment, or select it from History to probe again.',
                     'output'
                 );
-                return;
+                return false;
             }
 
             let playbackUrl = sourceUrl;
@@ -845,6 +808,7 @@ export default function HomePage() {
                             status: 'completed',
                             mediaExpired: false
                         });
+                        await syncNow();
                     }
                 }
             } catch (err) {
@@ -860,37 +824,56 @@ export default function HomePage() {
                 });
             }
 
-            void (async () => {
-                try {
-                    const blob = await videoService.downloadContent(job.id, playbackUrl);
-                    // The gateway serves only the raw MP4 — capture a poster frame
-                    // client-side for the history thumbnails.
-                    const thumbnailBlob = await captureVideoPoster(blob);
+            try {
+                const blob = await videoService.downloadContent(job.id, playbackUrl);
+                // The gateway serves only the raw MP4 — capture a poster frame
+                // client-side for the history thumbnails.
+                const thumbnailBlob = await captureVideoPoster(blob);
 
-                    await db.videos.put({
-                        id: job.id,
-                        filename: `${job.id}.mp4`,
-                        blob,
-                        thumbnail: thumbnailBlob,
-                        created_at: job.created_at
+                await db.videos.put({
+                    id: job.id,
+                    filename: `${job.id}.mp4`,
+                    blob,
+                    thumbnail: thumbnailBlob,
+                    created_at: job.created_at
+                });
+
+                if (!archivedToR2) {
+                    let localArchiveUrl: string | undefined;
+                    try {
+                        const key = await resolveKey();
+                        if (key) {
+                            const archived = await archiveLocalVideo(job.id, blob, key, `${job.id}.mp4`);
+                            if (archived?.url) {
+                                localArchiveUrl = archived.url;
+                                setRemoteSource(job.id, archived.url);
+                            }
+                        }
+                    } catch (err) {
+                        console.warn(`Could not archive locally cached video ${job.id} to R2.`, err);
+                    }
+
+                    updateItem(job.id, {
+                        durationMs: Date.now() - job.created_at * 1000,
+                        storageModeUsed: localArchiveUrl ? 'r2' : 'indexeddb',
+                        status: 'completed',
+                        ...(localArchiveUrl ? { storedUrl: localArchiveUrl, mediaExpired: false } : {})
                     });
-
-                    if (!archivedToR2) {
-                        updateItem(job.id, {
-                            durationMs: Date.now() - job.created_at * 1000,
-                            storageModeUsed: 'indexeddb',
-                            status: 'completed'
-                        });
+                    if (localArchiveUrl) {
+                        markPreviewUnresolved(job.id, false);
+                        await syncNow();
                     }
-                    console.log(`Video ${job.id} cached locally`);
-                } catch (err) {
-                    if (err instanceof InvalidApiKeyError) {
-                        handleInvalidApiKey();
-                        return;
-                    }
-                    console.warn(`Could not cache video ${job.id} locally; playback will use the remote source.`, err);
                 }
-            })();
+                console.log(`Video ${job.id} cached locally`);
+            } catch (err) {
+                if (err instanceof InvalidApiKeyError) {
+                    handleInvalidApiKey();
+                    return false;
+                }
+                console.warn(`Could not cache video ${job.id} locally; playback will use the remote source.`, err);
+            }
+
+            return true;
         },
         [
             resolveKey,
@@ -901,8 +884,52 @@ export default function HomePage() {
             markPreviewResolving,
             markPreviewUnresolved,
             resolveArchivedPlayback,
-            setError
+            setError,
+            syncNow
         ]
+    );
+
+    const archivedKeysForItem = React.useCallback(
+        async (item: Pick<VideoMetadata, 'id' | 'storedUrl'>, key: string) => {
+            const keys = new Set<string>();
+            if (item.storedUrl) {
+                const storedKey = mediaKeyFromUrl(item.storedUrl);
+                if (storedKey) keys.add(storedKey);
+            }
+
+            if (!keys.size) {
+                const archived = await lookupArchivedVideo(item.id, key);
+                if (archived.status === 'found') {
+                    const archivedKey = archived.media.key ?? mediaKeyFromUrl(archived.media.url);
+                    if (archivedKey) keys.add(archivedKey);
+                }
+            }
+
+            return keys;
+        },
+        []
+    );
+
+    const protectedArchiveKeysForVideo = React.useCallback(
+        async (id: string) => {
+            const key = await resolveKey();
+            if (!key) return new Set<string>();
+            return archivedKeysForItem({ id }, key);
+        },
+        [archivedKeysForItem, resolveKey]
+    );
+
+    const deleteCloudCopyForItem = React.useCallback(
+        async (item: VideoMetadata, protectedKeys: Set<string> = new Set()) => {
+            const key = await resolveKey();
+            if (!key) return;
+
+            const keys = await archivedKeysForItem(item, key);
+            for (const protectedKey of protectedKeys) keys.delete(protectedKey);
+
+            await Promise.all(Array.from(keys).map((assetKey) => deleteUserAsset(assetKey, key)));
+        },
+        [archivedKeysForItem, resolveKey]
     );
 
     const jobCallbacks = React.useMemo(
@@ -928,22 +955,33 @@ export default function HomePage() {
                     status: 'completed',
                     ...(createParams ? { createParams } : {})
                 });
-                const replacedId = regenerateReplacementRef.current.get(job.id);
-                if (replacedId) {
+                const refReplacedItem = regenerateReplacementRef.current.get(job.id);
+                const replacesId = refReplacedItem?.id ?? historyItem?.replacesId;
+                const replacedItem =
+                    refReplacedItem ?? (replacesId ? history.find((item) => item.id === replacesId) : undefined);
+                void (async () => {
+                    console.log('video completed', job);
+                    const hasPlaybackSource = await downloadAndStoreVideo(job);
+                    console.log('hasPlaybackSource', hasPlaybackSource);
+                    if (!replacedItem || !hasPlaybackSource) return;
                     regenerateReplacementRef.current.delete(job.id);
-                    void (async () => {
-                        const item = history.find((candidate) => candidate.id === replacedId);
-                        if (!item) return;
-                        const shouldReplaceOld = await shouldReplaceOldAfterRegenerate(item);
-                        if (!shouldReplaceOld) return;
-                        await db.videos.where('id').equals(replacedId).delete();
-                        removeSource(replacedId);
-                        removeItem(replacedId);
-                    })();
-                }
-                void downloadAndStoreVideo(job);
+
+                    const protectedKeys = await protectedArchiveKeysForVideo(job.id);
+                    await deleteCloudCopyForItem(replacedItem, protectedKeys).catch((err) => {
+                        console.warn(`Could not delete replaced cloud copy for ${replacedItem.id}:`, err);
+                    });
+                    await db.videos.where('id').equals(replacedItem.id).delete();
+                    removeSource(replacedItem.id);
+                    removeItem(replacedItem.id);
+                    updateItem(job.id, { replacesId: undefined });
+                    console.log('currentJobId === replacedItem.id', currentJobId, replacedItem.id);
+                    if (currentJobId === replacedItem.id) setCurrentJobId(job.id);
+                    console.log('syncNow job', job);
+                    await syncNow();
+                })();
             },
             onFailed: (job: VideoJob) => {
+                regenerateReplacementRef.current.delete(job.id);
                 updateItem(job.id, {
                     status: 'failed',
                     costDetails: null,
@@ -956,12 +994,15 @@ export default function HomePage() {
         [
             history,
             updateItem,
-            shouldReplaceOldAfterRegenerate,
+            deleteCloudCopyForItem,
+            protectedArchiveKeysForVideo,
             removeSource,
             removeItem,
+            currentJobId,
             downloadAndStoreVideo,
             handleInvalidApiKey,
-            setError
+            setError,
+            syncNow
         ]
     );
 
@@ -980,7 +1021,14 @@ export default function HomePage() {
             setRemoteSource(id, url);
             markPreviewUnresolved(id, false);
             markPreviewResolving(id, false);
-            updateItem(id, { storedUrl: url, mediaExpired: false });
+            updateItem(id, {
+                storedUrl: url,
+                storageModeUsed: 'r2',
+                status: 'completed',
+                progress: 100,
+                mediaExpired: false
+            });
+            void syncNow();
         },
         onExpired: (id) => {
             const item = history.find((candidate) => candidate.id === id);
@@ -988,6 +1036,85 @@ export default function HomePage() {
             updateItem(id, { mediaExpired: true });
         }
     });
+
+    const replacementCleanupIdsRef = React.useRef<Set<string>>(new Set());
+
+    React.useEffect(() => {
+        if (isInitialLoad) return;
+
+        for (const item of history) {
+            if (item.status !== 'completed') continue;
+            if (replacementCleanupIdsRef.current.has(item.id)) continue;
+
+            const replacedItem = item.replacesId
+                ? history.find((candidate) => candidate.id === item.replacesId)
+                : undefined;
+            const now = Date.now();
+            const staleSamePromptItems = history.filter((candidate) => {
+                if (candidate.id === item.id || candidate.id === replacedItem?.id) return false;
+                if (candidate.status !== 'completed') return false;
+                if (candidate.timestamp >= item.timestamp) return false;
+                if (candidate.prompt !== item.prompt) return false;
+                if (
+                    candidate.model !== item.model ||
+                    candidate.size !== item.size ||
+                    candidate.seconds !== item.seconds
+                )
+                    return false;
+                const hasFreshProvider = candidate.providerUrl && !providerLinkLikelyDead(candidate, now);
+                if (candidate.storedUrl || hasFreshProvider || hasLocalCopy(candidate.id) || hasSource(candidate.id))
+                    return false;
+                return true;
+            });
+
+            const itemsToRemove = new Map<string, VideoMetadata>();
+            if (replacedItem) itemsToRemove.set(replacedItem.id, replacedItem);
+            for (const staleItem of staleSamePromptItems) itemsToRemove.set(staleItem.id, staleItem);
+
+            if (!itemsToRemove.size) {
+                if (item.replacesId) updateItem(item.id, { replacesId: undefined });
+                continue;
+            }
+
+            const newVideoHasPlayback =
+                Boolean(item.storedUrl || item.providerUrl) || hasLocalCopy(item.id) || hasSource(item.id);
+            if (!newVideoHasPlayback) continue;
+
+            replacementCleanupIdsRef.current.add(item.id);
+            void (async () => {
+                try {
+                    if (!item.storedUrl) retryArchive(item.id);
+                    const protectedKeys = await protectedArchiveKeysForVideo(item.id);
+                    for (const oldItem of itemsToRemove.values()) {
+                        await deleteCloudCopyForItem(oldItem, protectedKeys).catch((err) => {
+                            console.warn(`Could not delete replaced cloud copy for ${oldItem.id}:`, err);
+                        });
+                        await db.videos.where('id').equals(oldItem.id).delete();
+                        removeSource(oldItem.id);
+                        removeItem(oldItem.id);
+                    }
+                    updateItem(item.id, { replacesId: undefined });
+                    if (Array.from(itemsToRemove.keys()).includes(currentJobId ?? '')) setCurrentJobId(item.id);
+                    await syncNow();
+                } finally {
+                    replacementCleanupIdsRef.current.delete(item.id);
+                }
+            })();
+        }
+    }, [
+        currentJobId,
+        deleteCloudCopyForItem,
+        hasLocalCopy,
+        hasSource,
+        history,
+        isInitialLoad,
+        removeItem,
+        removeSource,
+        protectedArchiveKeysForVideo,
+        retryArchive,
+        syncNow,
+        updateItem
+    ]);
 
     usePosterBackfill({
         history,
@@ -1018,10 +1145,7 @@ export default function HomePage() {
         if (isInitialLoad || !apiKey) return;
 
         const processingItems = history.filter(
-            (item) =>
-                item.status === 'processing' &&
-                !resumedIdsRef.current.has(item.id) &&
-                !activeJobs.has(item.id)
+            (item) => item.status === 'processing' && !resumedIdsRef.current.has(item.id) && !activeJobs.has(item.id)
         );
         if (processingItems.length === 0) return;
 
@@ -1045,7 +1169,10 @@ export default function HomePage() {
         );
     }, [isInitialLoad, apiKey, history, activeJobs, restoreJobs]);
 
-    const handleCreateVideo = async (formData: CreationFormData): Promise<string | null> => {
+    const handleCreateVideo = async (
+        formData: CreationFormData,
+        options: { replacesItem?: VideoMetadata } = {}
+    ): Promise<string | null> => {
         setError(null);
         setShareNotice(null);
         setIsSubmitting(true);
@@ -1226,6 +1353,9 @@ export default function HomePage() {
                 size: displaySize,
                 seconds: String(formData.seconds)
             };
+            if (options.replacesItem) {
+                regenerateReplacementRef.current.set(job.id, options.replacesItem);
+            }
             const createParams =
                 typeof job.seed === 'number' && formData.seed === undefined
                     ? { ...formData, seed: job.seed }
@@ -1234,7 +1364,7 @@ export default function HomePage() {
             replaceJob(tempId, job);
             setCurrentJobId(job.id);
 
-            addItem({
+            const historyItem: VideoMetadata = {
                 id: job.id,
                 timestamp: Date.now(),
                 filename: `${job.id}.mp4`,
@@ -1256,9 +1386,21 @@ export default function HomePage() {
                 }),
                 draft: formData.draft || undefined,
                 finalResolution: formData.draft ? formData.final_resolution : undefined,
+                replacesId: options.replacesItem?.id,
                 status: 'processing',
                 progress: 0
-            });
+            };
+            if (options.replacesItem) {
+                replaceItem(options.replacesItem.id, historyItem);
+            } else {
+                addItem(historyItem);
+            }
+
+            if (job.status === 'completed') {
+                queueMicrotask(() => jobCallbacks.onCompleted(job));
+            } else if (job.status === 'failed') {
+                queueMicrotask(() => jobCallbacks.onFailed(job));
+            }
             return job.id;
         } catch (err: unknown) {
             console.error('Error creating video:', err);
@@ -1423,10 +1565,7 @@ export default function HomePage() {
     /** 重新生成 — resubmit an item with its exact parameters. */
     const handleRegenerateItem = (item: VideoMetadata) => {
         void (async () => {
-            const newId = await handleCreateVideo(buildParamsFromItem(item));
-
-            if (!newId) return;
-            regenerateReplacementRef.current.set(newId, item.id);
+            await handleCreateVideo(buildParamsFromItem(item), { replacesItem: item });
         })();
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
@@ -1434,10 +1573,7 @@ export default function HomePage() {
     /** Finalize — rerun a draft at its selected final resolution with the same seed. */
     const handleFinalizeItem = (item: VideoMetadata) => {
         const params = buildParamsFromItem(item);
-        const finalResolution = finalResolutionForDraft(
-            params.model,
-            item.finalResolution ?? params.final_resolution
-        );
+        const finalResolution = finalResolutionForDraft(params.model, item.finalResolution ?? params.final_resolution);
         const finalParams: CreationFormData = {
             ...params,
             draft: false,
@@ -1620,7 +1756,7 @@ export default function HomePage() {
 
             markPreviewResolving(item.id, true);
             try {
-                const fresh = await videoService.retrieveVideo(item.id);
+                const fresh = await videoService.retrieveVideo(item.id, { force: true });
                 if (fresh.output_url) {
                     setRemoteSource(item.id, fresh.output_url);
                     updateItem(item.id, { providerUrl: fresh.output_url });
@@ -1723,21 +1859,141 @@ export default function HomePage() {
                 markPreviewResolving(item.id, false);
             }
         })();
-    }, [
-        currentJobId,
-        history,
-        markPreviewResolving,
-        markPreviewUnresolved,
-        resolvePlaybackSource,
-        retryArchive
-    ]);
+    }, [currentJobId, history, markPreviewResolving, markPreviewUnresolved, resolvePlaybackSource, retryArchive]);
+
+    const markManualArchive = React.useCallback((id: string, pending: boolean) => {
+        setManualArchiveIds((prev) => {
+            if (prev.has(id) === pending) return prev;
+            const next = new Set(prev);
+            if (pending) next.add(id);
+            else next.delete(id);
+            return next;
+        });
+    }, []);
+
+    const handleRetryArchive = React.useCallback(
+        async (id: string) => {
+            console.log('handleRetryArchive:', id, manualArchiveIds);
+            if (manualArchiveIds.has(id)) return;
+
+            const item = history.find((candidate) => candidate.id === id);
+            if (!item || item.storedUrl) return;
+
+            markManualArchive(id, true);
+            markPreviewUnresolved(id, false);
+            markPreviewResolving(id, true);
+            setError(null);
+
+            try {
+                const key = await resolveKey();
+                if (!key) {
+                    setIsApiKeyDialogOpen(true);
+                    setError('Sign in or enter your Xcity API key before archiving.', 'output');
+                    return;
+                }
+
+                let archived = await fetchArchivedVideo(id, key);
+                if (!archived) {
+                    const localRecord = await db.videos.get(id);
+                    if (localRecord?.blob) {
+                        archived = await archiveLocalVideo(id, localRecord.blob, key, localRecord.filename);
+                    }
+                }
+
+                if (!archived) {
+                    let sourceUrl =
+                        item.providerUrl && !providerLinkLikelyDead(item, Date.now()) ? item.providerUrl : undefined;
+
+                    if (!sourceUrl) {
+                        try {
+                            sourceUrl = (await videoService.retrieveVideo(id, { force: true })).output_url;
+                        } catch (err) {
+                            console.warn(`Could not re-read output_url for ${id}:`, err);
+                        }
+                    }
+
+                    if (sourceUrl) {
+                        setRemoteSource(id, sourceUrl);
+                        updateItem(id, { providerUrl: sourceUrl, mediaExpired: false });
+                        try {
+                            archived = await archiveVideo(id, sourceUrl, key);
+                        } catch (err) {
+                            if (!(err instanceof ArchiveSourceFetchError)) throw err;
+
+                            const freshSourceUrl = (
+                                await videoService.retrieveVideo(id, { force: true }).catch((readErr) => {
+                                    console.warn(`Could not refresh output_url for ${id}:`, readErr);
+                                    return null;
+                                })
+                            )?.output_url;
+
+                            if (!freshSourceUrl || freshSourceUrl === sourceUrl) throw err;
+
+                            setRemoteSource(id, freshSourceUrl);
+                            updateItem(id, { providerUrl: freshSourceUrl, mediaExpired: false });
+                            archived = await archiveVideo(id, freshSourceUrl, key);
+                        }
+                    }
+                }
+
+                if (archived?.url) {
+                    setRemoteSource(id, archived.url);
+                    markPreviewUnresolved(id, false);
+                    updateItem(id, {
+                        storedUrl: archived.url,
+                        storageModeUsed: 'r2',
+                        status: 'completed',
+                        progress: 100,
+                        mediaExpired: false
+                    });
+                    await syncNow();
+                    return;
+                }
+
+                retryArchive(id);
+                if (!hasLocalCopy(id) && providerLinkLikelyDead(item, Date.now())) {
+                    updateItem(id, { mediaExpired: true });
+                    setError(
+                        'Archive failed because this video has no local cache and the provider playback link has expired. Regenerate it to create a new video id.',
+                        'output'
+                    );
+                    return;
+                }
+
+                setError('Archive did not complete. The background archiver will retry automatically.', 'output');
+            } catch (err) {
+                console.error(`Manual archive failed for ${id}:`, err);
+                retryArchive(id);
+                setError(err instanceof Error ? err.message : 'Archive failed', 'output');
+            } finally {
+                markPreviewResolving(id, false);
+                markManualArchive(id, false);
+            }
+        },
+        [
+            hasLocalCopy,
+            history,
+            manualArchiveIds,
+            markManualArchive,
+            markPreviewResolving,
+            markPreviewUnresolved,
+            resolveKey,
+            retryArchive,
+            setError,
+            setRemoteSource,
+            syncNow,
+            updateItem,
+            videoService
+        ]
+    );
 
     const handleClearHistory = async () => {
         const confirmed = window.confirm(
-            'Clear the entire video history? This deletes the videos stored in your browser. Archived cloud copies and your Xcity billing history are not affected. This cannot be undone.'
+            'Clear the entire video history? This deletes videos from this browser and attempts to remove archived cloud copies. Your Xcity billing history is not affected. This cannot be undone.'
         );
         if (!confirmed) return;
 
+        const itemsToDelete = [...history];
         clearAll();
         clearJobs();
         setCurrentJobId(null);
@@ -1746,6 +2002,8 @@ export default function HomePage() {
         try {
             await db.videos.clear();
             clearAllSources();
+            await Promise.allSettled(itemsToDelete.map((item) => deleteCloudCopyForItem(item)));
+            await syncNow();
         } catch (e) {
             console.error('Failed during history clearing:', e);
             setError(`Failed to clear history: ${e instanceof Error ? e.message : String(e)}`);
@@ -1757,6 +2015,9 @@ export default function HomePage() {
         setError(null);
 
         try {
+            await deleteCloudCopyForItem(item).catch((err) => {
+                console.warn(`Could not delete archived cloud copy for ${item.id}:`, err);
+            });
             await db.videos.where('id').equals(item.id).delete();
             removeSource(item.id);
             removeItem(item.id);
@@ -1764,6 +2025,7 @@ export default function HomePage() {
             if (currentJobId === item.id) {
                 setCurrentJobId(null);
             }
+            await syncNow();
         } catch (err) {
             console.error('Error deleting video:', err);
             setError(err instanceof Error ? err.message : 'Failed to delete video', 'output');
@@ -1794,6 +2056,7 @@ export default function HomePage() {
 
     const handleSaveApiKey = async (rawKey: string) => {
         await saveManualKey(rawKey);
+        await syncCloudNow();
         setError(null);
     };
 
@@ -1966,7 +2229,8 @@ export default function HomePage() {
                     getVideoSrc={getVideoSrc}
                     getThumbnailSrc={getThumbnailSrc}
                     hasLocalCopy={hasLocalCopy}
-                    onRetryArchive={retryArchive}
+                    onRetryArchive={handleRetryArchive}
+                    archivePendingIds={manualArchiveIds}
                     onDeleteItem={handleDeleteVideo}
                     onReuseItem={handleReuseItem}
                     onRegenerateItem={handleRegenerateItem}
@@ -2042,11 +2306,7 @@ export default function HomePage() {
                                     variant='secondary'
                                     onClick={handleCopyShareUrl}
                                     className='bg-white/10 text-white hover:bg-white/20'>
-                                    {shareUrlCopied ? (
-                                        <Check className='h-4 w-4' />
-                                    ) : (
-                                        <Copy className='h-4 w-4' />
-                                    )}
+                                    {shareUrlCopied ? <Check className='h-4 w-4' /> : <Copy className='h-4 w-4' />}
                                     {shareUrlCopied ? 'Copied' : 'Copy'}
                                 </Button>
                                 <Button asChild className='bg-white text-black hover:bg-white/90'>

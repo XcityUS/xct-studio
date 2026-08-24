@@ -21,6 +21,10 @@ const PORTRAITS_KEY = 'soraVideoPortraits';
 const DELETED_IDS_KEY = 'soraVideoDeletedIds';
 const SYNC_DEBOUNCE_MS = 3000;
 
+function docFingerprint(doc: HistoryDoc): string {
+    return JSON.stringify([doc.history, doc.characters, doc.portraits, doc.deletedIds]);
+}
+
 export type { VideoCharacter, VideoPortrait } from '@/lib/history-merge';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -185,6 +189,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
     const skipNextCloudPushRef = React.useRef(false);
     const pushTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const pushQueueRef = React.useRef<Promise<void>>(Promise.resolve());
+    const lastSyncedFingerprintRef = React.useRef<string | null>(null);
 
     historyRef.current = history;
     charactersRef.current = characters;
@@ -339,6 +344,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
                         apiKey,
                         nextEtag
                     );
+                    lastSyncedFingerprintRef.current = docFingerprint(nextDoc);
                     return;
                 } catch (err) {
                     if (!(err instanceof StateConflictError)) throw err;
@@ -379,6 +385,49 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
         [pushDocOrMergeNow]
     );
 
+    const syncCloudNow = React.useCallback(async () => {
+        try {
+            if (!(await mediaArchiveEnabled())) {
+                markCloudReady();
+                return;
+            }
+
+            const key = await resolveKeyRef.current?.();
+            if (!key) {
+                markCloudReady();
+                return;
+            }
+
+            const cloud = await fetchCloudState(key);
+            const mine = localDoc();
+            if (!cloud) {
+                await pushDocOrMerge(key, mine);
+                markCloudReady();
+                return;
+            }
+
+            etagRef.current = cloud.etag;
+            const cloudDoc = parseHistoryDoc(cloud.doc);
+            if (!cloudDoc) {
+                console.warn('[history-sync] Ignoring invalid cloud history document.');
+                markCloudReady();
+                return;
+            }
+
+            // Union both sides rather than picking a winner: a device that
+            // was offline still holds videos the cloud has never seen.
+            const merged = mergeDocs(mine, cloudDoc);
+            applyCloudDoc(merged);
+            if (!sameDocContent(merged, cloudDoc)) {
+                await pushDocOrMerge(key, merged);
+            }
+            markCloudReady();
+        } catch (err) {
+            console.warn('[history-sync] Could not reconcile cloud history:', err);
+            markCloudReady();
+        }
+    }, [applyCloudDoc, localDoc, markCloudReady, pushDocOrMerge]);
+
     // One-shot boot reconciliation. Local state is usable immediately; cloud
     // sync quietly skips itself when there is no key or no media worker.
     React.useEffect(() => {
@@ -387,54 +436,14 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
 
         let cancelled = false;
         void (async () => {
-            try {
-                if (!(await mediaArchiveEnabled())) {
-                    markCloudReady();
-                    return;
-                }
-
-                const key = await resolveKeyRef.current?.();
-                if (!key || cancelled) {
-                    markCloudReady();
-                    return;
-                }
-
-                const cloud = await fetchCloudState(key);
-                if (cancelled) return;
-
-                const mine = localDoc();
-                if (!cloud) {
-                    await pushDocOrMerge(key, mine);
-                    markCloudReady();
-                    return;
-                }
-
-                etagRef.current = cloud.etag;
-                const cloudDoc = parseHistoryDoc(cloud.doc);
-                if (!cloudDoc) {
-                    console.warn('[history-sync] Ignoring invalid cloud history document.');
-                    markCloudReady();
-                    return;
-                }
-
-                // Union both sides rather than picking a winner: a device that
-                // was offline still holds videos the cloud has never seen.
-                const merged = mergeDocs(mine, cloudDoc);
-                applyCloudDoc(merged);
-                if (!sameDocContent(merged, cloudDoc)) {
-                    await pushDocOrMerge(key, merged);
-                }
-                markCloudReady();
-            } catch (err) {
-                console.warn('[history-sync] Could not reconcile cloud history:', err);
-                markCloudReady();
-            }
+            if (cancelled) return;
+            await syncCloudNow();
         })();
 
         return () => {
             cancelled = true;
         };
-    }, [applyCloudDoc, isInitialLoad, localDoc, markCloudReady, pushDocOrMerge, resolveKey]);
+    }, [isInitialLoad, resolveKey, syncCloudNow]);
 
     // Debounced cloud push after user/local mutations. The first loaded state
     // and server-applied states are handled by boot reconciliation, not here.
@@ -463,7 +472,9 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
                     const key = await resolveKeyRef.current?.();
                     if (!key) return;
 
-                    await pushDocOrMerge(key, localDoc());
+                    const doc = localDoc();
+                    if (docFingerprint(doc) === lastSyncedFingerprintRef.current) return;
+                    await pushDocOrMerge(key, doc);
                 } catch (err) {
                     console.warn('[history-sync] Could not save cloud history:', err);
                 }
@@ -479,15 +490,13 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
     }, [characters, cloudReadyVersion, history, isInitialLoad, localDoc, portraits, pushDocOrMerge, resolveKey]);
 
     const mutateDoc = React.useCallback(
-        (update: (prev: {
-            history: VideoMetadata[];
-            characters: VideoCharacter[];
-            portraits: VideoPortrait[];
-        }) => {
-            history: VideoMetadata[];
-            characters: VideoCharacter[];
-            portraits: VideoPortrait[];
-        }) => {
+        (
+            update: (prev: { history: VideoMetadata[]; characters: VideoCharacter[]; portraits: VideoPortrait[] }) => {
+                history: VideoMetadata[];
+                characters: VideoCharacter[];
+                portraits: VideoPortrait[];
+            }
+        ) => {
             const next = update({
                 history: historyRef.current,
                 characters: charactersRef.current,
@@ -526,9 +535,26 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
         [mutateHistory]
     );
 
-    const updateItem = React.useCallback((id: string, patch: Partial<VideoMetadata>) => {
-        mutateHistory((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
-    }, [mutateHistory]);
+    const replaceItem = React.useCallback(
+        (oldId: string, item: VideoMetadata) => {
+            tombstone([oldId]);
+            // Re-adding an id the user once deleted must clear its tombstone,
+            // or the next merge would delete it again.
+            deletedIdsRef.current = deletedIdsRef.current.filter((id) => id !== item.id);
+            mutateHistory((prev) => [
+                item,
+                ...prev.filter((existing) => existing.id !== oldId && existing.id !== item.id)
+            ]);
+        },
+        [mutateHistory, tombstone]
+    );
+
+    const updateItem = React.useCallback(
+        (id: string, patch: Partial<VideoMetadata>) => {
+            mutateHistory((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+        },
+        [mutateHistory]
+    );
 
     const removeItem = React.useCallback(
         (id: string) => {
@@ -542,6 +568,21 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
         tombstone(historyRef.current.map((item) => item.id));
         mutateHistory(() => []);
     }, [mutateHistory, tombstone]);
+
+    const syncNow = React.useCallback(async () => {
+        if (pushTimerRef.current) {
+            clearTimeout(pushTimerRef.current);
+            pushTimerRef.current = null;
+        }
+        if (!(await mediaArchiveEnabled())) return;
+
+        const key = await resolveKeyRef.current?.();
+        if (!key) return;
+
+        const doc = localDoc();
+        if (docFingerprint(doc) === lastSyncedFingerprintRef.current) return;
+        await pushDocOrMerge(key, doc);
+    }, [localDoc, pushDocOrMerge]);
 
     const addCharacter = React.useCallback(
         (character: VideoCharacter) => {
@@ -609,9 +650,12 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
         portraits,
         isInitialLoad,
         addItem,
+        replaceItem,
         updateItem,
         removeItem,
         clearAll,
+        syncNow,
+        syncCloudNow,
         addCharacter,
         removeCharacter,
         addPortrait,

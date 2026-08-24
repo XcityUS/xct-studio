@@ -75,6 +75,7 @@ export async function portraitEnabled(): Promise<boolean> {
 
 export interface ArchivedMedia {
     url: string;
+    key?: string;
     bytes: number | null;
     cached: boolean;
 }
@@ -314,9 +315,9 @@ export async function archiveVideo(videoId: string, sourceUrl: string, apiKey: s
             }
             return null;
         }
-        const data = (await res.json()) as { url?: string; bytes?: number | null; cached?: boolean };
+        const data = (await res.json()) as { url?: string; key?: string; bytes?: number | null; cached?: boolean };
         if (!data.url) return null;
-        return { url: data.url, bytes: data.bytes ?? null, cached: !!data.cached };
+        return { url: data.url, key: data.key, bytes: data.bytes ?? null, cached: !!data.cached };
     } catch (err) {
         if (err instanceof ArchiveSourceFetchError) throw err;
         console.warn(`[media-archive] ${videoId} errored:`, err);
@@ -340,9 +341,9 @@ export async function lookupArchivedVideo(videoId: string, apiKey: string): Prom
             console.warn(`[media-archive] ${videoId} lookup failed: ${res.status} ${detail.slice(0, 300)}`);
             return { status: 'unavailable' };
         }
-        const data = (await res.json()) as { url?: string; bytes?: number | null; cached?: boolean };
+        const data = (await res.json()) as { url?: string; key?: string; bytes?: number | null; cached?: boolean };
         if (!data.url) return { status: 'unavailable' };
-        return { status: 'found', media: { url: data.url, bytes: data.bytes ?? null, cached: !!data.cached } };
+        return { status: 'found', media: { url: data.url, key: data.key, bytes: data.bytes ?? null, cached: !!data.cached } };
     } catch (err) {
         console.warn(`[media-archive] ${videoId} lookup errored:`, err);
         return { status: 'unavailable' };
@@ -400,9 +401,9 @@ export async function archiveLocalVideo(
             console.warn(`[media-archive] ${videoId} local upload failed: ${res.status} ${detail.slice(0, 300)}`);
             return null;
         }
-        const data = (await res.json()) as { url?: string; bytes?: number | null; cached?: boolean };
+        const data = (await res.json()) as { url?: string; key?: string; bytes?: number | null; cached?: boolean };
         if (!data.url) return null;
-        return { url: data.url, bytes: data.bytes ?? blob.size, cached: !!data.cached };
+        return { url: data.url, key: data.key, bytes: data.bytes ?? blob.size, cached: !!data.cached };
     } catch (err) {
         console.warn(`[media-archive] ${videoId} local upload errored:`, err);
         return null;
@@ -451,6 +452,18 @@ export async function deleteUserAsset(key: string, apiKey: string): Promise<void
             .then((d: { error?: string }) => d.error)
             .catch(() => undefined);
         throw new Error(detail || `Delete failed (${res.status}).`);
+    }
+}
+
+/** Extracts the R2 object key from a worker media URL (`/media/<key>`). */
+export function mediaKeyFromUrl(url: string): string | null {
+    try {
+        const parsed = new URL(url);
+        if (!parsed.pathname.startsWith('/media/')) return null;
+        const key = decodeURIComponent(parsed.pathname.slice('/media/'.length));
+        return key || null;
+    } catch {
+        return null;
     }
 }
 
