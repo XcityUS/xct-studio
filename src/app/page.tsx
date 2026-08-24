@@ -976,7 +976,7 @@ export default function HomePage() {
         );
     }, [isInitialLoad, apiKey, history, activeJobs, restoreJobs]);
 
-    const handleCreateVideo = async (formData: CreationFormData) => {
+    const handleCreateVideo = async (formData: CreationFormData): Promise<string | null> => {
         setError(null);
         setShareNotice(null);
         setIsSubmitting(true);
@@ -987,7 +987,7 @@ export default function HomePage() {
         if (!activeKey) {
             setError('Could not read your Xcity API key. Sign in at xcity.ai and retry.');
             setIsSubmitting(false);
-            return;
+            return null;
         }
 
         // The provider downloads every reference image server-side; a stale
@@ -1062,7 +1062,7 @@ export default function HomePage() {
                             `Reference image ${i + 1} is no longer accessible — it may have been deleted from Assets. Remove it from the list and upload it again.`
                         );
                         setIsSubmitting(false);
-                        return;
+                        return null;
                     }
                     // External host without CORS: pass the URL through and let
                     // the provider try fetching it directly.
@@ -1092,7 +1092,7 @@ export default function HomePage() {
                         'Background audio is no longer accessible — it may have been deleted from Assets. Remove it and upload it again.'
                     );
                     setIsSubmitting(false);
-                    return;
+                    return null;
                 }
             } else {
                 totalChars += dataUri.length;
@@ -1111,7 +1111,7 @@ export default function HomePage() {
                             `Reference video ${i + 1} is no longer accessible — it may have been deleted from Assets. Remove it from the list and upload it again.`
                         );
                         setIsSubmitting(false);
-                        return;
+                        return null;
                     }
                     // External host without CORS: pass the URL through and let
                     // the provider try fetching it directly.
@@ -1126,7 +1126,7 @@ export default function HomePage() {
         if (totalChars > 30_000_000) {
             setError('Reference media are too large to submit (over ~20 MB combined). Use fewer or smaller files.');
             setIsSubmitting(false);
-            return;
+            return null;
         }
 
         // Optimistic placeholder so the output panel reacts immediately.
@@ -1190,6 +1190,7 @@ export default function HomePage() {
                 status: 'processing',
                 progress: 0
             });
+            return job.id;
         } catch (err: unknown) {
             console.error('Error creating video:', err);
             if (err instanceof InvalidApiKeyError) {
@@ -1210,6 +1211,7 @@ export default function HomePage() {
             }
             removeJob(tempId);
             setCurrentJobId(null);
+            return null;
         } finally {
             setIsSubmitting(false);
         }
@@ -1351,7 +1353,21 @@ export default function HomePage() {
 
     /** 重新生成 — resubmit an item with its exact parameters. */
     const handleRegenerateItem = (item: VideoMetadata) => {
-        void handleCreateVideo(buildParamsFromItem(item));
+        void (async () => {
+            const shouldReplaceOld =
+                item.status === 'completed' &&
+                !item.storedUrl &&
+                !hasLocalCopy(item.id) &&
+                (item.mediaExpired || providerLinkLikelyDead(item, Date.now()));
+            const newId = await handleCreateVideo(buildParamsFromItem(item));
+
+            if (!newId || !shouldReplaceOld) return;
+
+            await db.videos.where('id').equals(item.id).delete();
+            removeSource(item.id);
+            removeItem(item.id);
+            removeJob(item.id);
+        })();
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
