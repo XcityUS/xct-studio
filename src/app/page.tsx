@@ -35,6 +35,7 @@ import type { GalleryItem } from '@/lib/gallery';
 import { reconcilePreset } from '@/lib/gallery-preset';
 import { IMAGE_GENERATION_ENABLED, generateImages, type GeneratedImage, type ImageSizeId } from '@/lib/image-service';
 import {
+    archiveVideo,
     audioUrlToDataUri,
     createShare,
     deleteUserAsset,
@@ -725,7 +726,7 @@ export default function HomePage() {
         [markPreviewResolving, markPreviewUnresolved, resolveKey, setRemoteSource, updateItem]
     );
 
-    /** Downloads a finished video into IndexedDB and finalizes its history entry. */
+    /** Finalizes a finished video, archives it to R2, then caches locally best-effort. */
     const downloadAndStoreVideo = React.useCallback(
         async (job: VideoJob) => {
             console.log(`Downloading video for job: ${job.id}`);
@@ -759,9 +760,9 @@ export default function HomePage() {
                 }
             }
 
-            // Register the CDN link first so the video is watchable even if
-            // the download below fails. Archiving to R2 is handled separately
-            // by the reconciliation hook once history shows the completion.
+            // Register the CDN link first as a short-lived playback fallback.
+            // The durable path is Worker -> R2; IndexedDB caching below is
+            // best-effort and must not decide whether the job is completed.
             if (sourceUrl) {
                 setRemoteSource(job.id, sourceUrl);
                 updateItem(job.id, { providerUrl: sourceUrl });
@@ -777,52 +778,75 @@ export default function HomePage() {
                 return;
             }
 
+            let playbackUrl = sourceUrl;
+            let archivedToR2 = false;
             try {
-                const blob = await videoService.downloadContent(job.id, sourceUrl);
-                // The gateway serves only the raw MP4 — capture a poster frame
-                // client-side for the history thumbnails.
-                const thumbnailBlob = await captureVideoPoster(blob);
+                const key = await resolveKey();
+                if (key) {
+                    const archived = await archiveVideo(job.id, sourceUrl, key);
+                    if (archived?.url) {
+                        playbackUrl = archived.url;
+                        archivedToR2 = true;
+                        setRemoteSource(job.id, archived.url);
+                        markPreviewUnresolved(job.id, false);
+                        markPreviewResolving(job.id, false);
+                        updateItem(job.id, {
+                            durationMs: Date.now() - job.created_at * 1000,
+                            providerUrl: sourceUrl,
+                            storedUrl: archived.url,
+                            storageModeUsed: 'r2',
+                            status: 'completed',
+                            mediaExpired: false
+                        });
+                    }
+                }
+            } catch (err) {
+                console.warn(`Could not archive video ${job.id} to R2; using provider playback for now.`, err);
+            }
 
-                await db.videos.put({
-                    id: job.id,
-                    filename: `${job.id}.mp4`,
-                    blob,
-                    thumbnail: thumbnailBlob,
-                    created_at: job.created_at
-                });
-
+            if (!archivedToR2) {
                 updateItem(job.id, {
                     durationMs: Date.now() - job.created_at * 1000,
-                    storageModeUsed: 'indexeddb',
-                    status: 'completed'
+                    providerUrl: sourceUrl,
+                    status: 'completed',
+                    mediaExpired: false
                 });
-                console.log(`Video ${job.id} completed and stored`);
-            } catch (err) {
-                markPreviewResolving(job.id, false);
-                if (err instanceof InvalidApiKeyError) {
-                    handleInvalidApiKey();
-                    return;
-                }
-                if (sourceUrl) {
-                    // Playable from the CDN link — local storage is
-                    // best-effort, so mark it done rather than failing it.
-                    console.warn(`Could not cache video ${job.id}; using the remote playback URL instead.`, err);
-                    updateItem(job.id, {
-                        durationMs: Date.now() - job.created_at * 1000,
-                        status: 'completed'
-                    });
-                } else {
-                    console.error(`Error storing video ${job.id}:`, err);
-                    markPreviewUnresolved(job.id, true);
-                    setError(
-                        `The gateway reported the video as completed but never exposed its download link (job ${job.id}). ` +
-                            'Select it from History in a moment to retry, or check the TokenHub logs.',
-                        'output'
-                    );
-                }
             }
+
+            void (async () => {
+                try {
+                    const blob = await videoService.downloadContent(job.id, playbackUrl);
+                    // The gateway serves only the raw MP4 — capture a poster frame
+                    // client-side for the history thumbnails.
+                    const thumbnailBlob = await captureVideoPoster(blob);
+
+                    await db.videos.put({
+                        id: job.id,
+                        filename: `${job.id}.mp4`,
+                        blob,
+                        thumbnail: thumbnailBlob,
+                        created_at: job.created_at
+                    });
+
+                    if (!archivedToR2) {
+                        updateItem(job.id, {
+                            durationMs: Date.now() - job.created_at * 1000,
+                            storageModeUsed: 'indexeddb',
+                            status: 'completed'
+                        });
+                    }
+                    console.log(`Video ${job.id} cached locally`);
+                } catch (err) {
+                    if (err instanceof InvalidApiKeyError) {
+                        handleInvalidApiKey();
+                        return;
+                    }
+                    console.warn(`Could not cache video ${job.id} locally; playback will use the remote source.`, err);
+                }
+            })();
         },
         [
+            resolveKey,
             videoService,
             setRemoteSource,
             updateItem,
