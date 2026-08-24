@@ -20,16 +20,22 @@ type RuntimeConfig = {
     mediaWorkerUrl: string;
     transcribeModel: string;
     ttsModel: string;
+    imageModels: string[];
     portraitEnabled: boolean;
 };
 
 let runtimeConfigPromise: Promise<RuntimeConfig> | null = null;
 
-function normalizeRuntimeConfig(cfg: Partial<RuntimeConfig>): RuntimeConfig {
+function normalizeRuntimeConfig(cfg: Partial<RuntimeConfig> & { imageModels?: unknown }): RuntimeConfig {
     return {
         mediaWorkerUrl: (cfg.mediaWorkerUrl || '').trim().replace(/\/+$/, ''),
         transcribeModel: (cfg.transcribeModel || '').trim(),
         ttsModel: (cfg.ttsModel || '').trim(),
+        imageModels: Array.isArray(cfg.imageModels)
+            ? cfg.imageModels
+                  .map((model) => (typeof model === 'string' ? model.trim() : ''))
+                  .filter(Boolean)
+            : [],
         portraitEnabled: Boolean(cfg.portraitEnabled)
     };
 }
@@ -66,6 +72,11 @@ export async function transcribeModel(): Promise<string> {
 /** Gateway TTS model configured at runtime ('' when disabled). */
 export async function ttsModel(): Promise<string> {
     return loadRuntimeConfig().then((cfg) => cfg.ttsModel);
+}
+
+/** Gateway image models configured at runtime ([] when disabled). */
+export async function imageModels(): Promise<string[]> {
+    return loadRuntimeConfig().then((cfg) => cfg.imageModels);
 }
 
 /** Whether the BytePlus private real-human asset library is configured. */

@@ -1,13 +1,14 @@
 import { createFrontendOpenAI } from './openai-client';
 import { InvalidApiKeyError } from './errors';
+import { imageModels as loadRuntimeImageModelIds } from './media-archive';
 
 /**
  * Text-to-image via the TokenHub gateway's OpenAI-style /v1/images API
  * (Seedream models on BytePlus), billed to the same user key as video.
  *
- * The whole image tab is gated on NEXT_PUBLIC_IMAGE_MODELS: a comma-separated
- * list of model ids the gateway actually exposes. Unset = the tab is hidden —
- * deployments enable it only once the gateway side is configured.
+ * The image tab is gated on IMAGE_MODELS from /api/config. That keeps gateway
+ * enablement runtime-only, so Railway-style service env changes do not depend
+ * on a rebuild.
  */
 
 export interface ImageModel {
@@ -25,13 +26,9 @@ function prettifyModelId(id: string): string {
         .replace(/(\d) (\d)/g, '$1.$2'); // "4 0" → "4.0"
 }
 
-export const IMAGE_MODELS: ImageModel[] = (process.env.NEXT_PUBLIC_IMAGE_MODELS || '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((id) => ({ id, label: prettifyModelId(id) }));
-
-export const IMAGE_GENERATION_ENABLED = IMAGE_MODELS.length > 0;
+export async function loadImageModels(): Promise<ImageModel[]> {
+    return (await loadRuntimeImageModelIds()).map((id) => ({ id, label: prettifyModelId(id) }));
+}
 
 export const IMAGE_SIZES = [
     { id: '1024x1024', label: '1:1 · 1024×1024' },
@@ -73,7 +70,7 @@ export async function generateImages(
             }
             if (status === 404) {
                 throw new Error(
-                    `Image model "${params.model}" is not available on the gateway. Check NEXT_PUBLIC_IMAGE_MODELS.`
+                    `Image model "${params.model}" is not available on the gateway. Check IMAGE_MODELS.`
                 );
             }
         }

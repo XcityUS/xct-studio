@@ -26,7 +26,9 @@ LITELLM_BASE_URL = "https://tokenhub.xcity.one"
 # Comma-separated exact origins allowed to call /archive from a browser.
 ALLOWED_ORIGINS = "https://studio.xcity.ai,https://chat.xcity.ai,https://xcity.ai"
 STUDIO_URL = "https://studio.xcity.ai"
-ADMIN_USER_IDS = ""
+# Reviewers for the community plaza and the authorization queue. Empty means
+# nobody is an admin — both queues then exist but are invisible to everyone.
+ADMIN_USER_IDS = "17fa3676-2ab4-489e-993b-c4092e911063"
 # Refuse to copy anything larger than this (bytes). A 30s 4K Seedance 2.5
 # clip can pass 150 MB, so the guard sits at 500 MB — still a runaway guard,
 # not a product limit.

@@ -27,13 +27,29 @@ import { useVideoHistory } from '@/hooks/use-video-history';
 import { useVideoJobs } from '@/hooks/use-video-jobs';
 import { useVideoSources } from '@/hooks/use-video-sources';
 import { useXcityKey } from '@/hooks/use-xcity-key';
+import {
+    createAuthorization,
+    fetchAuthorizationDoc,
+    fetchAuthorizationQueue,
+    listAuthorizations,
+    reviewAuthorization,
+    uploadAuthorizationDoc,
+    type AuthorizationItem,
+    type AuthorizationReviewAction
+} from '@/lib/authorization';
 import { transcribeVideo, type CaptionSegment } from '@/lib/captions';
 import { calculateVideoCost } from '@/lib/cost-utils';
 import { db, type ImageRecord } from '@/lib/db';
 import { InvalidApiKeyError, RealPersonImageError } from '@/lib/errors';
 import type { GalleryItem } from '@/lib/gallery';
 import { reconcilePreset } from '@/lib/gallery-preset';
-import { IMAGE_GENERATION_ENABLED, generateImages, type GeneratedImage, type ImageSizeId } from '@/lib/image-service';
+import {
+    generateImages,
+    loadImageModels,
+    type GeneratedImage,
+    type ImageModel,
+    type ImageSizeId
+} from '@/lib/image-service';
 import {
     ArchiveSourceFetchError,
     archiveLocalVideo,
@@ -65,14 +81,27 @@ import {
 } from '@/lib/media-archive';
 import { providerLinkLikelyDead } from '@/lib/media-state';
 import {
+    createPortraitGroup,
     createPortraitAsset,
     createPortraitSession,
     fetchPortraitStatus,
     getPortraitAsset,
-    listPortraitGroups
+    listPortraitGroups,
+    type PortraitGroupQueryType
 } from '@/lib/portrait';
 import { estimateVideoProgress } from '@/lib/progress';
 import { optimizePrompt } from '@/lib/prompt-optimizer';
+import {
+    ASSET_LIBRARY_MODEL_BLOCK_REASON,
+    declarationBlockReason,
+    declarationSatisfied,
+    isAssetReferenceUrl,
+    originForGeneratedImage,
+    refKey,
+    referenceRequiresAssetLibrary,
+    type ReferenceDeclaration,
+    type ReferenceOrigin
+} from '@/lib/reference-origin';
 import { breakdownScript } from '@/lib/script-breakdown';
 import {
     DEFAULT_MODEL,
@@ -116,14 +145,10 @@ function voiceoverAssetName(text: string): string {
 
 const MAX_REFERENCE_VIDEOS = 2;
 type StudioTab = 'video' | 'image' | 'assets' | 'community';
+type AuthorizationTarget = { key: string; label: string; url: string; authorizationId?: string };
 
 /** Where a message belongs, so it lands next to the control that raised it. */
 type ErrorScope = 'create' | 'output';
-
-function isAssetReferenceUrl(url: string): boolean {
-    const value = url.trim();
-    return value.startsWith('asset://') && value.length > 'asset://'.length;
-}
 
 function isVideoResolution(value: string | undefined): value is VideoResolution {
     return Boolean(value && RESOLUTIONS.includes(value as VideoResolution));
@@ -224,6 +249,40 @@ function inputVideoSecondsFromParams(params: VideoJobCreate): number {
         .reduce((total, seconds) => (Number.isFinite(seconds) && seconds > 0 ? total + seconds : total), 0);
 }
 
+function portraitReferenceUrl(assetId: string): string {
+    return `asset://${assetId}`;
+}
+
+function imageReferenceUrlsFromParams(params: VideoJobCreate): string[] {
+    const refs = params.reference_image_urls ?? (params.input_reference_url ? [params.input_reference_url] : []);
+    const lastFrame = params.last_frame_url?.trim();
+    return [...refs, ...(lastFrame ? [lastFrame] : [])].map((url) => url.trim()).filter(Boolean);
+}
+
+function withPortraitDeclarations(
+    declarations: Record<string, ReferenceDeclaration>,
+    portraits: { assetId: string; groupId: string; groupType: 'LivenessFace' | 'AIGC' }[]
+): Record<string, ReferenceDeclaration> {
+    const next = { ...declarations };
+    for (const portrait of portraits) {
+        const assetId = portrait.assetId.trim();
+        const groupId = portrait.groupId.trim();
+        if (!assetId || !groupId) continue;
+
+        const key = refKey(portraitReferenceUrl(assetId));
+        if (!key) continue;
+        const existing = next[key];
+        next[key] = {
+            ...(existing ?? {}),
+            origin: portrait.groupType === 'AIGC' ? 'thirdparty-ai' : 'real-person',
+            declaredAt: existing?.declaredAt ?? 0,
+            assetId,
+            groupId
+        };
+    }
+    return next;
+}
+
 export default function HomePage() {
     // Errors are shown next to whatever raised them: 'create' renders under
     // the Create Video button, 'output' under the output panel's action row.
@@ -267,6 +326,12 @@ export default function HomePage() {
     const [currentJobId, setCurrentJobId] = React.useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = React.useState(false);
     const [activeTab, setActiveTab] = React.useState<StudioTab>('video');
+    const [approvedAuthorizationIds, setApprovedAuthorizationIds] = React.useState<ReadonlySet<string>>(
+        () => new Set()
+    );
+    const [selectedAuthorizationReferenceKey, setSelectedAuthorizationReferenceKey] = React.useState<string | null>(
+        null
+    );
     const [shareNotice, setShareNotice] = React.useState<string | null>(null);
     const [isShareDialogOpen, setIsShareDialogOpen] = React.useState(false);
     const [shareDialogId, setShareDialogId] = React.useState('');
@@ -299,6 +364,7 @@ export default function HomePage() {
         history,
         characters,
         portraits,
+        declarations,
         isInitialLoad,
         addItem,
         replaceItem,
@@ -310,10 +376,72 @@ export default function HomePage() {
         addCharacter,
         removeCharacter,
         addPortrait,
-        removePortrait
+        removePortrait,
+        setDeclaration
     } = useVideoHistory(resolveKey);
     const { getVideoSrc, getThumbnailSrc, setRemoteSource, removeSource, clearAllSources, hasLocalCopy, hasSource } =
         useVideoSources();
+    const effectiveDeclarations = React.useMemo(
+        () => withPortraitDeclarations(declarations, portraits),
+        [declarations, portraits]
+    );
+    const applyAuthorizationItems = React.useCallback((items: AuthorizationItem[]) => {
+        setApprovedAuthorizationIds(new Set(items.filter((item) => item.status === 'approved').map((item) => item.id)));
+    }, []);
+    const authorizationTargets = React.useMemo<AuthorizationTarget[]>(() => {
+        const candidates = createReferenceUrls.map((url, index) => ({ url, label: `Image ${index + 1}` }));
+        if (createLastFrameUrl.trim()) {
+            candidates.push({ url: createLastFrameUrl, label: 'Last frame' });
+        }
+
+        const seen = new Set<string>();
+        return candidates.flatMap((item) => {
+            const key = refKey(item.url);
+            if (!key || seen.has(key)) return [];
+            const declaration = effectiveDeclarations[key];
+            if (declaration?.origin !== 'licensed-ip') return [];
+            seen.add(key);
+            return [
+                {
+                    key,
+                    label: item.label,
+                    url: item.url,
+                    ...(declaration.authorizationId ? { authorizationId: declaration.authorizationId } : {})
+                }
+            ];
+        });
+    }, [createLastFrameUrl, createReferenceUrls, effectiveDeclarations]);
+
+    /**
+     * Images this studio produced declare themselves: a Seedream render, a
+     * frame captured from a Seedance clip, a gallery still. Making the user
+     * classify our own output would be busywork with one honest answer.
+     */
+    const declareGeneratedReference = React.useCallback(
+        (url: string, model?: string) => {
+            const key = refKey(url);
+            if (!key) return;
+            setDeclaration(key, {
+                origin: originForGeneratedImage(model),
+                declaredAt: Date.now(),
+                ...(model ? { model } : {})
+            });
+        },
+        [setDeclaration]
+    );
+
+    const handleDeclareReference = React.useCallback(
+        (url: string, origin: ReferenceOrigin) => {
+            const key = refKey(url);
+            if (!key) return;
+            setDeclaration(key, {
+                ...(declarations[key] ?? {}),
+                origin,
+                declaredAt: Date.now()
+            });
+        },
+        [declarations, setDeclaration]
+    );
 
     // Showcase → creation form. Settings are reconciled against the target
     // model first (see gallery-preset), because programmatic setState skips
@@ -392,18 +520,22 @@ export default function HomePage() {
         void loadSharedSettings(shareId);
     }, [loadSharedSettings]);
 
-    const applyReferenceFrame = React.useCallback((item: GalleryItem, frameUrl: string) => {
-        setCreateModel(item.params.model);
-        setCreateRatio(item.params.ratio);
-        setCreateReferenceUrls([frameUrl]);
-        setCreateLastFrameUrl('');
-        setCreateReferenceAudioUrl('');
-        setCreateReferenceVideoUrls([]);
-        // Leave the prompt to the user: describing the motion is the point of
-        // image-to-video, and inheriting the original prompt fights that.
-        setCreatePrompt('');
-        creationFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, []);
+    const applyReferenceFrame = React.useCallback(
+        (item: GalleryItem, frameUrl: string) => {
+            declareGeneratedReference(frameUrl, item.params.model);
+            setCreateModel(item.params.model);
+            setCreateRatio(item.params.ratio);
+            setCreateReferenceUrls([frameUrl]);
+            setCreateLastFrameUrl('');
+            setCreateReferenceAudioUrl('');
+            setCreateReferenceVideoUrls([]);
+            // Leave the prompt to the user: describing the motion is the point of
+            // image-to-video, and inheriting the original prompt fights that.
+            setCreatePrompt('');
+            creationFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        },
+        [declareGeneratedReference]
+    );
 
     React.useEffect(() => {
         if (createReferenceUrls.length !== 1 && createLastFrameUrl) {
@@ -439,10 +571,30 @@ export default function HomePage() {
     // (checked at runtime via /api/config).
     const [uploadEnabled, setUploadEnabled] = React.useState(false);
     const [isPortraitEnabled, setIsPortraitEnabled] = React.useState(false);
+    const [imageModels, setImageModels] = React.useState<ImageModel[]>([]);
     React.useEffect(() => {
         void mediaArchiveEnabled().then(setUploadEnabled);
         void loadPortraitEnabled().then(setIsPortraitEnabled);
+        void loadImageModels().then(setImageModels);
     }, []);
+    const imageGenerationEnabled = imageModels.length > 0;
+
+    React.useEffect(() => {
+        if (!uploadEnabled || !apiKey) {
+            setApprovedAuthorizationIds(new Set());
+            return;
+        }
+
+        let cancelled = false;
+        void listAuthorizations(apiKey)
+            .then((items) => {
+                if (!cancelled) applyAuthorizationItems(items);
+            })
+            .catch((err) => console.warn('Could not load authorizations:', err));
+        return () => {
+            cancelled = true;
+        };
+    }, [apiKey, applyAuthorizationItems, uploadEnabled]);
 
     const handleUploadImage = React.useCallback(
         async (file: File): Promise<string> => {
@@ -535,6 +687,7 @@ export default function HomePage() {
                 );
             }
 
+            declareGeneratedReference(url, record.model);
             setCreateReferenceUrls([url]);
             setCreateLastFrameUrl('');
             setCreateReferenceAudioUrl('');
@@ -542,7 +695,7 @@ export default function HomePage() {
             setActiveTab('video');
             window.scrollTo({ top: 0, behavior: 'smooth' });
         },
-        [resolveKey]
+        [declareGeneratedReference, resolveKey]
     );
 
     const handleLoadAssets = React.useCallback(async () => {
@@ -553,6 +706,83 @@ export default function HomePage() {
         }
         return listUserAssets(key);
     }, [resolveKey, uploadEnabled]);
+
+    const handleLoadAuthorizations = React.useCallback(async () => {
+        if (!uploadEnabled) return [];
+        const key = await resolveKey();
+        if (!key) {
+            throw new Error('Sign in at xcity.ai (or set an API key) to view your authorizations.');
+        }
+        const items = await listAuthorizations(key);
+        applyAuthorizationItems(items);
+        return items;
+    }, [applyAuthorizationItems, resolveKey, uploadEnabled]);
+
+    const handleSubmitAuthorization = React.useCallback(
+        async (input: { subjectName: string; referenceKey: string; note: string; file: File }) => {
+            const key = await resolveKey();
+            if (!key) {
+                throw new Error('Sign in at xcity.ai (or set an API key) before submitting authorization.');
+            }
+            const created = await createAuthorization(
+                {
+                    subjectName: input.subjectName,
+                    referenceKey: input.referenceKey,
+                    note: input.note
+                },
+                key
+            );
+            await uploadAuthorizationDoc(created.id, input.file, key);
+            return created;
+        },
+        [resolveKey]
+    );
+
+    const handleLoadAuthorizationQueue = React.useCallback(async () => {
+        const key = await resolveKey();
+        if (!key) return null;
+        return fetchAuthorizationQueue(key);
+    }, [resolveKey]);
+
+    const handleReviewAuthorization = React.useCallback(
+        async (id: string, action: AuthorizationReviewAction, note: string) => {
+            const key = await resolveKey();
+            if (!key) {
+                throw new Error('Sign in at xcity.ai (or set an API key) to review authorizations.');
+            }
+            await reviewAuthorization(id, action, note, key);
+            const items = await listAuthorizations(key).catch((err) => {
+                console.warn('Could not refresh authorizations after review:', err);
+                return null;
+            });
+            if (items) applyAuthorizationItems(items);
+        },
+        [applyAuthorizationItems, resolveKey]
+    );
+
+    const handleFetchAuthorizationDoc = React.useCallback(
+        async (id: string) => {
+            const key = await resolveKey();
+            if (!key) {
+                throw new Error('Sign in at xcity.ai (or set an API key) to view authorization documents.');
+            }
+            return fetchAuthorizationDoc(id, key);
+        },
+        [resolveKey]
+    );
+
+    const handleAuthorizationSubmitted = React.useCallback(
+        (referenceKey: string, authorizationId: string) => {
+            const existing = declarations[referenceKey] ?? effectiveDeclarations[referenceKey];
+            setDeclaration(referenceKey, {
+                ...(existing ?? {}),
+                origin: 'licensed-ip',
+                declaredAt: Date.now(),
+                authorizationId
+            });
+        },
+        [declarations, effectiveDeclarations, setDeclaration]
+    );
 
     const handleStartPortraitSession = React.useCallback(
         async (origin: string) => {
@@ -565,19 +795,33 @@ export default function HomePage() {
         [resolveKey]
     );
 
-    const handleLoadPortraitGroups = React.useCallback(async () => {
-        const key = await resolveKey();
-        if (!key) {
-            throw new Error('Sign in at xcity.ai (or set an API key) to view verified people.');
-        }
-        return (await listPortraitGroups(key)).groups;
-    }, [resolveKey]);
-
-    const handleCreatePortraitAsset = React.useCallback(
-        async (input: { groupId: string; url: string; name: string }) => {
+    const handleLoadPortraitGroups = React.useCallback(
+        async (type?: PortraitGroupQueryType) => {
             const key = await resolveKey();
             if (!key) {
-                throw new Error('Sign in at xcity.ai (or set an API key) before adding a verified photo.');
+                throw new Error('Sign in at xcity.ai (or set an API key) to view portrait groups.');
+            }
+            return (await listPortraitGroups(key, type)).groups;
+        },
+        [resolveKey]
+    );
+
+    const handleCreatePortraitGroup = React.useCallback(
+        async (name: string) => {
+            const key = await resolveKey();
+            if (!key) {
+                throw new Error('Sign in at xcity.ai (or set an API key) before creating a virtual character.');
+            }
+            return createPortraitGroup(name, key);
+        },
+        [resolveKey]
+    );
+
+    const handleCreatePortraitAsset = React.useCallback(
+        async (input: { groupId: string; url: string; name: string; assetType?: 'Image' | 'Video' | 'Audio' }) => {
+            const key = await resolveKey();
+            if (!key) {
+                throw new Error('Sign in at xcity.ai (or set an API key) before adding a portrait image.');
             }
             return createPortraitAsset(input, key);
         },
@@ -588,7 +832,7 @@ export default function HomePage() {
         async (assetId: string) => {
             const key = await resolveKey();
             if (!key) {
-                throw new Error('Sign in at xcity.ai (or set an API key) to check verified photo status.');
+                throw new Error('Sign in at xcity.ai (or set an API key) to check portrait image status.');
             }
             return getPortraitAsset(assetId, key);
         },
@@ -1121,6 +1365,29 @@ export default function HomePage() {
         enabled: !isInitialLoad
     });
 
+    const blockedReferencesForParams = React.useCallback(
+        (params: VideoJobCreate): string[] =>
+            imageReferenceUrlsFromParams(params).filter((url) => {
+                const declaration = effectiveDeclarations[refKey(url)];
+                if (!declarationSatisfied(declaration, approvedAuthorizationIds)) return true;
+                return maxReferenceImages(params.model) <= 1 && referenceRequiresAssetLibrary(url, declaration);
+            }),
+        [approvedAuthorizationIds, effectiveDeclarations]
+    );
+
+    const firstReferenceBlockReason = React.useCallback(
+        (model: VideoModel, urls: string[]): string | null => {
+            const first = urls[0];
+            if (!first) return null;
+            const declaration = effectiveDeclarations[refKey(first)];
+            if (maxReferenceImages(model) <= 1 && referenceRequiresAssetLibrary(first, declaration)) {
+                return ASSET_LIBRARY_MODEL_BLOCK_REASON;
+            }
+            return declarationBlockReason(declaration, approvedAuthorizationIds);
+        },
+        [approvedAuthorizationIds, effectiveDeclarations]
+    );
+
     // Repair local metadata when the browser already has the MP4 but the last
     // history write was interrupted before status flipped to completed.
     React.useEffect(() => {
@@ -1175,6 +1442,13 @@ export default function HomePage() {
     ): Promise<string | null> => {
         setError(null);
         setShareNotice(null);
+        const blockedReferences = blockedReferencesForParams(formData);
+        if (blockedReferences.length > 0) {
+            setError(
+                firstReferenceBlockReason(formData.model, blockedReferences) ?? 'Choose where this image came from.'
+            );
+            return null;
+        }
         setIsSubmitting(true);
 
         // Resolve the key at submit time — an SSO key that lands after this
@@ -1534,38 +1808,66 @@ export default function HomePage() {
         [buildParamsFromItem, resolveKey]
     );
 
+    const applyParamsToCreationForm = React.useCallback((params: CreationFormData) => {
+        setCreateModel(params.model);
+        setCreatePrompt(params.prompt);
+        setCreateRatio(params.ratio);
+        setCreateResolution(
+            params.draft ? finalResolutionForDraft(params.model, params.final_resolution) : params.resolution
+        );
+        setCreateSeconds(params.seconds);
+        setCreateAudio(params.generate_audio);
+        setCreateCameraFixed(params.camera_fixed ?? false);
+        const refs = params.reference_image_urls ?? (params.input_reference_url ? [params.input_reference_url] : []);
+        setCreateReferenceUrls(refs);
+        setCreateLastFrameUrl(refs.length === 1 ? (params.last_frame_url ?? '') : '');
+        setCreateReferenceAudioUrl(refs.length >= 2 ? (params.reference_audio_url ?? '') : '');
+        setCreateReferenceVideoUrls(
+            refs.length >= 2 ? (params.reference_video_urls ?? []).slice(0, MAX_REFERENCE_VIDEOS) : []
+        );
+        setCreateSeed(params.seed);
+        setCreateWatermark(params.watermark ?? false);
+        setActiveTab('video');
+        if (creationFormRef.current) {
+            creationFormRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } else {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+    }, []);
+
+    const showReferenceDeclarationGate = React.useCallback(
+        (params: CreationFormData, blockedReferences: string[]) => {
+            applyParamsToCreationForm(params);
+            const reason = firstReferenceBlockReason(params.model, blockedReferences);
+            // Scope 'create': applyParamsToCreationForm just scrolled the user
+            // to the form, so the message has to be under the Create button.
+            setError(
+                reason
+                    ? `References need a source declaration first. ${reason}`
+                    : 'References need a source declaration first.'
+            );
+        },
+        [applyParamsToCreationForm, firstReferenceBlockReason, setError]
+    );
+
     /** 做同款 — fill the create form with an item's parameters. */
     const handleReuseItem = React.useCallback(
         (item: VideoMetadata) => {
-            const params = buildParamsFromItem(item);
-            setCreateModel(params.model);
-            setCreatePrompt(params.prompt);
-            setCreateRatio(params.ratio);
-            setCreateResolution(
-                params.draft ? finalResolutionForDraft(params.model, params.final_resolution) : params.resolution
-            );
-            setCreateSeconds(params.seconds);
-            setCreateAudio(params.generate_audio);
-            setCreateCameraFixed(params.camera_fixed ?? false);
-            const refs =
-                params.reference_image_urls ?? (params.input_reference_url ? [params.input_reference_url] : []);
-            setCreateReferenceUrls(refs);
-            setCreateLastFrameUrl(refs.length === 1 ? (params.last_frame_url ?? '') : '');
-            setCreateReferenceAudioUrl(refs.length >= 2 ? (params.reference_audio_url ?? '') : '');
-            setCreateReferenceVideoUrls(
-                refs.length >= 2 ? (params.reference_video_urls ?? []).slice(0, MAX_REFERENCE_VIDEOS) : []
-            );
-            setCreateSeed(params.seed);
-            setCreateWatermark(params.watermark ?? false);
-            window.scrollTo({ top: 0, behavior: 'smooth' });
+            applyParamsToCreationForm(buildParamsFromItem(item));
         },
-        [buildParamsFromItem]
+        [applyParamsToCreationForm, buildParamsFromItem]
     );
 
     /** 重新生成 — resubmit an item with its exact parameters. */
     const handleRegenerateItem = (item: VideoMetadata) => {
+        const params = buildParamsFromItem(item);
+        const blockedReferences = blockedReferencesForParams(params);
+        if (blockedReferences.length > 0) {
+            showReferenceDeclarationGate(params, blockedReferences);
+            return;
+        }
         void (async () => {
-            await handleCreateVideo(buildParamsFromItem(item), { replacesItem: item });
+            await handleCreateVideo(params, { replacesItem: item });
         })();
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
@@ -1580,6 +1882,11 @@ export default function HomePage() {
             resolution: finalResolution
         };
         delete finalParams.final_resolution;
+        const blockedReferences = blockedReferencesForParams(finalParams);
+        if (blockedReferences.length > 0) {
+            showReferenceDeclarationGate(finalParams, blockedReferences);
+            return;
+        }
         void handleCreateVideo(finalParams);
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
@@ -1627,6 +1934,7 @@ export default function HomePage() {
                     type: frameBlob.type || 'image/webp'
                 });
                 const frameUrl = await handleUploadImage(frameFile);
+                declareGeneratedReference(frameUrl, item.model);
                 const params = buildParamsFromItem(item);
 
                 setCreateModel(params.model);
@@ -1653,7 +1961,7 @@ export default function HomePage() {
                 }
             }
         },
-        [buildParamsFromItem, getVideoSrc, handleInvalidApiKey, handleUploadImage, setError]
+        [buildParamsFromItem, declareGeneratedReference, getVideoSrc, handleInvalidApiKey, handleUploadImage, setError]
     );
 
     const handleExtendCurrentVideo = React.useCallback(
@@ -2172,6 +2480,9 @@ export default function HomePage() {
                                 setCameraFixed={setCreateCameraFixed}
                                 referenceUrls={createReferenceUrls}
                                 setReferenceUrls={setCreateReferenceUrls}
+                                declarations={effectiveDeclarations}
+                                onDeclareReference={handleDeclareReference}
+                                approvedAuthorizationIds={approvedAuthorizationIds}
                                 characters={characters}
                                 portraits={portraits}
                                 lastFrameUrl={createLastFrameUrl}
@@ -2190,6 +2501,16 @@ export default function HomePage() {
                                 onUploadVideo={uploadEnabled ? handleUploadVideo : undefined}
                                 onOptimizePrompt={handleOptimizePrompt}
                                 onBreakdownScript={handleBreakdownScript}
+                                // Only offer the jump when the Assets tab actually exists —
+                                // it is gated on the media worker / portrait library.
+                                onOpenAssets={
+                                    uploadEnabled || isPortraitEnabled
+                                        ? (referenceKey) => {
+                                              if (referenceKey) setSelectedAuthorizationReferenceKey(referenceKey);
+                                              setActiveTab('assets');
+                                          }
+                                        : undefined
+                                }
                                 error={createError}
                             />
                         )}
@@ -2321,7 +2642,7 @@ export default function HomePage() {
             </Dialog>
 
             <div className='w-full max-w-7xl space-y-6'>
-                {IMAGE_GENERATION_ENABLED || uploadEnabled || isPortraitEnabled ? (
+                {imageGenerationEnabled || uploadEnabled || isPortraitEnabled ? (
                     <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as StudioTab)}>
                         <TabsList className='mb-4 border border-white/10 bg-white/5'>
                             <TabsTrigger
@@ -2329,7 +2650,7 @@ export default function HomePage() {
                                 className='px-6 text-white/60 data-[state=active]:bg-white data-[state=active]:text-black'>
                                 Video
                             </TabsTrigger>
-                            {IMAGE_GENERATION_ENABLED && (
+                            {imageGenerationEnabled && (
                                 <TabsTrigger
                                     value='image'
                                     className='px-6 text-white/60 data-[state=active]:bg-white data-[state=active]:text-black'>
@@ -2354,9 +2675,13 @@ export default function HomePage() {
                         <TabsContent value='video' className='space-y-6'>
                             {videoTabContent}
                         </TabsContent>
-                        {IMAGE_GENERATION_ENABLED && (
+                        {imageGenerationEnabled && (
                             <TabsContent value='image'>
-                                <ImageStudio onGenerate={handleGenerateImages} onAnimate={handleAnimateImage} />
+                                <ImageStudio
+                                    imageModels={imageModels}
+                                    onGenerate={handleGenerateImages}
+                                    onAnimate={handleAnimateImage}
+                                />
                             </TabsContent>
                         )}
                         {(uploadEnabled || isPortraitEnabled) && (
@@ -2365,6 +2690,14 @@ export default function HomePage() {
                                     <AssetsPanel
                                         loadAssets={handleLoadAssets}
                                         deleteAsset={handleDeleteAsset}
+                                        loadAuthorizations={handleLoadAuthorizations}
+                                        submitAuthorization={handleSubmitAuthorization}
+                                        loadAuthorizationQueue={handleLoadAuthorizationQueue}
+                                        reviewAuthorization={handleReviewAuthorization}
+                                        fetchAuthorizationDoc={handleFetchAuthorizationDoc}
+                                        authorizationTargets={authorizationTargets}
+                                        selectedAuthorizationReferenceKey={selectedAuthorizationReferenceKey}
+                                        onAuthorizationSubmitted={handleAuthorizationSubmitted}
                                         characters={characters}
                                         addCharacter={addCharacter}
                                         removeCharacter={removeCharacter}
@@ -2374,6 +2707,7 @@ export default function HomePage() {
                                         removePortrait={removePortrait}
                                         startPortraitSession={handleStartPortraitSession}
                                         loadPortraitGroups={handleLoadPortraitGroups}
+                                        createPortraitGroup={handleCreatePortraitGroup}
                                         createPortraitAsset={handleCreatePortraitAsset}
                                         getPortraitAsset={handleGetPortraitAsset}
                                         getPortraitStatus={handleGetPortraitStatus}

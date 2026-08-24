@@ -18,6 +18,19 @@ function normalizeOrigin(value: string): string {
     }
 }
 
+/**
+ * The H5 page defaults to Chinese; `lng` picks the language.
+ *
+ * Appended textually on purpose: the link carries a long signed `pl` token,
+ * and round-tripping it through URL/URLSearchParams re-encodes the whole
+ * query string. Not worth risking a signature over a query parameter.
+ */
+function h5LinkWithEnglish(value: string): string {
+    if (/[?&]lng=/.test(value)) return value;
+    const [base, hash = ''] = value.split('#');
+    return `${base}${base.includes('?') ? '&' : '?'}lng=en${hash ? `#${hash}` : ''}`;
+}
+
 export async function POST(request: Request) {
     const gate = await requirePortraitRoute(request);
     if ('response' in gate) return gate.response;
@@ -39,7 +52,7 @@ export async function POST(request: Request) {
         if (!h5Link || !bytedToken) {
             return jsonError(`portrait session returned an unexpected payload: ${JSON.stringify(payload)}`, 502);
         }
-        return responseJson({ h5Link, bytedToken });
+        return responseJson({ h5Link: h5LinkWithEnglish(h5Link), bytedToken });
     } catch (err) {
         return jsonError(err instanceof Error ? err.message : 'portrait session failed', 502);
     }

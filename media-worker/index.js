@@ -27,6 +27,11 @@ const MAX_SHARE_PROMPT_CHARS = 4000;
 const MAX_SHARE_PARAMS_BYTES = 8 * 1024;
 const SHARE_ID_RE = /^[0-9a-z]{8}$/;
 const COMMUNITY_INDEX_KEY = 'community/index.json';
+const AUTHZ_INDEX_KEY = 'authz/index.json';
+const MAX_AUTHZ_NOTE_CHARS = 4000;
+const MAX_AUTHZ_SUBJECT_CHARS = 160;
+const MAX_AUTHZ_REFERENCE_KEY_CHARS = 512;
+const MAX_AUTHZ_DOC_BYTES = 5 * 1024 * 1024;
 const PRIVATE_REFERENCE_PARAM_KEYS = [
     'input_reference_url',
     'last_frame_url',
@@ -212,6 +217,14 @@ const UPLOAD_TYPES = {
     'video/mp4': 'mp4',
     'video/quicktime': 'mov',
     'video/webm': 'webm'
+};
+
+/** Authorization evidence stays private and is reviewed by humans in Studio. */
+const AUTHZ_TYPES = {
+    'application/pdf': 'pdf',
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/webp': 'webp'
 };
 
 function assetNameFromHeader(request) {
@@ -484,6 +497,408 @@ async function writeShareRecord(env, record) {
     });
 }
 
+function authzKey(id) {
+    return `authz/${id}.json`;
+}
+
+function authzDocKey(id, ext) {
+    return `authz/${id}/doc.${ext}`;
+}
+
+function safeAuthzStatus(value) {
+    return value === 'approved' || value === 'rejected' ? value : 'pending';
+}
+
+function normalizeAuthzIndex(value) {
+    if (!Array.isArray(value)) return [];
+    const seen = new Set();
+    const entries = [];
+    for (const entry of value) {
+        if (!isJsonObject(entry)) continue;
+        const id = safeShareId(entry.id);
+        const owner = typeof entry.owner === 'string' ? entry.owner.trim() : '';
+        const subjectName = typeof entry.subject_name === 'string' ? entry.subject_name.trim() : '';
+        const createdAt = typeof entry.created_at === 'string' ? entry.created_at : '';
+        if (!id || !owner || !subjectName || !createdAt || seen.has(id)) continue;
+        seen.add(id);
+        entries.push({
+            id,
+            owner,
+            subject_name: subjectName,
+            status: safeAuthzStatus(entry.status),
+            created_at: createdAt
+        });
+    }
+    entries.sort((a, b) => b.created_at.localeCompare(a.created_at));
+    return entries;
+}
+
+async function readAuthzIndex(env) {
+    const object = await env.XCITY_MEDIA.get(AUTHZ_INDEX_KEY);
+    if (!object) {
+        return { entries: [], etag: null };
+    }
+    const parsed = await object.json().catch(() => []);
+    return { entries: normalizeAuthzIndex(parsed), etag: etagFromIfMatch(object.httpEtag || '') };
+}
+
+async function updateAuthzIndex(env, update) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+        const { entries, etag } = await readAuthzIndex(env);
+        const next = normalizeAuthzIndex(update(entries));
+        const onlyIf = etag ? { etagMatches: etag } : { etagDoesNotExist: true };
+        const stored = await env.XCITY_MEDIA.put(AUTHZ_INDEX_KEY, JSON.stringify(next), {
+            onlyIf,
+            httpMetadata: {
+                contentType: 'application/json',
+                cacheControl: 'no-store'
+            }
+        });
+        if (stored) return true;
+    }
+    return false;
+}
+
+function publicAuthzItem(record) {
+    return {
+        id: record.id,
+        subject_name: record.subject_name,
+        reference_key: record.reference_key,
+        note: typeof record.note === 'string' ? record.note : '',
+        status: safeAuthzStatus(record.status),
+        created_at: typeof record.created_at === 'string' ? record.created_at : '',
+        reviewed_at: typeof record.reviewed_at === 'string' ? record.reviewed_at : '',
+        reviewed_by: typeof record.reviewed_by === 'string' ? record.reviewed_by : '',
+        review_note: typeof record.review_note === 'string' ? record.review_note : '',
+        doc_bytes: Number.isFinite(record.doc_bytes) ? record.doc_bytes : 0,
+        doc_content_type: typeof record.doc_content_type === 'string' ? record.doc_content_type : '',
+        has_doc: typeof record.doc_key === 'string' && record.doc_key.length > 0
+    };
+}
+
+async function readAuthzRecord(env, id) {
+    const safeId = safeShareId(id);
+    if (!safeId) return null;
+
+    const object = await env.XCITY_MEDIA.get(authzKey(safeId));
+    if (!object) return null;
+
+    const record = await object.json().catch(() => null);
+    if (!isJsonObject(record)) return null;
+    if (
+        record.id !== safeId ||
+        typeof record.owner !== 'string' ||
+        typeof record.subject_name !== 'string' ||
+        typeof record.reference_key !== 'string'
+    ) {
+        return null;
+    }
+    record.status = safeAuthzStatus(record.status);
+    return record;
+}
+
+async function writeAuthzRecord(env, record) {
+    await env.XCITY_MEDIA.put(authzKey(record.id), JSON.stringify(record), {
+        httpMetadata: {
+            contentType: 'application/json',
+            cacheControl: 'no-store'
+        }
+    });
+}
+
+async function handleAuthzCreate(request, env, cors) {
+    const { owner, error } = await authOwner(request, env, cors);
+    if (error) return error;
+
+    let payload;
+    try {
+        payload = await request.json();
+    } catch {
+        return json({ error: 'invalid JSON body' }, 400, cors);
+    }
+
+    const subjectName = typeof payload?.subject_name === 'string' ? payload.subject_name.trim() : '';
+    const referenceKey = typeof payload?.reference_key === 'string' ? payload.reference_key.trim() : '';
+    const note = typeof payload?.note === 'string' ? payload.note.trim() : '';
+    if (!subjectName) {
+        return json({ error: 'subject_name is required' }, 400, cors);
+    }
+    if (!referenceKey) {
+        return json({ error: 'reference_key is required' }, 400, cors);
+    }
+    if (subjectName.length > MAX_AUTHZ_SUBJECT_CHARS) {
+        return json({ error: `subject_name is over the ${MAX_AUTHZ_SUBJECT_CHARS} character limit` }, 413, cors);
+    }
+    if (referenceKey.length > MAX_AUTHZ_REFERENCE_KEY_CHARS) {
+        return json({ error: `reference_key is over the ${MAX_AUTHZ_REFERENCE_KEY_CHARS} character limit` }, 413, cors);
+    }
+    if (note.length > MAX_AUTHZ_NOTE_CHARS) {
+        return json({ error: `note is over the ${MAX_AUTHZ_NOTE_CHARS} character limit` }, 413, cors);
+    }
+
+    let id = '';
+    for (let attempt = 0; attempt < 5; attempt++) {
+        const candidate = randomShareId();
+        const existing = await env.XCITY_MEDIA.head(authzKey(candidate));
+        if (!existing) {
+            id = candidate;
+            break;
+        }
+    }
+    if (!id) {
+        return json({ error: 'could not allocate authorization id' }, 500, cors);
+    }
+
+    const now = new Date().toISOString();
+    const record = {
+        id,
+        owner,
+        subject_name: subjectName,
+        reference_key: referenceKey,
+        note,
+        doc_key: '',
+        doc_bytes: 0,
+        doc_content_type: '',
+        status: 'pending',
+        created_at: now,
+        reviewed_at: '',
+        reviewed_by: '',
+        review_note: ''
+    };
+
+    await writeAuthzRecord(env, record);
+    const indexUpdated = await updateAuthzIndex(env, (entries) => [
+        { id, owner, subject_name: subjectName, status: 'pending', created_at: now },
+        ...entries.filter((entry) => entry.id !== id)
+    ]);
+    if (!indexUpdated) {
+        await env.XCITY_MEDIA.delete(authzKey(id));
+        return json({ error: 'authorization index changed on another request' }, 409, cors);
+    }
+
+    return json({ id, status: 'pending' }, 200, cors);
+}
+
+async function handleAuthzDocUpload(request, env, cors, rawId) {
+    const { owner, error } = await authOwner(request, env, cors);
+    if (error) return error;
+
+    const id = safeShareId(rawId);
+    if (!id) {
+        return json({ error: 'not found' }, 404, cors);
+    }
+
+    const record = await readAuthzRecord(env, id);
+    if (!record) {
+        return json({ error: 'not found' }, 404, cors);
+    }
+    if (record.owner !== owner) {
+        return json({ error: 'authorization is outside your namespace' }, 403, cors);
+    }
+    if (record.status !== 'pending') {
+        return json({ error: 'reviewed authorizations cannot replace their document' }, 409, cors);
+    }
+
+    const contentType = (request.headers.get('content-type') || '').split(';')[0].trim();
+    const ext = AUTHZ_TYPES[contentType];
+    if (!ext) {
+        return json(
+            { error: `unsupported content-type (want one of: ${Object.keys(AUTHZ_TYPES).join(', ')})` },
+            415,
+            cors
+        );
+    }
+
+    const declared = Number(request.headers.get('content-length') || 0);
+    if (declared > MAX_AUTHZ_DOC_BYTES) {
+        return json({ error: 'authorization document is over the 5 MB limit' }, 413, cors);
+    }
+
+    const body = await request.arrayBuffer();
+    if (body.byteLength === 0) {
+        return json({ error: 'empty body' }, 400, cors);
+    }
+    if (body.byteLength > MAX_AUTHZ_DOC_BYTES) {
+        return json({ error: 'authorization document is over the 5 MB limit' }, 413, cors);
+    }
+
+    const oldDocKey = typeof record.doc_key === 'string' ? record.doc_key : '';
+    const docKey = authzDocKey(id, ext);
+    await env.XCITY_MEDIA.put(docKey, body, {
+        httpMetadata: {
+            contentType,
+            cacheControl: 'no-store'
+        }
+    });
+
+    record.doc_key = docKey;
+    record.doc_bytes = body.byteLength;
+    record.doc_content_type = contentType;
+    await writeAuthzRecord(env, record);
+    if (oldDocKey && oldDocKey !== docKey) {
+        await env.XCITY_MEDIA.delete(oldDocKey);
+    }
+
+    return json(
+        { id, status: record.status, doc_bytes: record.doc_bytes, doc_content_type: record.doc_content_type },
+        200,
+        cors
+    );
+}
+
+async function authzItemsFromIndex(env, entries) {
+    const items = [];
+    const staleIds = new Set();
+    for (const entry of entries) {
+        const record = await readAuthzRecord(env, entry.id);
+        if (!record) {
+            staleIds.add(entry.id);
+            continue;
+        }
+        items.push(publicAuthzItem(record));
+    }
+
+    if (staleIds.size > 0) {
+        try {
+            await updateAuthzIndex(env, (current) => current.filter((entry) => !staleIds.has(entry.id)));
+        } catch (err) {
+            console.warn('Could not prune stale authorization index entries:', err);
+        }
+    }
+
+    items.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+    return items;
+}
+
+async function handleAuthzList(request, env, cors) {
+    const { owner, error } = await authOwner(request, env, cors);
+    if (error) return error;
+
+    const { entries } = await readAuthzIndex(env);
+    const items = await authzItemsFromIndex(
+        env,
+        entries.filter((entry) => entry.owner === owner)
+    );
+    return json({ items }, 200, cors);
+}
+
+async function handleAuthzQueue(request, env, cors) {
+    const { owner, error } = await authOwner(request, env, cors);
+    if (error) return error;
+    if (!isAdmin(owner, env)) {
+        return json({ error: 'admin access required' }, 403, cors);
+    }
+
+    const { entries } = await readAuthzIndex(env);
+    const items = (
+        await authzItemsFromIndex(
+            env,
+            entries.filter((entry) => entry.status === 'pending')
+        )
+    ).filter((item) => item.status === 'pending');
+    return json(
+        {
+            items: items.map((item) => {
+                const entry = entries.find((candidate) => candidate.id === item.id);
+                return { ...item, owner: entry?.owner ?? '' };
+            })
+        },
+        200,
+        cors
+    );
+}
+
+async function handleAuthzReview(request, env, cors) {
+    const { owner, error } = await authOwner(request, env, cors);
+    if (error) return error;
+    if (!isAdmin(owner, env)) {
+        return json({ error: 'admin access required' }, 403, cors);
+    }
+
+    let payload;
+    try {
+        payload = await request.json();
+    } catch {
+        return json({ error: 'invalid JSON body' }, 400, cors);
+    }
+
+    const id = safeShareId(payload?.id);
+    const action = payload?.action;
+    const note = typeof payload?.note === 'string' ? payload.note.trim() : '';
+    if (!id) {
+        return json({ error: 'id is required' }, 400, cors);
+    }
+    if (action !== 'approve' && action !== 'reject') {
+        return json({ error: 'action must be approve or reject' }, 400, cors);
+    }
+    if (note.length > MAX_AUTHZ_NOTE_CHARS) {
+        return json({ error: `note is over the ${MAX_AUTHZ_NOTE_CHARS} character limit` }, 413, cors);
+    }
+
+    const record = await readAuthzRecord(env, id);
+    if (!record) {
+        return json({ error: 'not found' }, 404, cors);
+    }
+    if (action === 'approve' && !record.doc_key) {
+        return json({ error: 'document is required before approval' }, 400, cors);
+    }
+
+    record.status = action === 'approve' ? 'approved' : 'rejected';
+    record.reviewed_at = new Date().toISOString();
+    record.reviewed_by = owner;
+    record.review_note = note;
+    await writeAuthzRecord(env, record);
+
+    const indexUpdated = await updateAuthzIndex(env, (entries) => [
+        {
+            id,
+            owner: record.owner,
+            subject_name: record.subject_name,
+            status: record.status,
+            created_at: record.created_at
+        },
+        ...entries.filter((entry) => entry.id !== id)
+    ]);
+    if (!indexUpdated) {
+        return json({ error: 'authorization index changed on another request' }, 409, cors);
+    }
+
+    return json({ status: record.status }, 200, cors);
+}
+
+async function handleAuthzDocGet(request, env, cors, rawId) {
+    const { owner, error } = await authOwner(request, env, cors);
+    if (error) return error;
+
+    const id = safeShareId(rawId);
+    if (!id) {
+        return json({ error: 'not found' }, 404, cors);
+    }
+
+    const record = await readAuthzRecord(env, id);
+    if (!record) {
+        return json({ error: 'not found' }, 404, cors);
+    }
+    if (record.owner !== owner && !isAdmin(owner, env)) {
+        return json({ error: 'authorization is outside your namespace' }, 403, cors);
+    }
+    if (!record.doc_key) {
+        return json({ error: 'document not found' }, 404, cors);
+    }
+
+    const object = await env.XCITY_MEDIA.get(record.doc_key);
+    if (!object) {
+        return json({ error: 'document not found' }, 404, cors);
+    }
+
+    const headers = new Headers(cors);
+    object.writeHttpMetadata(headers);
+    headers.set('Cache-Control', 'no-store');
+    headers.set('Content-Type', record.doc_content_type || headers.get('Content-Type') || 'application/octet-stream');
+    if (object.size != null) headers.set('Content-Length', String(object.size));
+    return new Response(object.body, { status: 200, headers });
+}
+
 function normalizeCommunityIndex(value) {
     if (!Array.isArray(value)) return [];
     const seen = new Set();
@@ -689,10 +1104,7 @@ function renderShareHtml(record, env) {
         ['Seconds', shareSetting(record.params, 'seconds')]
     ]
         .filter(([, value]) => value)
-        .map(
-            ([label, value]) =>
-                `<tr><th scope="row">${escapeHtml(label)}</th><td>${escapeHtml(value)}</td></tr>`
-        )
+        .map(([label, value]) => `<tr><th scope="row">${escapeHtml(label)}</th><td>${escapeHtml(value)}</td></tr>`)
         .join('');
 
     return `<!doctype html>
@@ -998,10 +1410,7 @@ async function handleArchive(request, env, cors) {
     // an open proxy that fetches arbitrary hosts on our behalf. Ark serves
     // output from volces.com (CN infra) and bytepluses.com/byteplus.com
     // (international) depending on model/pipeline.
-    if (
-        source.protocol !== 'https:' ||
-        !/(^|\.)(volces\.com|bytepluses\.com|byteplus\.com)$/.test(source.hostname)
-    ) {
+    if (source.protocol !== 'https:' || !/(^|\.)(volces\.com|bytepluses\.com|byteplus\.com)$/.test(source.hostname)) {
         return json({ error: `source_url host is not allowed (${source.hostname})` }, 400, cors);
     }
 
@@ -1037,11 +1446,7 @@ async function handleArchive(request, env, cors) {
         }
     });
 
-    return json(
-        archivedVideoPayload(request, key, { size: stored?.size ?? declared ?? null }, false),
-        200,
-        cors
-    );
+    return json(archivedVideoPayload(request, key, { size: stored?.size ?? declared ?? null }, false), 200, cors);
 }
 
 async function handleArchiveLookup(request, env, cors, rawVideoId) {
@@ -1123,6 +1528,9 @@ async function handleMedia(request, env, key, cors) {
     if (key.startsWith('community/')) {
         return new Response('Not Found', { status: 404, headers: notFoundHeaders });
     }
+    if (key.startsWith('authz/')) {
+        return new Response('Not Found', { status: 404, headers: notFoundHeaders });
+    }
     if (/^(u|k)\/[^/]+\/state\//.test(key)) {
         return new Response('Not Found', { status: 404, headers: notFoundHeaders });
     }
@@ -1152,7 +1560,7 @@ async function handleMedia(request, env, key, cors) {
     return new Response(object.body, { headers });
 }
 
-export default {
+const worker = {
     async fetch(request, env) {
         const url = new URL(request.url);
         const origin = request.headers.get('origin');
@@ -1211,6 +1619,31 @@ export default {
             return handleCommunityList(env, cors);
         }
 
+        if (url.pathname === '/authz' && request.method === 'POST') {
+            return handleAuthzCreate(request, env, cors);
+        }
+
+        if (url.pathname === '/authz/list' && request.method === 'GET') {
+            return handleAuthzList(request, env, cors);
+        }
+
+        if (url.pathname === '/authz/queue' && request.method === 'GET') {
+            return handleAuthzQueue(request, env, cors);
+        }
+
+        if (url.pathname === '/authz/review' && request.method === 'POST') {
+            return handleAuthzReview(request, env, cors);
+        }
+
+        const authzDocMatch = url.pathname.match(/^\/authz\/([0-9a-z]{8})\/doc$/);
+        if (authzDocMatch && request.method === 'POST') {
+            return handleAuthzDocUpload(request, env, cors, authzDocMatch[1]);
+        }
+
+        if (authzDocMatch && request.method === 'GET') {
+            return handleAuthzDocGet(request, env, cors, authzDocMatch[1]);
+        }
+
         if (url.pathname === '/state' && request.method === 'GET') {
             return handleStateGet(request, env, cors);
         }
@@ -1243,3 +1676,5 @@ export default {
         return new Response('Not Found', { status: 404, headers: { ...cors, 'Cache-Control': 'no-store' } });
     }
 };
+
+export default worker;

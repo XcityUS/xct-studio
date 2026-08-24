@@ -7,9 +7,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { db, type ImageRecord } from '@/lib/db';
 import {
-    IMAGE_MODELS,
     IMAGE_SIZES,
     type GeneratedImage,
+    type ImageModel,
     type ImageSizeId
 } from '@/lib/image-service';
 import { cn } from '@/lib/utils';
@@ -18,6 +18,8 @@ import { Clapperboard, Download, ImageIcon, Loader2, Sparkles, Trash2 } from 'lu
 import * as React from 'react';
 
 interface ImageStudioProps {
+    /** Runtime-resolved image models. Empty means image generation is disabled. */
+    imageModels: ImageModel[];
     /** Runs the generation on the user's key; the studio stores the results. */
     onGenerate: (params: { prompt: string; model: string; size: ImageSizeId; n: number }) => Promise<GeneratedImage[]>;
     /**
@@ -68,9 +70,9 @@ function useImageObjectUrls(records: ImageRecord[] | undefined) {
     }, []);
 }
 
-export function ImageStudio({ onGenerate, onAnimate }: ImageStudioProps) {
+export function ImageStudio({ imageModels, onGenerate, onAnimate }: ImageStudioProps) {
     const [prompt, setPrompt] = React.useState('');
-    const [model, setModel] = React.useState(IMAGE_MODELS[0]?.id ?? '');
+    const [model, setModel] = React.useState('');
     const [size, setSize] = React.useState<ImageSizeId>('1024x1024');
     const [count, setCount] = React.useState(1);
     const [isGenerating, setIsGenerating] = React.useState(false);
@@ -83,18 +85,28 @@ export function ImageStudio({ onGenerate, onAnimate }: ImageStudioProps) {
     );
     const getSrc = useImageObjectUrls(records);
 
+    React.useEffect(() => {
+        if (model || imageModels.length === 0) return;
+        setModel(imageModels[0].id);
+    }, [imageModels, model]);
+
     const handleGenerate = async (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
-        if (!prompt.trim() || isGenerating) return;
+        const trimmedPrompt = prompt.trim();
+        if (!trimmedPrompt || isGenerating) return;
+        if (!model) {
+            setError('Image generation is not configured.');
+            return;
+        }
         setIsGenerating(true);
         setError(null);
         try {
-            const images = await onGenerate({ prompt: prompt.trim(), model, size, n: count });
+            const images = await onGenerate({ prompt: trimmedPrompt, model, size, n: count });
             const now = Date.now();
             await db.images.bulkPut(
                 images.map((img, i) => ({
                     id: `img_${now}_${i}`,
-                    prompt: prompt.trim(),
+                    prompt: trimmedPrompt,
                     model,
                     size,
                     blob: img.blob,
@@ -164,14 +176,17 @@ export function ImageStudio({ onGenerate, onAnimate }: ImageStudioProps) {
                                 <Label htmlFor='image-model' className='text-white'>
                                     Model
                                 </Label>
-                                <Select value={model} onValueChange={setModel} disabled={isGenerating}>
+                                <Select
+                                    value={model}
+                                    onValueChange={setModel}
+                                    disabled={isGenerating || imageModels.length === 0}>
                                     <SelectTrigger
                                         id='image-model'
                                         className='rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'>
-                                        <SelectValue />
+                                        <SelectValue placeholder='No models' />
                                     </SelectTrigger>
                                     <SelectContent className='border-white/20 bg-black text-white'>
-                                        {IMAGE_MODELS.map((m) => (
+                                        {imageModels.map((m) => (
                                             <SelectItem key={m.id} value={m.id} className='focus:bg-white/10 focus:text-white'>
                                                 {m.label}
                                             </SelectItem>
@@ -229,7 +244,7 @@ export function ImageStudio({ onGenerate, onAnimate }: ImageStudioProps) {
 
                         <Button
                             type='submit'
-                            disabled={isGenerating || !prompt.trim()}
+                            disabled={isGenerating || !prompt.trim() || !model}
                             className='w-full bg-white text-black hover:bg-white/90 disabled:bg-white/40'>
                             {isGenerating ? (
                                 <>

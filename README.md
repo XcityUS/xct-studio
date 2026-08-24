@@ -54,7 +54,7 @@ Open [http://localhost:3000](http://localhost:3000). With no SSO configured you'
 | `NEXT_PUBLIC_XCITY_KEY_URL` | no | Override the SSO key endpoint (default `https://xcity.ai/api/me/litellm-key`) |
 | `NEXT_PUBLIC_XCITY_LOGIN_URL` | no | Override the login URL (default `https://xcity.ai/login`) |
 | `MEDIA_WORKER_URL` | no | Deployed media worker origin. Unset → archiving and local image upload are disabled; playback falls back to 24 h provider links. Read at runtime via `/api/config` — restart, don't rebuild. |
-| `NEXT_PUBLIC_IMAGE_MODELS` | no | Comma-separated Seedream model ids the gateway exposes. Unset → the Image tab is hidden. |
+| `IMAGE_MODELS` | no | Comma-separated TokenHub image model ids, e.g. `seedream-5-0-260128`. Unset → the Image tab is hidden. Read at runtime via `/api/config` — restart, don't rebuild. |
 | `NEXT_PUBLIC_PROMPT_OPTIMIZER_MODEL` | no | Chat model for AI prompt rewriting (default `gpt-4o-mini`) |
 
 ## ☁️ Deployment
