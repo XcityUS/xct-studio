@@ -268,6 +268,7 @@ export default function HomePage() {
     const [shareDialogError, setShareDialogError] = React.useState<string | null>(null);
     const [sharingVideoId, setSharingVideoId] = React.useState<string | null>(null);
     const [shareUrlCopied, setShareUrlCopied] = React.useState(false);
+    const regenerateReplacementRef = React.useRef<Map<string, string>>(new Map());
     const [shareCommunityStatus, setShareCommunityStatus] = React.useState<'idle' | 'submitting' | 'submitted'>(
         'idle'
     );
@@ -732,9 +733,11 @@ export default function HomePage() {
             if (item.status !== 'completed' || hasLocalCopy(item.id)) return false;
 
             const previewConfirmedMissing = unresolvedPreviewIdsRef.current.has(item.id);
+            const noKnownPlayableSource = !item.storedUrl && !hasSource(item.id);
             const providerExpired =
                 item.mediaExpired ||
                 previewConfirmedMissing ||
+                noKnownPlayableSource ||
                 Date.now() - completedAtMs(item) >= PROVIDER_LINK_TTL_MS;
             if (!item.storedUrl) {
                 return providerExpired;
@@ -761,6 +764,7 @@ export default function HomePage() {
         },
         [
             hasLocalCopy,
+            hasSource,
             markPreviewResolving,
             markPreviewUnresolved,
             resolveKey,
@@ -924,6 +928,19 @@ export default function HomePage() {
                     status: 'completed',
                     ...(createParams ? { createParams } : {})
                 });
+                const replacedId = regenerateReplacementRef.current.get(job.id);
+                if (replacedId) {
+                    regenerateReplacementRef.current.delete(job.id);
+                    void (async () => {
+                        const item = history.find((candidate) => candidate.id === replacedId);
+                        if (!item) return;
+                        const shouldReplaceOld = await shouldReplaceOldAfterRegenerate(item);
+                        if (!shouldReplaceOld) return;
+                        await db.videos.where('id').equals(replacedId).delete();
+                        removeSource(replacedId);
+                        removeItem(replacedId);
+                    })();
+                }
                 void downloadAndStoreVideo(job);
             },
             onFailed: (job: VideoJob) => {
@@ -936,7 +953,16 @@ export default function HomePage() {
             },
             onInvalidKey: () => handleInvalidApiKey()
         }),
-        [history, updateItem, downloadAndStoreVideo, handleInvalidApiKey, setError]
+        [
+            history,
+            updateItem,
+            shouldReplaceOldAfterRegenerate,
+            removeSource,
+            removeItem,
+            downloadAndStoreVideo,
+            handleInvalidApiKey,
+            setError
+        ]
     );
 
     const { activeJobs, addJob, replaceJob, removeJob, restoreJobs, clearJobs } = useVideoJobs(
@@ -1399,13 +1425,8 @@ export default function HomePage() {
         void (async () => {
             const newId = await handleCreateVideo(buildParamsFromItem(item));
 
-            const shouldReplaceOld = newId ? await shouldReplaceOldAfterRegenerate(item) : false;
-            if (!newId || !shouldReplaceOld) return;
-
-            await db.videos.where('id').equals(item.id).delete();
-            removeSource(item.id);
-            removeItem(item.id);
-            removeJob(item.id);
+            if (!newId) return;
+            regenerateReplacementRef.current.set(newId, item.id);
         })();
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
