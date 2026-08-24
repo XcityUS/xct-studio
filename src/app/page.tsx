@@ -45,6 +45,7 @@ import {
     fetchShare,
     imageUrlToDataUri,
     listUserAssets,
+    lookupArchivedVideo,
     mediaArchiveEnabled,
     mediaWorkerUrl,
     portraitEnabled as loadPortraitEnabled,
@@ -59,7 +60,7 @@ import {
     uploadReferenceVideo,
     videoUrlToDataUri
 } from '@/lib/media-archive';
-import { providerLinkLikelyDead } from '@/lib/media-state';
+import { completedAtMs, PROVIDER_LINK_TTL_MS, providerLinkLikelyDead } from '@/lib/media-state';
 import { estimateVideoProgress } from '@/lib/progress';
 import { optimizePrompt } from '@/lib/prompt-optimizer';
 import {
@@ -726,6 +727,44 @@ export default function HomePage() {
         [markPreviewResolving, markPreviewUnresolved, resolveKey, setRemoteSource, updateItem]
     );
 
+    const shouldReplaceOldAfterRegenerate = React.useCallback(
+        async (item: VideoMetadata): Promise<boolean> => {
+            if (item.status !== 'completed' || hasLocalCopy(item.id)) return false;
+
+            const providerExpired = item.mediaExpired || Date.now() - completedAtMs(item) >= PROVIDER_LINK_TTL_MS;
+            if (!item.storedUrl) {
+                return providerExpired;
+            }
+
+            const key = await resolveKey();
+            if (!key) return false;
+
+            const archived = await lookupArchivedVideo(item.id, key);
+            if (archived.status === 'found') {
+                setRemoteSource(item.id, archived.media.url);
+                markPreviewUnresolved(item.id, false);
+                markPreviewResolving(item.id, false);
+                updateItem(item.id, { storedUrl: archived.media.url, mediaExpired: false });
+                return false;
+            }
+
+            if (archived.status === 'unavailable') {
+                return false;
+            }
+
+            updateItem(item.id, { storedUrl: undefined, mediaExpired: providerExpired });
+            return providerExpired;
+        },
+        [
+            hasLocalCopy,
+            markPreviewResolving,
+            markPreviewUnresolved,
+            resolveKey,
+            setRemoteSource,
+            updateItem
+        ]
+    );
+
     /** Finalizes a finished video, archives it to R2, then caches locally best-effort. */
     const downloadAndStoreVideo = React.useCallback(
         async (job: VideoJob) => {
@@ -1354,13 +1393,9 @@ export default function HomePage() {
     /** 重新生成 — resubmit an item with its exact parameters. */
     const handleRegenerateItem = (item: VideoMetadata) => {
         void (async () => {
-            const shouldReplaceOld =
-                item.status === 'completed' &&
-                !item.storedUrl &&
-                !hasLocalCopy(item.id) &&
-                (item.mediaExpired || providerLinkLikelyDead(item, Date.now()));
             const newId = await handleCreateVideo(buildParamsFromItem(item));
 
+            const shouldReplaceOld = newId ? await shouldReplaceOldAfterRegenerate(item) : false;
             if (!newId || !shouldReplaceOld) return;
 
             await db.videos.where('id').equals(item.id).delete();
