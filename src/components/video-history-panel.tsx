@@ -61,6 +61,8 @@ type VideoHistoryPanelProps = {
     onExtendItem?: (item: VideoMetadata) => void;
     /** Share — create a public share page for this completed video. */
     onShareItem?: (item: VideoMetadata) => void;
+    /** Rename the display title shown on a history tile. */
+    onRenameItem?: (item: VideoMetadata, title: string) => void;
     /** Retry permanent R2 archival for a completed item. */
     onRetryArchive?: (id: string) => void | Promise<void>;
     archivePendingIds?: Set<string>;
@@ -72,13 +74,34 @@ type VideoHistoryPanelProps = {
 };
 
 /**
- * Prompt line on a history tile: click to expand the full text, copy icon to
- * grab it. The prompt is stored with every video, so this is where users
- * retrieve it.
+ * History tile title: title is display-only, while copy still grabs the full
+ * prompt users need for reuse outside the studio.
  */
-function TilePrompt({ prompt }: { prompt: string }) {
-    const [expanded, setExpanded] = React.useState(false);
+function TileTitle({
+    prompt,
+    title,
+    onTitleChange
+}: {
+    prompt: string;
+    title?: string;
+    onTitleChange?: (title: string) => void;
+}) {
+    const displayTitle = title?.trim() || prompt;
+    const [editing, setEditing] = React.useState(false);
+    const [draft, setDraft] = React.useState(displayTitle);
     const [copied, setCopied] = React.useState(false);
+
+    React.useEffect(() => {
+        if (!editing) setDraft(displayTitle);
+    }, [displayTitle, editing]);
+
+    const commitTitle = () => {
+        const next = draft.trim();
+        setEditing(false);
+        if (next !== (title?.trim() || '')) {
+            onTitleChange?.(next);
+        }
+    };
 
     const handleCopy = async (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -93,12 +116,44 @@ function TilePrompt({ prompt }: { prompt: string }) {
 
     return (
         <div className='flex items-start gap-1'>
-            <p
-                className={cn('flex-1 cursor-pointer text-xs text-white/70', !expanded && 'line-clamp-1')}
-                title={expanded ? 'Collapse prompt' : 'Show full prompt'}
-                onClick={() => setExpanded((v) => !v)}>
-                {prompt}
-            </p>
+            {editing ? (
+                <input
+                    value={draft}
+                    autoFocus
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onBlur={commitTitle}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            e.currentTarget.blur();
+                        } else if (e.key === 'Escape') {
+                            e.stopPropagation();
+                            setDraft(displayTitle);
+                            setEditing(false);
+                        }
+                    }}
+                    className='min-w-0 flex-1 rounded border border-white/20 bg-black/60 px-1 py-0.5 text-xs text-white outline-none focus:border-white/50'
+                    maxLength={120}
+                    aria-label='History title'
+                />
+            ) : (
+                <p className='line-clamp-1 flex-1 text-xs font-medium text-white/75' title={prompt}>
+                    {displayTitle}
+                </p>
+            )}
+            {onTitleChange && !editing && (
+                <button
+                    type='button'
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        setDraft(displayTitle);
+                        setEditing(true);
+                    }}
+                    title='Edit title'
+                    className='shrink-0 pt-0.5 text-white/40 transition-colors hover:text-white'>
+                    <PencilLine size={12} />
+                </button>
+            )}
             <button
                 type='button'
                 onClick={handleCopy}
@@ -160,6 +215,7 @@ export function VideoHistoryPanel({
     onFinalizeItem,
     onExtendItem,
     onShareItem,
+    onRenameItem,
     onRetryArchive,
     archivePendingIds,
     sharePendingId,
@@ -227,7 +283,7 @@ export function VideoHistoryPanel({
                 if (derivedStatus !== statusFilter) return false;
             }
             if (modelFilter !== 'all' && item.model !== modelFilter) return false;
-            if (query && !item.prompt.toLowerCase().includes(query)) return false;
+            if (query && !`${item.title ?? ''} ${item.prompt}`.toLowerCase().includes(query)) return false;
             return true;
         });
     }, [history, statusFilter, modelFilter, promptQuery, activeJobs, getMediaState, getVideoSrc, hasLocalCopy]);
@@ -883,7 +939,15 @@ export function VideoHistoryPanel({
                                                 )}
                                             </div>
                                             <div className='rounded-b-md border border-t-0 border-white/20 bg-neutral-900/50 p-2'>
-                                                <TilePrompt prompt={item.prompt} />
+                                                <TileTitle
+                                                    prompt={item.prompt}
+                                                    title={item.title}
+                                                    onTitleChange={
+                                                        onRenameItem
+                                                            ? (title) => onRenameItem(item, title)
+                                                            : undefined
+                                                    }
+                                                />
                                                 <div className='mt-1 flex items-center justify-between text-[10px] text-white/40'>
                                                     <span>{item.model}</span>
                                                     <span>{item.size}</span>

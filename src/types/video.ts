@@ -39,6 +39,8 @@ export type VideoMetadata = {
     model: string;
     size: string;
     seconds: number;
+    /** User-facing display name for history/share surfaces. Falls back to prompt when absent. */
+    title?: string;
     prompt: string;
     mode: 'create' | 'remix';
     /** Permanent R2 URL once archived — outlives the provider's 24h CDN link. */

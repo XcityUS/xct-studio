@@ -183,6 +183,11 @@ function shareTitleFromPrompt(prompt: string): string {
     return title.length > 120 ? `${title.slice(0, 117)}...` : title;
 }
 
+function shareTitleFromItem(item: VideoMetadata): string {
+    const title = item.title?.trim();
+    return title ? (title.length > 120 ? `${title.slice(0, 117)}...` : title) : shareTitleFromPrompt(item.prompt);
+}
+
 function shareParamsToForm(prompt: string, params: unknown): { params: CreationFormData; adjusted: string[] } {
     if (isVideoJobCreateParams(params)) {
         const reconciled = reconcilePreset({ ...params, prompt });
@@ -1420,7 +1425,7 @@ export default function HomePage() {
 
     const handleCreateVideo = async (
         formData: CreationFormData,
-        options: { replacesItem?: VideoMetadata } = {}
+        options: { replacesItem?: VideoMetadata; title?: string } = {}
     ): Promise<string | null> => {
         setError(null);
         setShareNotice(null);
@@ -1629,6 +1634,7 @@ export default function HomePage() {
                 model: job.model,
                 size: job.size,
                 seconds: formData.seconds,
+                title: options.title?.trim() || options.replacesItem?.title?.trim() || undefined,
                 prompt: formData.prompt,
                 mode: 'create',
                 createParams,
@@ -1774,7 +1780,7 @@ export default function HomePage() {
                         videoUrl: item.storedUrl,
                         prompt: item.prompt,
                         params: buildParamsFromItem(item),
-                        title: shareTitleFromPrompt(item.prompt)
+                        title: shareTitleFromItem(item)
                     },
                     activeKey
                 );
@@ -1869,9 +1875,16 @@ export default function HomePage() {
             showReferenceDeclarationGate(finalParams, blockedReferences);
             return;
         }
-        void handleCreateVideo(finalParams);
+        void handleCreateVideo(finalParams, { title: item.title });
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
+
+    const handleRenameHistoryItem = React.useCallback(
+        (item: VideoMetadata, title: string) => {
+            updateItem(item.id, { title: title.trim() || undefined });
+        },
+        [updateItem]
+    );
 
     /** 续片 — continue a completed video from its final frame. */
     const handleExtendVideo = React.useCallback(
@@ -2540,6 +2553,7 @@ export default function HomePage() {
                     onFinalizeItem={handleFinalizeItem}
                     onExtendItem={handleExtendVideo}
                     onShareItem={handleShareItem}
+                    onRenameItem={handleRenameHistoryItem}
                     sharePendingId={sharingVideoId}
                     loadAudioAssets={handleLoadAssemblyAudioAssets}
                     onTranscribeVideo={handleTranscribeVideo}
