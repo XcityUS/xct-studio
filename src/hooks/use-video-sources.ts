@@ -6,7 +6,9 @@ import * as React from 'react';
 
 interface ObjectUrls {
     video?: string;
+    videoBlob?: Blob;
     thumb?: string;
+    thumbBlob?: Blob;
 }
 
 /**
@@ -49,21 +51,27 @@ export function useVideoSources() {
 
         for (const rec of allDbVideos) {
             const entry = urls.get(rec.id) ?? {};
-            if (rec.blob && !entry.video) {
+            if (rec.blob && entry.videoBlob !== rec.blob) {
+                if (entry.video) URL.revokeObjectURL(entry.video);
                 entry.video = URL.createObjectURL(rec.blob);
+                entry.videoBlob = rec.blob;
                 changed = true;
             } else if (!rec.blob && entry.video) {
                 URL.revokeObjectURL(entry.video);
                 entry.video = undefined;
+                entry.videoBlob = undefined;
                 changed = true;
             }
 
-            if (rec.thumbnail && !entry.thumb) {
+            if (rec.thumbnail && entry.thumbBlob !== rec.thumbnail) {
+                if (entry.thumb) URL.revokeObjectURL(entry.thumb);
                 entry.thumb = URL.createObjectURL(rec.thumbnail);
+                entry.thumbBlob = rec.thumbnail;
                 changed = true;
             } else if (!rec.thumbnail && entry.thumb) {
                 URL.revokeObjectURL(entry.thumb);
                 entry.thumb = undefined;
+                entry.thumbBlob = undefined;
                 changed = true;
             }
 

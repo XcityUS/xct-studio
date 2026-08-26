@@ -1,10 +1,14 @@
-const CORE_URL = '/ffmpeg/ffmpeg-core.js';
-const WASM_URL = '/ffmpeg/ffmpeg-core.wasm';
+const CORE_PATH = '/ffmpeg/ffmpeg-core.esm.js';
+const WASM_PATH = '/ffmpeg/ffmpeg-core.wasm';
+const CLASS_WORKER_PATH = '/ffmpeg/ffmpeg-worker.js';
 const LIST_FILE = 'list.txt';
 const JOINED_FILE = 'joined.mp4';
 const OUTPUT_FILE = 'out.mp4';
 const CAPTION_INPUT_FILE = 'caption_input.mp4';
 const CAPTION_SRT_FILE = 'subs.srt';
+const WATERMARK_INPUT_FILE = 'watermark_input.mp4';
+const WATERMARK_IMAGE_FILE = 'watermark.png';
+const WATERMARK_OUTPUT_FILE = 'watermark_output.mp4';
 const FINAL_OUTPUT_FILE = 'final.mp4';
 
 export type AssembleClip = {
@@ -43,7 +47,7 @@ export class CaptionBurnUnavailableError extends Error {
 }
 
 type FFmpegRuntime = {
-    load: (config: { coreURL: string; wasmURL: string }) => Promise<boolean>;
+    load: (config: { classWorkerURL: string; coreURL: string; wasmURL: string }) => Promise<boolean>;
     writeFile: (path: string, data: Uint8Array | string) => Promise<unknown>;
     readFile: (path: string) => Promise<Uint8Array | string>;
     deleteFile: (path: string) => Promise<unknown>;
@@ -53,6 +57,11 @@ type FFmpegRuntime = {
 };
 
 let ffmpegPromise: Promise<FFmpegRuntime> | null = null;
+
+function publicUrl(path: string) {
+    if (typeof window === 'undefined') return path;
+    return new URL(path, window.location.origin).toString();
+}
 
 function clampProgress(value: number) {
     if (!Number.isFinite(value)) return 0;
@@ -65,8 +74,9 @@ async function getFFmpeg() {
             const { FFmpeg } = await import('@ffmpeg/ffmpeg');
             const ffmpeg = new FFmpeg() as FFmpegRuntime;
             await ffmpeg.load({
-                coreURL: CORE_URL,
-                wasmURL: WASM_URL
+                classWorkerURL: publicUrl(CLASS_WORKER_PATH),
+                coreURL: publicUrl(CORE_PATH),
+                wasmURL: publicUrl(WASM_PATH)
             });
             return ffmpeg;
         })().catch((error) => {
@@ -180,14 +190,72 @@ async function deleteIfExists(ffmpeg: FFmpegRuntime, file: string) {
 
 function reframeFilters(target: { width: number; height: number }) {
     const { width, height } = target;
-    return [
-        `crop=min(iw\\,ih*${width}/${height}):min(ih\\,iw*${height}/${width})`,
-        `scale=${width}:${height}`
-    ];
+    return [`crop=min(iw\\,ih*${width}/${height}):min(ih\\,iw*${height}/${width})`, `scale=${width}:${height}`];
 }
 
 function subtitlesFilter() {
     return "subtitles=subs.srt:force_style='FontName=Arial,FontSize=18,PrimaryColour=&Hffffff&,OutlineColour=&H80000000&,BorderStyle=1,Outline=1'";
+}
+
+function roundedRect(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    radius: number
+) {
+    const r = Math.min(radius, width / 2, height / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + width - r, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+    ctx.lineTo(x + width, y + height - r);
+    ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+    ctx.lineTo(x + r, y + height);
+    ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+}
+
+async function createWatermarkImage(text: string): Promise<Blob> {
+    if (typeof document === 'undefined') {
+        throw new Error('Branding watermark needs a browser canvas.');
+    }
+
+    const scale = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    const fontSize = 10;
+    const paddingX = 6;
+    const paddingY = 3;
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Could not create watermark canvas.');
+
+    ctx.font = `600 ${fontSize}px Arial, Helvetica, sans-serif`;
+    const metrics = ctx.measureText(text);
+    const width = Math.ceil(metrics.width + paddingX * 2);
+    const height = Math.ceil(fontSize + paddingY * 2);
+    canvas.width = Math.ceil(width * scale);
+    canvas.height = Math.ceil(height * scale);
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    ctx.scale(scale, scale);
+
+    roundedRect(ctx, 0, 0, width, height, 3);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.46)';
+    ctx.fill();
+
+    ctx.font = `600 ${fontSize}px Arial, Helvetica, sans-serif`;
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
+    ctx.shadowBlur = 1;
+    ctx.fillText(text, paddingX, height / 2 + 1);
+
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+    if (!blob) throw new Error('Could not render watermark image.');
+    return blob;
 }
 
 async function reencodeVideoFile(
@@ -199,7 +267,10 @@ async function reencodeVideoFile(
         reframe?: { width: number; height: number };
     }
 ) {
-    const filters = [...(opts.reframe ? reframeFilters(opts.reframe) : []), ...(opts.captions ? [subtitlesFilter()] : [])];
+    const filters = [
+        ...(opts.reframe ? reframeFilters(opts.reframe) : []),
+        ...(opts.captions ? [subtitlesFilter()] : [])
+    ];
 
     if (opts.captions) {
         await ffmpeg.writeFile(CAPTION_SRT_FILE, new TextEncoder().encode(opts.captions.srt));
@@ -282,7 +353,79 @@ export async function burnCaptionsIntoVideo(
         if (ffmpeg) {
             const loadedFFmpeg = ffmpeg;
             await Promise.allSettled(
-                [CAPTION_INPUT_FILE, CAPTION_SRT_FILE, FINAL_OUTPUT_FILE].map((file) =>
+                [CAPTION_INPUT_FILE, CAPTION_SRT_FILE, FINAL_OUTPUT_FILE].map((file) => loadedFFmpeg.deleteFile(file))
+            );
+        }
+    }
+}
+
+export async function burnBrandingWatermarkIntoVideo(
+    film: Blob,
+    text = 'generated by xcity ai studio',
+    onProgress?: ProgressCallback
+): Promise<Blob> {
+    let ffmpeg: FFmpegRuntime | null = null;
+    let progressHandler: ((event: FFmpegProgressEvent) => void) | null = null;
+    let lastProgress = 0;
+
+    const reportProgress = (ratio: number) => {
+        if (!onProgress) return;
+        const next = clampProgress(ratio);
+        if (next < lastProgress) return;
+        lastProgress = next;
+        onProgress(next);
+    };
+
+    const watermarkArgs = [
+        '-i',
+        WATERMARK_INPUT_FILE,
+        '-i',
+        WATERMARK_IMAGE_FILE,
+        '-filter_complex',
+        '[1:v]format=rgba[wm];[0:v][wm]overlay=W-w-24:H-h-24:format=auto',
+        '-c:v',
+        'libx264',
+        '-preset',
+        'veryfast',
+        '-crf',
+        '23',
+        '-c:a',
+        'copy',
+        '-movflags',
+        '+faststart',
+        WATERMARK_OUTPUT_FILE
+    ];
+
+    try {
+        reportProgress(0);
+        const [{ fetchFile }, loadedFFmpeg] = await Promise.all([import('@ffmpeg/util'), getFFmpeg()]);
+        ffmpeg = loadedFFmpeg;
+
+        if (onProgress) {
+            progressHandler = ({ progress }) => reportProgress(progress);
+            ffmpeg.on('progress', progressHandler);
+        }
+
+        await ffmpeg.writeFile(WATERMARK_INPUT_FILE, await fetchFile(film));
+        await ffmpeg.writeFile(WATERMARK_IMAGE_FILE, await fetchFile(await createWatermarkImage(text)));
+        reportProgress(0.05);
+
+        await execOrThrow(ffmpeg, watermarkArgs, 'FFmpeg branding watermark');
+
+        const output = await ffmpeg.readFile(WATERMARK_OUTPUT_FILE);
+        reportProgress(1);
+        return createOutputBlob(output);
+    } catch (error) {
+        throw new Error(`Could not add branding watermark: ${getReadableError(error)}`);
+    } finally {
+        if (ffmpeg && progressHandler) {
+            ffmpeg.off?.('progress', progressHandler);
+        }
+
+        if (ffmpeg) {
+            const loadedFFmpeg = ffmpeg;
+            await Promise.allSettled(
+                [WATERMARK_INPUT_FILE, WATERMARK_IMAGE_FILE, WATERMARK_OUTPUT_FILE].map((file) =>
                     loadedFFmpeg.deleteFile(file)
                 )
             );
