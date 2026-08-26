@@ -33,6 +33,8 @@ export type VideoJob = {
 export type VideoMetadata = {
     id: string;
     timestamp: number;
+    /** Last metadata mutation time. Used to resolve cloud sync conflicts for the same video id. */
+    updatedAt?: number;
     filename: string;
     storageModeUsed?: 'fs' | 'indexeddb' | 'r2';
     durationMs: number;

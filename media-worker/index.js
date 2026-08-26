@@ -1253,6 +1253,10 @@ function historyRank(item) {
     return terminal + (item?.storedUrl ? 1 : 0);
 }
 
+function historyVersion(item) {
+    return Number.isFinite(item?.updatedAt) ? item.updatedAt : 0;
+}
+
 function mergeStateDocs(local, remote) {
     const a = normalizeStateDoc(local);
     const b = normalizeStateDoc(remote);
@@ -1263,7 +1267,13 @@ function mergeStateDocs(local, remote) {
     for (const item of [...b.history, ...a.history]) {
         if (!isRecord(item) || typeof item.id !== 'string' || tombstoned.has(item.id)) continue;
         const existing = byId.get(item.id);
-        if (!existing || historyRank(item) >= historyRank(existing)) byId.set(item.id, item);
+        if (
+            !existing ||
+            historyRank(item) > historyRank(existing) ||
+            (historyRank(item) === historyRank(existing) && historyVersion(item) >= historyVersion(existing))
+        ) {
+            byId.set(item.id, item);
+        }
     }
 
     const characterById = new Map();
