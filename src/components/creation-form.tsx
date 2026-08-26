@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
 import { Textarea } from '@/components/ui/textarea';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { VideoCharacter, VideoPortrait } from '@/hooks/use-video-history';
 import { calculateVideoCost } from '@/lib/cost-utils';
 import { PROMPT_TEMPLATE_CATEGORIES, applyPromptTemplate } from '@/lib/prompt-templates';
@@ -41,7 +42,17 @@ import {
 import type { TtsVoice } from '@/lib/tts';
 import { cn } from '@/lib/utils';
 import type { VideoJobCreate } from '@/types/video';
-import { ChevronDown, Clapperboard, Lightbulb, Loader2, ShieldCheck, Sparkles, Undo2, Wand2 } from 'lucide-react';
+import {
+    ChevronDown,
+    Clapperboard,
+    HelpCircle,
+    Lightbulb,
+    Loader2,
+    ShieldCheck,
+    Sparkles,
+    Undo2,
+    Wand2
+} from 'lucide-react';
 import * as React from 'react';
 
 export type CreationFormData = VideoJobCreate;
@@ -80,6 +91,8 @@ type CreationFormProps = {
     setSeed: React.Dispatch<React.SetStateAction<number | undefined>>;
     watermark: boolean;
     setWatermark: React.Dispatch<React.SetStateAction<boolean>>;
+    watermarkText: string;
+    setWatermarkText: React.Dispatch<React.SetStateAction<string>>;
     /** Uploads a local image, resolving to its public URL. Absent = URL-only mode. */
     onUploadImage?: (file: File) => Promise<string>;
     /** Uploads a local audio file, resolving to its public URL. Absent = URL-only mode. */
@@ -153,6 +166,8 @@ export function CreationForm({
     setSeed,
     watermark,
     setWatermark,
+    watermarkText,
+    setWatermarkText,
     onUploadImage,
     onUploadAudio,
     onSynthesizeSpeech,
@@ -322,7 +337,8 @@ export function CreationForm({
             generate_audio: generateAudio,
             camera_fixed: cameraFixed,
             seed,
-            watermark
+            watermark,
+            watermarkText: watermark ? watermarkText.trim().slice(0, 100) : undefined
         };
         if (isDraftMode) {
             formData.draft = true;
@@ -628,9 +644,27 @@ export function CreationForm({
                         {isAdvancedOpen && (
                             <div className='space-y-4 border-t border-white/10 p-3'>
                                 <div className='space-y-2'>
-                                    <Label htmlFor='seed-input' className='text-white/80'>
-                                        Seed
-                                    </Label>
+                                    <div className='flex items-center gap-1.5'>
+                                        <Label htmlFor='seed-input' className='text-white/80'>
+                                            Seed
+                                        </Label>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <button
+                                                    type='button'
+                                                    className='text-white/45 transition-colors hover:text-white/80'
+                                                    aria-label='Seed help'>
+                                                    <HelpCircle className='h-3.5 w-3.5' />
+                                                </button>
+                                            </TooltipTrigger>
+                                            <TooltipContent
+                                                side='top'
+                                                className='max-w-64 border border-white/20 bg-black text-white'>
+                                                Use a seed to make similar settings easier to reproduce. Leave it random
+                                                unless you want to revisit or fine-tune a previous result.
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    </div>
                                     <Input
                                         id='seed-input'
                                         type='number'
@@ -661,10 +695,46 @@ export function CreationForm({
                                         disabled={isLoading}
                                         className='border-white/40 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black'
                                     />
-                                    <Label htmlFor='watermark' className='cursor-pointer text-white/80'>
-                                        Watermark
-                                    </Label>
+                                    <div className='flex items-center gap-1.5'>
+                                        <Label htmlFor='watermark' className='cursor-pointer text-white/80'>
+                                            Watermark
+                                        </Label>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <button
+                                                    type='button'
+                                                    className='text-white/45 transition-colors hover:text-white/80'
+                                                    aria-label='Watermark help'>
+                                                    <HelpCircle className='h-3.5 w-3.5' />
+                                                </button>
+                                            </TooltipTrigger>
+                                            <TooltipContent
+                                                side='top'
+                                                className='max-w-64 border border-white/20 bg-black text-white'>
+                                                Adds a small visible mark in the bottom-right after generation. Use the
+                                                field below to customize the text.
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    </div>
                                 </div>
+                                {watermark && (
+                                    <div className='space-y-1'>
+                                        <Label htmlFor='watermark-text' className='text-xs text-white/60'>
+                                            Watermark text
+                                        </Label>
+                                        <Input
+                                            id='watermark-text'
+                                            type='text'
+                                            value={watermarkText}
+                                            maxLength={100}
+                                            onChange={(e) => setWatermarkText(e.target.value.slice(0, 100))}
+                                            disabled={isLoading}
+                                            placeholder='generated by xcity ai studio'
+                                            className='rounded-md border border-white/20 bg-black text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
+                                        />
+                                        <div className='text-[10px] text-white/35'>{watermarkText.length}/100</div>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>

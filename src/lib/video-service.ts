@@ -9,52 +9,69 @@ import type { VideoJob, VideoJobCreate } from '@/types/video';
  * pasted) — there is no server-side proxy or shared key.
  */
 
+type GatewayContentItem = {
+    type: 'image_url' | 'video_url' | 'audio_url';
+    role?: 'first_frame' | 'last_frame' | 'reference_image' | 'reference_video' | 'reference_audio';
+    image_url?: { url: string };
+    video_url?: { url: string };
+    audio_url?: { url: string };
+};
+
+function imageContent(url: string, role: GatewayContentItem['role']): GatewayContentItem {
+    return { type: 'image_url', image_url: { url }, role };
+}
+
+function videoContent(url: string, role: GatewayContentItem['role']): GatewayContentItem {
+    return { type: 'video_url', video_url: { url }, role };
+}
+
+function audioContent(url: string, role: GatewayContentItem['role']): GatewayContentItem {
+    return { type: 'audio_url', audio_url: { url }, role };
+}
+
 /**
- * JSON body for the gateway's POST /v1/videos. `ratio` / `resolution` /
- * `generate_audio` / `camera_fixed` are BytePlus provider params the gateway
- * passes through verbatim; `input_reference` is a public image URL
- * (image-to-video).
+ * JSON body for the gateway's POST /v1/videos. The gateway parses OpenAI-ish
+ * fields at the top level, while Doubao/Seedance provider params are read from
+ * `metadata` and forwarded to Ark.
  */
 function buildCreateBody(params: VideoJobCreate): Record<string, unknown> {
-    const body: Record<string, unknown> = {
-        model: params.model,
-        prompt: params.prompt,
-        seconds: clampSeconds(params.seconds, params.model),
+    const metadata: Record<string, unknown> = {
         resolution: params.resolution,
         generate_audio: params.generate_audio
     };
+    const body: Record<string, unknown> = {
+        model: params.model,
+        prompt: params.prompt,
+        seconds: String(clampSeconds(params.seconds, params.model)),
+        metadata
+    };
     if (params.reference_image_urls && params.reference_image_urls.length > 0) {
-        // Multi-reference mode: the gateway turns string entries into content
-        // items with role "reference_image"; explicit objects preserve their
-        // audio/video roles. Ratio stays valid here — only the first-frame
+        // Multi-reference mode. Ratio stays valid here — only the first-frame
         // mode derives it from the image.
-        body.input_reference = [
-            ...params.reference_image_urls,
-            ...(params.reference_video_urls ?? []).map((url) => ({ url, role: 'reference_video' })),
-            ...(params.reference_audio_url ? [{ url: params.reference_audio_url, role: 'reference_audio' }] : [])
+        metadata.content = [
+            ...params.reference_image_urls.map((url) => imageContent(url, 'reference_image')),
+            ...(params.reference_video_urls ?? []).map((url) => videoContent(url, 'reference_video')),
+            ...(params.reference_audio_url ? [audioContent(params.reference_audio_url, 'reference_audio')] : [])
         ];
-        body.ratio = params.ratio;
+        metadata.ratio = params.ratio;
     } else if (params.input_reference_url) {
         // BytePlus rejects `ratio` on first-frame (image-to-video) tasks with
         // InvalidParameter.TaskTypeConstraint — the output ratio always
         // follows the reference image, so the param must be omitted entirely.
-        body.input_reference = params.last_frame_url
+        metadata.content = params.last_frame_url
             ? [
-                  { url: params.input_reference_url, role: 'first_frame' },
-                  { url: params.last_frame_url, role: 'last_frame' }
+                  imageContent(params.input_reference_url, 'first_frame'),
+                  imageContent(params.last_frame_url, 'last_frame')
               ]
-            : params.input_reference_url;
+            : [imageContent(params.input_reference_url, 'first_frame')];
     } else {
-        body.ratio = params.ratio;
+        metadata.ratio = params.ratio;
     }
     if (params.camera_fixed !== undefined) {
-        body.camera_fixed = params.camera_fixed;
+        metadata.camera_fixed = params.camera_fixed;
     }
     if (params.seed !== undefined) {
-        body.seed = params.seed;
-    }
-    if (params.watermark) {
-        body.watermark = true;
+        metadata.seed = params.seed;
     }
     return body;
 }

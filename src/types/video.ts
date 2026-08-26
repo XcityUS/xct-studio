@@ -47,6 +47,15 @@ export type VideoMetadata = {
     storedUrl?: string;
     /** Provider CDN URL captured at completion time. Temporary; may expire after provider retention. */
     providerUrl?: string;
+    /** Studio branding watermark burned into the playable/exported video. */
+    brandingWatermark?: {
+        enabled: boolean;
+        text?: string;
+        /** Durable original video URL, without the Studio watermark. */
+        originalUrl?: string;
+        /** Durable watermarked video URL for the current watermark text. */
+        watermarkedUrl?: string;
+    };
     /**
      * Exact submission parameters, kept for reuse/regenerate. Items created
      * before this field existed fall back to parsing `size`/`model`.
@@ -108,6 +117,8 @@ export type VideoJobCreate = {
     draft?: boolean;
     /** Studio-only final target resolution for a draft. Omitted from the gateway request. */
     final_resolution?: string;
-    /** Provider watermark flag. Omitted from the request unless true. */
+    /** Studio branding watermark preference; handled after provider generation. */
     watermark?: boolean;
+    /** Studio branding watermark text; handled after provider generation. */
+    watermarkText?: string;
 };
