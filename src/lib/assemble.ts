@@ -3,7 +3,6 @@ const WASM_URL = '/ffmpeg/ffmpeg-core.wasm';
 const LIST_FILE = 'list.txt';
 const JOINED_FILE = 'joined.mp4';
 const OUTPUT_FILE = 'out.mp4';
-const CAPTION_INPUT_FILE = 'caption_input.mp4';
 const CAPTION_SRT_FILE = 'subs.srt';
 const FINAL_OUTPUT_FILE = 'final.mp4';
 
@@ -231,62 +230,6 @@ async function reencodeVideoFile(
             throw new CaptionBurnUnavailableError(getReadableError(error));
         }
         throw error;
-    }
-}
-
-export async function burnCaptionsIntoVideo(
-    film: Blob,
-    captions: { srt: string },
-    onProgress?: ProgressCallback
-): Promise<Blob> {
-    let ffmpeg: FFmpegRuntime | null = null;
-    let progressHandler: ((event: FFmpegProgressEvent) => void) | null = null;
-    let lastProgress = 0;
-
-    const reportProgress = (ratio: number) => {
-        if (!onProgress) return;
-        const next = clampProgress(ratio);
-        if (next < lastProgress) return;
-        lastProgress = next;
-        onProgress(next);
-    };
-
-    try {
-        reportProgress(0);
-        const [{ fetchFile }, loadedFFmpeg] = await Promise.all([import('@ffmpeg/util'), getFFmpeg()]);
-        ffmpeg = loadedFFmpeg;
-
-        if (onProgress) {
-            progressHandler = ({ progress }) => {
-                reportProgress(progress);
-            };
-            ffmpeg.on('progress', progressHandler);
-        }
-
-        await ffmpeg.writeFile(CAPTION_INPUT_FILE, await fetchFile(film));
-        reportProgress(0.05);
-        await reencodeVideoFile(ffmpeg, CAPTION_INPUT_FILE, FINAL_OUTPUT_FILE, { captions });
-        const output = await ffmpeg.readFile(FINAL_OUTPUT_FILE);
-        reportProgress(1);
-        return createOutputBlob(output);
-    } catch (error) {
-        if (error instanceof CaptionBurnUnavailableError) {
-            throw error;
-        }
-        throw new CaptionBurnUnavailableError(getReadableError(error));
-    } finally {
-        if (ffmpeg && progressHandler) {
-            ffmpeg.off?.('progress', progressHandler);
-        }
-
-        if (ffmpeg) {
-            const loadedFFmpeg = ffmpeg;
-            await Promise.allSettled(
-                [CAPTION_INPUT_FILE, CAPTION_SRT_FILE, FINAL_OUTPUT_FILE].map((file) =>
-                    loadedFFmpeg.deleteFile(file)
-                )
-            );
-        }
     }
 }
 

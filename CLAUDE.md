@@ -173,5 +173,9 @@ cd media-worker && npx wrangler dev --local   # local worker (+ mock /key/info t
 - `media-worker/` — auth = caller's TokenHub key verified via gateway
   `/key/info`; objects namespaced `u/<user_id>/…`. `/archive` only fetches
   from `*.volces.com` (no open proxy).
-- `remix-form.tsx` + `VideoMetadata.mode/remix_of` are currently unwired
-  (kept pending a decision on remix support via the gateway).
+- `VideoMetadata.mode/remix_of` are carried through history and the job
+  reconciler but nothing writes them — the `remix-form.tsx` that would have
+  was deleted unused; git history still has it if remix ever ships.
+- **Sharing has no unshare.** The worker's `/share/delete` was removed as
+  unreachable — no client ever called it. Wiring an Unshare button means
+  restoring that handler, not just the UI.

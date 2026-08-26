@@ -1184,34 +1184,6 @@ async function handleShareJson(env, id, cors) {
     return new Response(object.body, { status: 200, headers });
 }
 
-async function handleShareDelete(request, env, cors) {
-    const { owner, error } = await authOwner(request, env, cors);
-    if (error) return error;
-
-    let payload;
-    try {
-        payload = await request.json();
-    } catch {
-        return json({ error: 'invalid JSON body' }, 400, cors);
-    }
-
-    const id = safeShareId(payload?.id);
-    if (!id) {
-        return json({ error: 'id is required' }, 400, cors);
-    }
-
-    const record = await readShareRecord(env, id);
-    if (!record) {
-        return json({ error: 'not found' }, 404, cors);
-    }
-    if (record.owner !== owner) {
-        return json({ error: 'share is outside your namespace' }, 403, cors);
-    }
-
-    await env.XCITY_MEDIA.delete(shareKey(id));
-    return json({ ok: true, id }, 200, cors);
-}
-
 const MAX_STATE_BYTES = 2 * 1024 * 1024;
 
 function stateKey(owner) {
@@ -1588,10 +1560,6 @@ const worker = {
 
         if (url.pathname === '/share' && request.method === 'POST') {
             return handleShareCreate(request, env, cors);
-        }
-
-        if (url.pathname === '/share/delete' && request.method === 'POST') {
-            return handleShareDelete(request, env, cors);
         }
 
         if (url.pathname === '/community/publish' && request.method === 'POST') {
