@@ -597,6 +597,18 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
             charactersRef.current = next.characters;
             portraitsRef.current = next.portraits;
             declarationsRef.current = nextDeclarations;
+            try {
+                writeLocalHistory({
+                    updatedAt: updatedAtRef.current,
+                    history: next.history,
+                    characters: next.characters,
+                    portraits: next.portraits,
+                    declarations: nextDeclarations,
+                    deletedIds: deletedIdsRef.current
+                });
+            } catch (e) {
+                console.error('Failed to save history to localStorage:', e);
+            }
             setHistory(next.history);
             setCharacters(next.characters);
             setPortraits(next.portraits);
@@ -614,6 +626,18 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
         const next = update(historyRef.current);
         updatedAtRef.current = Date.now();
         historyRef.current = next;
+        try {
+            writeLocalHistory({
+                updatedAt: updatedAtRef.current,
+                history: next,
+                characters: charactersRef.current,
+                portraits: portraitsRef.current,
+                declarations: declarationsRef.current,
+                deletedIds: deletedIdsRef.current
+            });
+        } catch (e) {
+            console.error('Failed to save history to localStorage:', e);
+        }
         setHistory(next);
     }, []);
 
@@ -622,7 +646,8 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
             // Re-adding an id the user once deleted must clear its tombstone,
             // or the next merge would delete it again.
             deletedIdsRef.current = deletedIdsRef.current.filter((id) => id !== item.id);
-            mutateHistory((prev) => [item, ...prev]);
+            const now = Date.now();
+            mutateHistory((prev) => [{ ...item, updatedAt: item.updatedAt ?? now }, ...prev]);
         },
         [mutateHistory]
     );
@@ -633,8 +658,9 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
             // Re-adding an id the user once deleted must clear its tombstone,
             // or the next merge would delete it again.
             deletedIdsRef.current = deletedIdsRef.current.filter((id) => id !== item.id);
+            const now = Date.now();
             mutateHistory((prev) => [
-                item,
+                { ...item, updatedAt: item.updatedAt ?? now },
                 ...prev.filter((existing) => existing.id !== oldId && existing.id !== item.id)
             ]);
         },
@@ -643,7 +669,10 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
 
     const updateItem = React.useCallback(
         (id: string, patch: Partial<VideoMetadata>) => {
-            mutateHistory((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+            const now = Date.now();
+            mutateHistory((prev) =>
+                prev.map((item) => (item.id === id ? { ...item, ...patch, updatedAt: patch.updatedAt ?? now } : item))
+            );
         },
         [mutateHistory]
     );

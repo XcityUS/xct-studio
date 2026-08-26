@@ -66,6 +66,10 @@ function historyRank(item: VideoMetadata): number {
     return terminal + (item.storedUrl ? 1 : 0);
 }
 
+function historyVersion(item: VideoMetadata): number {
+    return Number.isFinite(item.updatedAt) ? (item.updatedAt as number) : 0;
+}
+
 /**
  * Entry-level merge of two devices' docs.
  *
@@ -83,7 +87,13 @@ export function mergeDocs(local: HistoryDoc, remote: HistoryDoc): HistoryDoc {
     for (const item of [...remote.history, ...local.history]) {
         if (!isRecord(item) || typeof item.id !== 'string' || tombstoned.has(item.id)) continue;
         const existing = byId.get(item.id);
-        if (!existing || historyRank(item) >= historyRank(existing)) byId.set(item.id, item);
+        if (
+            !existing ||
+            historyRank(item) > historyRank(existing) ||
+            (historyRank(item) === historyRank(existing) && historyVersion(item) >= historyVersion(existing))
+        ) {
+            byId.set(item.id, item);
+        }
     }
 
     const characterById = new Map<string, VideoCharacter>();
