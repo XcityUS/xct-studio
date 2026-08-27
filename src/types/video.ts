@@ -37,6 +37,8 @@ export type VideoMetadata = {
     updatedAt?: number;
     filename: string;
     storageModeUsed?: 'fs' | 'indexeddb' | 'r2';
+    /** Finished video file size in bytes, when known from local download or R2 archive metadata. */
+    fileSizeBytes?: number;
     durationMs: number;
     model: string;
     size: string;
@@ -66,10 +68,12 @@ export type VideoMetadata = {
     costDetails: CostDetails | null;
     draft?: boolean;
     finalResolution?: string;
+    /** Finalize source path: 0 = providerUrl update, 1 = storedUrl update, 2 = create with current-video URL reference. */
+    finalizeFlag?: 0 | 1 | 2;
     remix_of?: string;
     /** Temporary link used by regenerate: this completed item should replace the old history id. */
     replacesId?: string;
-    status?: 'processing' | 'completed' | 'failed';
+    status?: 'submitting' | 'processing' | 'completed' | 'failed';
     /** True when finished media bytes are no longer reachable from provider storage. */
     mediaExpired?: boolean;
     error?: string;
@@ -99,13 +103,18 @@ export type VideoJobCreate = {
      * Takes precedence over `input_reference_url` when non-empty.
      */
     reference_image_urls?: string[];
-    /**
-     * Optional video references for multi-reference mode. Prompts cite them as
-     * [Video 1], [Video 2], …; submit code may inline them as data URIs.
-     */
+    /** Optional video references. Prompts cite them as [Video 1], [Video 2], …. */
     reference_video_urls?: string[];
     /** Studio-only durations for reference video cost estimates, aligned with `reference_video_urls`. */
     reference_video_seconds?: number[];
+    /** Studio-only legacy passthrough marker retained for saved form compatibility. */
+    passthrough_reference_video_urls?: string[];
+    /** BytePlus omni-reference task type for video reference workflows such as Finalize. */
+    omni_reference_task_type?: 'edit' | 'extend';
+    /** Provider ratio override for omni-reference video editing/extension. */
+    omni_reference_ratio?: 'adaptive';
+    /** Provider duration override for omni-reference video editing/extension. */
+    omni_reference_duration?: -1;
     /**
      * Optional background music / timbre reference for multi-reference mode.
      * History stores the public URL; submit code may inline it as a data URI.

@@ -216,7 +216,7 @@ export function VideoOutput({
 
     return (
         <Card className='flex h-full w-full flex-1 flex-col overflow-hidden rounded-lg border border-white/10 bg-black'>
-            <CardHeader className='border-b border-white/10 pb-4'>
+            <CardHeader className='shrink-0 border-b border-white/10 pb-4'>
                 <div className='flex items-center justify-between'>
                     <div>
                         <CardTitle className='text-lg font-medium text-white'>Video Output</CardTitle>
@@ -229,7 +229,7 @@ export function VideoOutput({
             </CardHeader>
             <CardContent
                 className={cn(
-                    'flex min-h-0 flex-1 flex-col p-4',
+                    'flex min-h-0 flex-1 flex-col overflow-y-auto p-4',
                     showCompletedDetails ? 'items-stretch justify-start gap-4' : 'items-center justify-center'
                 )}>
                 {!job && !isLoading && (

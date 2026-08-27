@@ -9,71 +9,116 @@ import type { VideoJob, VideoJobCreate } from '@/types/video';
  * pasted) — there is no server-side proxy or shared key.
  */
 
-type GatewayContentItem = {
-    type: 'image_url' | 'video_url' | 'audio_url';
-    role?: 'first_frame' | 'last_frame' | 'reference_image' | 'reference_video' | 'reference_audio';
-    image_url?: { url: string };
-    video_url?: { url: string };
-    audio_url?: { url: string };
+type GatewayReferenceItem = {
+    url: string;
+    role: 'first_frame' | 'last_frame' | 'reference_image' | 'reference_video' | 'reference_audio';
 };
 
-function imageContent(url: string, role: GatewayContentItem['role']): GatewayContentItem {
-    return { type: 'image_url', image_url: { url }, role };
-}
-
-function videoContent(url: string, role: GatewayContentItem['role']): GatewayContentItem {
-    return { type: 'video_url', video_url: { url }, role };
-}
-
-function audioContent(url: string, role: GatewayContentItem['role']): GatewayContentItem {
-    return { type: 'audio_url', audio_url: { url }, role };
+function referenceItem(url: string, role: GatewayReferenceItem['role']): GatewayReferenceItem {
+    return { url, role };
 }
 
 /**
  * JSON body for the gateway's POST /v1/videos. The gateway parses OpenAI-ish
  * fields at the top level, while Doubao/Seedance provider params are read from
- * `metadata` and forwarded to Ark.
+ * `extra_body` and forwarded to Ark.
  */
 function buildCreateBody(params: VideoJobCreate): Record<string, unknown> {
-    const metadata: Record<string, unknown> = {
+    const extraBody: Record<string, unknown> = {
         resolution: params.resolution,
         generate_audio: params.generate_audio
     };
     const body: Record<string, unknown> = {
         model: params.model,
         prompt: params.prompt,
-        seconds: String(clampSeconds(params.seconds, params.model)),
-        metadata
+        seconds: String(params.omni_reference_duration ?? clampSeconds(params.seconds, params.model)),
+        extra_body: extraBody
     };
-    if (params.reference_image_urls && params.reference_image_urls.length > 0) {
+    if (
+        (params.reference_image_urls && params.reference_image_urls.length > 0) ||
+        (params.reference_video_urls && params.reference_video_urls.length > 0)
+    ) {
         // Multi-reference mode. Ratio stays valid here — only the first-frame
         // mode derives it from the image.
-        metadata.content = [
-            ...params.reference_image_urls.map((url) => imageContent(url, 'reference_image')),
-            ...(params.reference_video_urls ?? []).map((url) => videoContent(url, 'reference_video')),
-            ...(params.reference_audio_url ? [audioContent(params.reference_audio_url, 'reference_audio')] : [])
+        body.input_reference = [
+            ...(params.reference_image_urls ?? []).map((url) => referenceItem(url, 'reference_image')),
+            ...(params.reference_video_urls ?? []).map((url) => referenceItem(url, 'reference_video')),
+            ...(params.reference_audio_url ? [referenceItem(params.reference_audio_url, 'reference_audio')] : [])
         ];
-        metadata.ratio = params.ratio;
+        extraBody.ratio = params.omni_reference_ratio ?? params.ratio;
     } else if (params.input_reference_url) {
         // BytePlus rejects `ratio` on first-frame (image-to-video) tasks with
         // InvalidParameter.TaskTypeConstraint — the output ratio always
         // follows the reference image, so the param must be omitted entirely.
-        metadata.content = params.last_frame_url
-            ? [
-                  imageContent(params.input_reference_url, 'first_frame'),
-                  imageContent(params.last_frame_url, 'last_frame')
-              ]
-            : [imageContent(params.input_reference_url, 'first_frame')];
+        body.input_reference = params.last_frame_url
+            ? [referenceItem(params.input_reference_url, 'first_frame'), referenceItem(params.last_frame_url, 'last_frame')]
+            : params.input_reference_url;
     } else {
-        metadata.ratio = params.ratio;
+        extraBody.ratio = params.ratio;
     }
-    if (params.camera_fixed !== undefined) {
-        metadata.camera_fixed = params.camera_fixed;
+    if (params.camera_fixed === true && !params.model.includes('seedance-2-5')) {
+        extraBody.camera_fixed = params.camera_fixed;
     }
     if (params.seed !== undefined) {
-        metadata.seed = params.seed;
+        extraBody.seed = params.seed;
+    }
+    if (params.omni_reference_task_type) {
+        extraBody.omni_reference_task_type = params.omni_reference_task_type;
+    }
+    if (params.omni_reference_duration !== undefined) {
+        extraBody.duration = params.omni_reference_duration;
     }
     return body;
+}
+
+function buildProjectedSeedanceBody(gatewayBody: Record<string, unknown>): Record<string, unknown> {
+    const { prompt, input_reference: inputReference, extra_body: extraBody, seconds, size, ...rest } = gatewayBody;
+    const content: Record<string, unknown>[] = [];
+    if (typeof prompt === 'string' && prompt) {
+        content.push({ type: 'text', text: prompt });
+    }
+
+    if (Array.isArray(inputReference)) {
+        for (const item of inputReference) {
+            if (!item || typeof item !== 'object') continue;
+            const reference = item as { url?: unknown; role?: unknown };
+            if (typeof reference.url !== 'string' || !reference.url) continue;
+            const role = typeof reference.role === 'string' ? reference.role : 'reference_image';
+            if (role === 'reference_video') {
+                content.push({ type: 'video_url', video_url: { url: reference.url }, role });
+            } else if (role === 'reference_audio') {
+                content.push({ type: 'audio_url', audio_url: { url: reference.url }, role });
+            } else {
+                content.push({ type: 'image_url', image_url: { url: reference.url }, role });
+            }
+        }
+    } else if (typeof inputReference === 'string' && inputReference) {
+        content.push({ type: 'image_url', image_url: { url: inputReference } });
+    }
+
+    const seedanceBody: Record<string, unknown> = { ...rest, content };
+    if (typeof seconds === 'string' || typeof seconds === 'number') {
+        const duration = Number(seconds);
+        if (Number.isFinite(duration)) seedanceBody.duration = Math.trunc(duration);
+    }
+    if (typeof size === 'string' && size.includes('x')) {
+        const [width, height] = size.toLowerCase().split('x', 2).map(Number);
+        if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+            const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+            const divisor = gcd(width, height);
+            seedanceBody.ratio = `${width / divisor}:${height / divisor}`;
+        }
+    }
+    if (extraBody && typeof extraBody === 'object' && !Array.isArray(extraBody)) {
+        Object.assign(seedanceBody, extraBody);
+    }
+    return seedanceBody;
+}
+
+function logSeedanceDebugBodies(gatewayBody: Record<string, unknown>) {
+    if (process.env.NODE_ENV === 'production') return;
+    console.info('Seedance gateway /v1/videos request body:', gatewayBody);
+    console.info('Projected BytePlus Seedance request body:', buildProjectedSeedanceBody(gatewayBody));
 }
 
 /**
@@ -119,6 +164,11 @@ function retryDelayMs(error: RateLimitError) {
     return 30_000;
 }
 
+function normalizeSeed(seed: unknown): number | undefined {
+    const value = typeof seed === 'number' ? seed : typeof seed === 'string' ? Number(seed.trim()) : NaN;
+    return Number.isFinite(value) ? Math.trunc(value) : undefined;
+}
+
 function normalizeJob(raw: unknown): VideoJob {
     const { seed, ...job } = raw as Omit<VideoJob, 'progress' | 'seed' | 'status'> & {
         progress?: number | string;
@@ -129,11 +179,12 @@ function normalizeJob(raw: unknown): VideoJob {
     const reported = Number(job.progress);
     const progress =
         status === 'completed' ? 100 : Number.isFinite(reported) ? Math.max(0, Math.min(100, reported)) : 0;
+    const normalizedSeed = normalizeSeed(seed);
     return {
         ...job,
         status,
         progress,
-        ...(typeof seed === 'number' && Number.isFinite(seed) ? { seed } : {})
+        ...(normalizedSeed !== undefined ? { seed: normalizedSeed } : {})
     };
 }
 
@@ -253,7 +304,9 @@ export class VideoService {
             // videos.create helper switches to multipart when input_reference
             // is present, which the gateway (URL-based image-to-video) does
             // not speak.
-            const video = await this.client().post('/videos', { body: buildCreateBody(params) });
+            const body = buildCreateBody(params);
+            logSeedanceDebugBodies(body);
+            const video = await this.client().post('/videos', { body });
             return normalizeJob(video);
         } catch (error) {
             this.handleError(error, params.model);
