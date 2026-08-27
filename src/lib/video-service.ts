@@ -56,7 +56,7 @@ function buildCreateBody(params: VideoJobCreate): Record<string, unknown> {
     } else {
         extraBody.ratio = params.ratio;
     }
-    if (params.camera_fixed !== undefined) {
+    if (params.camera_fixed === true && !params.model.includes('seedance-2-5')) {
         extraBody.camera_fixed = params.camera_fixed;
     }
     if (params.seed !== undefined) {
