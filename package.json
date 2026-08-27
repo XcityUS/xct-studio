@@ -3,7 +3,7 @@
   "version": "2.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "cross-env NEXT_DIST_DIR=.next-dev next dev --turbopack",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",

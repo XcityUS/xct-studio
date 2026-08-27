@@ -148,22 +148,40 @@ function portraitGroupLabel(group: PortraitGroup): string {
 
 function CopyUrlButton({ url }: { url: string }) {
     const [copied, setCopied] = React.useState(false);
+    const [copyFailed, setCopyFailed] = React.useState(false);
     return (
         <button
             type='button'
             title='Copy URL'
             onClick={async () => {
                 try {
-                    await navigator.clipboard.writeText(url);
+                    if (navigator.clipboard?.writeText) {
+                        await navigator.clipboard.writeText(url);
+                    } else {
+                        const textarea = document.createElement('textarea');
+                        textarea.value = url;
+                        textarea.setAttribute('readonly', '');
+                        textarea.style.position = 'fixed';
+                        textarea.style.opacity = '0';
+                        document.body.appendChild(textarea);
+                        textarea.select();
+                        const ok = document.execCommand('copy');
+                        document.body.removeChild(textarea);
+                        if (!ok) throw new Error('Copy command was rejected.');
+                    }
                     setCopied(true);
+                    setCopyFailed(false);
                     setTimeout(() => setCopied(false), 2000);
                 } catch (err) {
                     console.error('Failed to copy URL:', err);
+                    setCopied(false);
+                    setCopyFailed(true);
+                    setTimeout(() => setCopyFailed(false), 2500);
                 }
             }}
             className='flex flex-1 items-center justify-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white'>
             {copied ? <Check size={11} className='text-green-400' /> : <Copy size={11} />}
-            {copied ? 'Copied' : 'Copy URL'}
+            {copyFailed ? 'Copy failed' : copied ? 'Copied' : 'Copy URL'}
         </button>
     );
 }

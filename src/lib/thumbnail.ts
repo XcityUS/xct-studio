@@ -4,6 +4,8 @@
  * thumbnails and extend frames are grabbed from the downloaded blob.
  */
 
+const POSTER_CAPTURE_TIMES = [0.1, 0.5, 1, 2] as const;
+
 function waitForVideoEvent(
     video: HTMLVideoElement,
     eventName: keyof HTMLMediaElementEventMap,
@@ -124,18 +126,30 @@ function captureFrameAt(videoBlob: Blob, resolveTime: (duration: number) => numb
     return captureFrameFrom({ kind: 'blob', blob: videoBlob }, resolveTime);
 }
 
+async function capturePosterFrom(source: FrameSource): Promise<Blob | undefined> {
+    for (const seconds of POSTER_CAPTURE_TIMES) {
+        const frame = await captureFrameFrom(source, (duration) => {
+            if (!duration) return seconds;
+            return Math.min(seconds, Math.max(0, duration - 0.05));
+        });
+        if (frame) return frame;
+    }
+
+    return captureFrameFrom(source, (duration) => (duration > 0 ? duration * 0.2 : 0));
+}
+
 export async function captureVideoFrame(videoBlob: Blob, atTime: number): Promise<Blob | undefined> {
     return captureFrameAt(videoBlob, () => atTime);
 }
 
 export async function captureVideoPoster(videoBlob: Blob): Promise<Blob | undefined> {
     // Seek slightly in — frame 0 is sometimes black on encoded output.
-    return captureVideoFrame(videoBlob, 0.1);
+    return capturePosterFrom({ kind: 'blob', blob: videoBlob });
 }
 
 /** Poster from a CORS-open URL (R2), streamed rather than fully downloaded. */
 export async function captureVideoPosterFromUrl(url: string): Promise<Blob | undefined> {
-    return captureFrameFrom({ kind: 'url', url }, () => 0.1);
+    return capturePosterFrom({ kind: 'url', url });
 }
 
 export async function captureVideoLastFrame(videoBlob: Blob): Promise<Blob | undefined> {

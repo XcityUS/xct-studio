@@ -182,9 +182,10 @@ export function CreationForm({
     const refCap = maxReferenceImages(model);
     // Ratio is provider-derived only in first-frame mode (exactly one image).
     const isFirstFrameMode = referenceUrls.length === 1;
-    const showMultiReferenceMedia = refCap > 1 && referenceUrls.length >= 2;
+    const supportsMultiReferenceMedia = refCap > 1;
+    const showMultiReferenceMedia = supportsMultiReferenceMedia && referenceUrls.length >= 2;
     const showReferenceAudio = showMultiReferenceMedia;
-    const showReferenceVideos = showMultiReferenceMedia;
+    const showReferenceVideos = supportsMultiReferenceMedia;
     const attachedReferenceUrls = React.useMemo(() => {
         const refs = referenceUrls.map((url) => url.trim()).filter(Boolean);
         const lastFrame = lastFrameUrl.trim();
@@ -436,7 +437,7 @@ export function CreationForm({
                             onChange={(e) => setPrompt(e.target.value)}
                             required
                             disabled={isLoading}
-                            className='min-h-[100px] resize-none rounded-md border border-white/20 bg-black text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
+                            className='h-56 min-h-36 resize-none overflow-y-auto rounded-md border border-white/20 bg-black text-white placeholder:text-white/40 [field-sizing:fixed] focus:border-white/50 focus:ring-white/50'
                         />
                         {CAMERA_TEMPLATES.length > 0 && (
                             <div className='flex items-center gap-2 overflow-hidden'>
