@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { PROMPT_TEMPLATE_CATEGORIES } from '@/lib/prompt-templates';
 import { cn } from '@/lib/utils';
-import { ArrowDown, ArrowUp, ChevronDown, Loader2, Plus, Trash2, Wand2 } from 'lucide-react';
+import { AlertCircle, ArrowDown, ArrowUp, ChevronDown, Loader2, Plus, Trash2, Wand2 } from 'lucide-react';
 import * as React from 'react';
 
 export type ShotDraft = {
@@ -35,6 +35,17 @@ type ShotBuilderDialogProps = {
 
 const CAMERA_TEMPLATES = PROMPT_TEMPLATE_CATEGORIES.find((category) => category.id === 'camera')?.templates ?? [];
 const NO_CAMERA_VALUE = '__no_camera__';
+
+function InlineError({ children }: { children: React.ReactNode }) {
+    return (
+        <div
+            role='alert'
+            className='flex w-full items-start gap-2 rounded-md border border-red-400/25 bg-red-500/[0.08] px-3 py-2 text-xs leading-5 text-red-200'>
+            <AlertCircle className='mt-0.5 h-4 w-4 shrink-0 text-red-300' />
+            <span className='min-w-0 break-words'>{children}</span>
+        </div>
+    );
+}
 
 function createEmptyShot(): ShotDraft {
     return { description: '' };
@@ -176,7 +187,7 @@ export function ShotBuilderDialog({
                                     placeholder='Paste a short script or scene outline.'
                                     className='min-h-[100px] resize-none rounded-md border border-white/20 bg-black text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
                                 />
-                                <div className='flex flex-wrap items-center gap-3'>
+                                <div className='flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center'>
                                     <Button
                                         type='button'
                                         size='sm'
@@ -190,8 +201,8 @@ export function ShotBuilderDialog({
                                         )}
                                         {isBreakingDown ? 'Breaking down...' : 'Break into shots'}
                                     </Button>
-                                    {breakdownError && <p className='text-xs text-red-400'>{breakdownError}</p>}
                                 </div>
+                                {breakdownError && <InlineError>{breakdownError}</InlineError>}
                             </div>
                         )}
                     </div>

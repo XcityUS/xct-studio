@@ -43,6 +43,7 @@ import type { TtsVoice } from '@/lib/tts';
 import { cn } from '@/lib/utils';
 import type { VideoJobCreate } from '@/types/video';
 import {
+    AlertCircle,
     ChevronDown,
     Clapperboard,
     HelpCircle,
@@ -121,6 +122,17 @@ const RATIO_LABELS: Record<VideoRatio, string> = {
 
 const CAMERA_TEMPLATES = PROMPT_TEMPLATE_CATEGORIES.find((category) => category.id === 'camera')?.templates ?? [];
 type GenerationMode = 'draft' | 'final';
+
+function InlineError({ children }: { children: React.ReactNode }) {
+    return (
+        <div
+            role='alert'
+            className='flex w-full items-start gap-2 rounded-md border border-red-400/25 bg-red-500/[0.08] px-3 py-2 text-xs leading-5 text-red-200'>
+            <AlertCircle className='mt-0.5 h-4 w-4 shrink-0 text-red-300' />
+            <span className='min-w-0 break-words'>{children}</span>
+        </div>
+    );
+}
 
 function appendCharacterPromptLine(prompt: string, imageIndex: number, name: string): string {
     const line = `[Image ${imageIndex}] is ${name}.`;
@@ -460,7 +472,7 @@ export function CreationForm({
                                 </div>
                             </div>
                         )}
-                        {optimizeError && <p className='text-xs text-red-400'>{optimizeError}</p>}
+                        {optimizeError && <InlineError>{optimizeError}</InlineError>}
                         <p className='text-xs text-white/40'>
                             Describe: shot type, subject, action, setting, and lighting for best results.
                         </p>
