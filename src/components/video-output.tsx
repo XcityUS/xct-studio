@@ -15,6 +15,8 @@ import {
     Check,
     Download,
     Loader2,
+    Maximize2,
+    Minimize2,
     Pause,
     Play,
     Rocket,
@@ -406,6 +408,7 @@ export function VideoOutput({
                             key={`${completedOutput.job.id}:${completedOutput.videoSrc}`}
                             jobId={completedOutput.job.id}
                             videoSrc={completedOutput.videoSrc}
+                            size={completedOutput.job.size}
                             thumbnailSrc={thumbnailSrc}
                             onSourceError={onRetryPreview}
                         />
@@ -539,13 +542,29 @@ export function VideoOutput({
 type CompletedVideoPlayerProps = {
     jobId: string;
     videoSrc: string;
+    size: string;
     thumbnailSrc?: string | null | undefined;
     onSourceError?: () => void;
 };
 
-function CompletedVideoPlayer({ jobId, videoSrc, thumbnailSrc, onSourceError }: CompletedVideoPlayerProps) {
+function aspectRatioFromSize(size: string): string {
+    const match = size.match(/(\d+)\s*[:xX]\s*(\d+)/);
+    if (!match) return '16 / 9';
+
+    const width = Number(match[1]);
+    const height = Number(match[2]);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+        return '16 / 9';
+    }
+
+    return `${width} / ${height}`;
+}
+
+function CompletedVideoPlayer({ jobId, videoSrc, size, thumbnailSrc, onSourceError }: CompletedVideoPlayerProps) {
+    const playerRef = React.useRef<HTMLDivElement | null>(null);
     const videoRef = React.useRef<HTMLVideoElement | null>(null);
     const [isPlaying, setIsPlaying] = React.useState(false);
+    const [isFullscreen, setIsFullscreen] = React.useState(false);
     const [hasInteracted, setHasInteracted] = React.useState(false);
     const [isHovering, setIsHovering] = React.useState(false);
     const [duration, setDuration] = React.useState(0);
@@ -596,6 +615,15 @@ function CompletedVideoPlayer({ jobId, videoSrc, thumbnailSrc, onSourceError }: 
         pendingResumeRef.current = { time: positionRef.current, playing: playingRef.current };
     }, [videoSrc]);
 
+    React.useEffect(() => {
+        const handleFullscreenChange = () => {
+            setIsFullscreen(document.fullscreenElement === playerRef.current);
+        };
+
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    }, []);
+
     const handleTogglePlayback = React.useCallback(() => {
         const video = videoRef.current;
         if (!video) return;
@@ -616,6 +644,23 @@ function CompletedVideoPlayer({ jobId, videoSrc, thumbnailSrc, onSourceError }: 
             video.pause();
         }
     }, [duration]);
+
+    const handleToggleFullscreen = React.useCallback(async (event: React.MouseEvent<HTMLButtonElement>) => {
+        event.stopPropagation();
+
+        const player = playerRef.current;
+        if (!player) return;
+
+        try {
+            if (document.fullscreenElement === player) {
+                await document.exitFullscreen();
+            } else {
+                await player.requestFullscreen();
+            }
+        } catch (error) {
+            console.warn('Could not toggle fullscreen video player:', error);
+        }
+    }, []);
 
     const handleSliderChange = React.useCallback(
         (value: number[]) => {
@@ -655,7 +700,14 @@ function CompletedVideoPlayer({ jobId, videoSrc, thumbnailSrc, onSourceError }: 
     const formattedDuration = formatTime(duration);
 
     return (
-        <div className='flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-white/20 bg-black max-h-[60vh]'>
+        <div
+            ref={playerRef}
+            className='flex w-full shrink-0 flex-col overflow-hidden rounded-lg border border-white/20 bg-black'
+            style={
+                isFullscreen
+                    ? { height: '100vh', maxHeight: 'none' }
+                    : { aspectRatio: aspectRatioFromSize(size), maxHeight: 'min(76vh, 860px)' }
+            }>
             <div
                 className='relative flex min-h-0 flex-1 items-center justify-center bg-black'
                 onMouseEnter={() => setIsHovering(true)}
@@ -749,6 +801,14 @@ function CompletedVideoPlayer({ jobId, videoSrc, thumbnailSrc, onSourceError }: 
                 <span className='w-12 text-right text-xs font-medium text-white/60 tabular-nums'>
                     {formattedDuration}
                 </span>
+                <button
+                    type='button'
+                    onClick={handleToggleFullscreen}
+                    className='rounded-md border border-white/15 bg-white/5 p-2 text-white/70 transition-colors hover:border-white/30 hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-white/40'
+                    aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                    title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}>
+                    {isFullscreen ? <Minimize2 className='h-4 w-4' /> : <Maximize2 className='h-4 w-4' />}
+                </button>
             </div>
         </div>
     );

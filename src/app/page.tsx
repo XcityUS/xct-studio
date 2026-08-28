@@ -2939,12 +2939,15 @@ export default function HomePage() {
             if (!url) {
                 throw new Error('Video source not found');
             }
+            const blob = await videoService.downloadContent(videoId, url);
+            const objectUrl = URL.createObjectURL(blob);
             const a = document.createElement('a');
-            a.href = url;
+            a.href = objectUrl;
             a.download = `${videoId}.mp4`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
+            window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000);
         } catch (err) {
             console.error('Error downloading video:', err);
             setError(err instanceof Error ? err.message : 'Failed to download video', 'output');
@@ -3004,7 +3007,7 @@ export default function HomePage() {
                     <AlertDescription className='text-white/70'>{shareNotice}</AlertDescription>
                 </Alert>
             )}
-            <div className='grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start'>
+            <div className='grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,0.8fr)_minmax(560px,1.2fr)] lg:items-start xl:grid-cols-[minmax(0,0.75fr)_minmax(640px,1.25fr)]'>
                 <div ref={creationFormRef} className='relative flex min-h-[600px] flex-col lg:col-span-1'>
                     <ApiKeyGate
                         isBlocked={isApiKeyGateBlocked}
@@ -3237,7 +3240,7 @@ export default function HomePage() {
                 </DialogContent>
             </Dialog>
 
-            <div className='w-full max-w-7xl space-y-6'>
+            <div className='w-full max-w-[104rem] space-y-6'>
                 {imageGenerationEnabled || uploadEnabled || isPortraitEnabled ? (
                     <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as StudioTab)}>
                         <TabsList className='mb-4 border border-white/10 bg-white/5'>
