@@ -14,6 +14,8 @@ import {
     type ReferenceDeclaration,
     type ReferenceOrigin
 } from '@/lib/reference-origin';
+import type { VideoCharacter, VideoPortrait } from '@/lib/history-merge';
+import type { UserAsset } from '@/lib/media-archive';
 import { cn } from '@/lib/utils';
 import { AlertTriangle, Check, ImagePlus, Link2, Loader2, ShieldCheck, X } from 'lucide-react';
 import * as React from 'react';
@@ -33,6 +35,16 @@ interface ReferenceImagesInputProps {
     onDeclare: (url: string, origin: ReferenceOrigin) => void;
     approvedAuthorizationIds: ReadonlySet<string>;
     onOpenAssets?: (referenceKey?: string) => void;
+    characters?: VideoCharacter[];
+    portraits?: VideoPortrait[];
+    imageAssets?: UserAsset[];
+    isLoadingImageAssets?: boolean;
+    onRefreshImageAssets?: () => void;
+    onCreateVirtualAsset?: (input: { url: string; name: string }) => Promise<string>;
+    label?: string;
+    hint?: string;
+    showCharacters?: boolean;
+    showAssetLibrary?: boolean;
     disabled?: boolean;
 }
 
@@ -52,6 +64,10 @@ function isReferenceImageUrl(url: string): boolean {
 function assetReferenceLabel(url: string): string {
     const assetId = url.trim().replace(/^asset:\/\//, '');
     return assetId.length > 8 ? assetId.slice(-8) : assetId;
+}
+
+function portraitReferenceUrl(assetId: string): string {
+    return `asset://${assetId}`;
 }
 
 function declarationForUrl(
@@ -326,17 +342,37 @@ export function ReferenceImagesInput({
     onDeclare,
     approvedAuthorizationIds,
     onOpenAssets,
+    characters = [],
+    portraits = [],
+    imageAssets = [],
+    isLoadingImageAssets = false,
+    onRefreshImageAssets,
+    onCreateVirtualAsset,
+    label,
+    hint: hintOverride,
+    showCharacters = true,
+    showAssetLibrary = false,
     disabled
 }: ReferenceImagesInputProps) {
     const fileInputRef = React.useRef<HTMLInputElement>(null);
     const [isUploading, setIsUploading] = React.useState(false);
+    const [creatingVirtualKey, setCreatingVirtualKey] = React.useState<string | null>(null);
     const [uploadError, setUploadError] = React.useState<string | null>(null);
+    const [setupError, setSetupError] = React.useState<string | null>(null);
     const [isDragOver, setIsDragOver] = React.useState(false);
     const [showUrlInput, setShowUrlInput] = React.useState(false);
+    const [showStoredImages, setShowStoredImages] = React.useState(false);
     const [urlDraft, setUrlDraft] = React.useState('');
+    const [virtualNames, setVirtualNames] = React.useState<Record<string, string>>({});
 
     const remaining = maxImages - urls.length;
     const canUpload = Boolean(onUpload);
+    const attachablePortraits =
+        maxImages > 1
+            ? portraits.filter((portrait) => !urls.includes(portraitReferenceUrl(portrait.assetId)))
+            : [];
+    const attachableCharacters = characters.filter((character) => !urls.includes(character.url));
+    const attachableImageAssets = imageAssets.filter((asset) => asset.kind === 'image' && !urls.includes(asset.url));
     const unresolvedDeclarations = React.useMemo(() => {
         const items = urls.map((url, i) => ({ url, label: `Image ${i + 1}` }));
         if (lastFrameUrl.trim()) {
@@ -399,7 +435,31 @@ export function ReferenceImagesInput({
         setUploadError(null);
     };
 
+    const replaceUrl = (fromUrl: string, toUrl: string) => {
+        onChange(urls.map((url) => (url === fromUrl ? toUrl : url)));
+        setUploadError(null);
+        setSetupError(null);
+    };
+
+    const createVirtualAsset = async (url: string, label: string) => {
+        if (!onCreateVirtualAsset || disabled) return;
+        const key = refKey(url);
+        if (!key) return;
+        const name = virtualNames[key]?.trim() || label;
+        setCreatingVirtualKey(key);
+        setSetupError(null);
+        try {
+            const assetUrl = await onCreateVirtualAsset({ url, name });
+            replaceUrl(url, assetUrl);
+        } catch (err) {
+            setSetupError(err instanceof Error ? err.message : 'Could not create virtual asset.');
+        } finally {
+            setCreatingVirtualKey(null);
+        }
+    };
+
     const hint =
+        hintOverride ??
         maxImages <= 1
             ? 'Image-to-video: the clip starts from this frame; the output ratio follows the image. Switch to Seedance 2.0/2.5 to use multiple reference images.'
             : urls.length >= 2
@@ -411,7 +471,7 @@ export function ReferenceImagesInput({
     return (
         <div className='space-y-2'>
             <Label className='text-white'>
-                {maxImages > 1 ? 'Reference Images (Optional)' : 'Reference Image (Optional)'}
+                {label ?? (maxImages > 1 ? 'Reference Images (Optional)' : 'Reference Image (Optional)')}
             </Label>
 
             {urls.length > 0 && (
@@ -461,6 +521,133 @@ export function ReferenceImagesInput({
                 </div>
             )}
 
+            {showCharacters && remaining > 0 && attachableCharacters.length > 0 && (
+                <div className='space-y-2'>
+                    <div className='flex flex-wrap items-center gap-2'>
+                        <span className='text-sm text-white/80'>Characters:</span>
+                        <div className='flex min-w-0 flex-1 flex-wrap gap-1.5'>
+                            {attachableCharacters.map((character) => (
+                                <button
+                                    key={character.id}
+                                    type='button'
+                                    title={`Attach ${character.name}`}
+                                    onClick={() => addUrls([character.url])}
+                                    disabled={disabled}
+                                    className='inline-flex max-w-full items-center gap-1.5 rounded-full border border-white/15 bg-white/5 py-1 pr-2 pl-1 text-xs text-white/75 transition-colors hover:border-white/30 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-45'>
+                                    <span className='h-5 w-5 shrink-0 overflow-hidden rounded-full border border-white/15 bg-white/5'>
+                                        {/* eslint-disable-next-line @next/next/no-img-element -- user stored character thumbnail */}
+                                        <img
+                                            src={character.url}
+                                            alt={character.name}
+                                            loading='lazy'
+                                            className='h-full w-full object-cover'
+                                        />
+                                    </span>
+                                    <span className='max-w-32 truncate'>{character.name}</span>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {remaining > 0 && (attachableImageAssets.length > 0 || isLoadingImageAssets || onRefreshImageAssets) && (
+                <div className='space-y-2'>
+                    <div className='flex items-center justify-between gap-2'>
+                        <button
+                            type='button'
+                            onClick={() => setShowStoredImages((current) => !current)}
+                            className='text-sm text-white/50 transition-colors hover:text-white/80'>
+                            {showStoredImages ? 'Hide stored images' : 'Show stored images'}
+                        </button>
+                        {showStoredImages && onRefreshImageAssets && (
+                            <button
+                                type='button'
+                                onClick={onRefreshImageAssets}
+                                disabled={disabled || isLoadingImageAssets}
+                                className='rounded-md border border-white/15 bg-white/5 px-2 py-1 text-xs text-white/55 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-45'>
+                                {isLoadingImageAssets ? 'Loading...' : 'Refresh'}
+                            </button>
+                        )}
+                    </div>
+                    {showStoredImages && attachableImageAssets.length > 0 ? (
+                        <div className='flex gap-2 overflow-x-auto pb-1'>
+                            {attachableImageAssets.slice(0, 24).map((asset) => (
+                                <button
+                                    key={asset.key}
+                                    type='button'
+                                    title={asset.name ?? asset.key}
+                                    onClick={() => addUrls([asset.url])}
+                                    disabled={disabled}
+                                    className='group relative h-16 w-16 shrink-0 overflow-hidden rounded-md border border-white/15 bg-white/5 transition-colors hover:border-white/40 disabled:cursor-not-allowed disabled:opacity-45'>
+                                    {/* eslint-disable-next-line @next/next/no-img-element -- user stored image asset */}
+                                    <img
+                                        src={asset.url}
+                                        alt={asset.name ?? 'Stored image'}
+                                        loading='lazy'
+                                        className='h-full w-full object-cover'
+                                    />
+                                    <span className='absolute inset-x-0 bottom-0 truncate bg-black/70 px-1 py-0.5 text-[10px] text-white/80'>
+                                        {asset.name ?? 'Image'}
+                                    </span>
+                                </button>
+                            ))}
+                        </div>
+                    ) : showStoredImages ? (
+                        <p className='text-xs text-white/45'>
+                            {isLoadingImageAssets ? 'Loading stored images...' : 'No stored image assets found.'}
+                        </p>
+                    ) : null}
+                </div>
+            )}
+
+            {showAssetLibrary && remaining > 0 && (attachablePortraits.length > 0 || onOpenAssets) && (
+                <div className='space-y-2'>
+                    <div className='flex flex-wrap items-center gap-2'>
+                        <span className='text-sm text-white/80'>Asset library:</span>
+                        <div className='flex min-w-0 flex-1 flex-wrap gap-1.5'>
+                            {attachablePortraits.map((portrait) => (
+                                <button
+                                    key={portrait.assetId}
+                                    type='button'
+                                    title={`Attach ${portrait.name}`}
+                                    onClick={() => addUrls([portraitReferenceUrl(portrait.assetId)])}
+                                    disabled={disabled}
+                                    className='inline-flex max-w-full items-center gap-1.5 rounded-full border border-white/15 bg-white/5 py-1 pr-2 pl-1 text-xs text-white/75 transition-colors hover:border-white/30 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-45'>
+                                    <span className='h-5 w-5 shrink-0 overflow-hidden rounded-full border border-white/15 bg-white/5'>
+                                        {/* eslint-disable-next-line @next/next/no-img-element -- worker-hosted asset thumbnail */}
+                                        <img
+                                            src={portrait.thumbUrl}
+                                            alt={portrait.name}
+                                            loading='lazy'
+                                            className='h-full w-full object-cover'
+                                        />
+                                    </span>
+                                    <span className='max-w-32 truncate'>{portrait.name}</span>
+                                    <span className='text-[10px] text-white/40'>
+                                        {portrait.groupType === 'AIGC' ? 'Virtual' : 'Verified'}
+                                    </span>
+                                </button>
+                            ))}
+                            {attachablePortraits.length === 0 && (
+                                <span className='text-xs text-white/45'>
+                                    No verified or virtual character assets are ready.
+                                </span>
+                            )}
+                            {onOpenAssets && (
+                                <button
+                                    type='button'
+                                    onClick={() => onOpenAssets()}
+                                    disabled={disabled}
+                                    className='rounded-md border border-white/15 bg-white/5 px-2 py-1 text-xs text-white/65 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-45'>
+                                    Open Assets
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {urls.length === 1 && onLastFrameChange && (
                 <LastFrameSlot
                     url={lastFrameUrl}
@@ -475,10 +662,24 @@ export function ReferenceImagesInput({
             {unresolvedDeclarations.length > 0 && (
                 <div className='space-y-2 rounded-md border border-amber-300/20 bg-amber-300/[0.06] p-3'>
                     <p className='text-sm text-white'>Where did these come from?</p>
+                    {setupError && (
+                        <div className='rounded-md border border-red-400/25 bg-red-500/[0.08] px-2 py-1.5 text-xs text-red-200'>
+                            {setupError}
+                        </div>
+                    )}
                     <div className='space-y-2'>
                         {unresolvedDeclarations.map((item) => {
                             const declaration = declarationForUrl(declarations, item.url);
                             const actionLabel = declaration?.origin ? declarationActionLabel(declaration.origin) : null;
+                            const mappingGroup =
+                                declaration?.origin === 'thirdparty-ai'
+                                    ? 'AIGC'
+                                    : declaration?.origin === 'real-person'
+                                      ? 'LivenessFace'
+                                      : null;
+                            const mappingOptions = mappingGroup
+                                ? portraits.filter((portrait) => portrait.groupType === mappingGroup)
+                                : [];
                             const assetLibraryUnsupported =
                                 maxImages <= 1 &&
                                 Boolean(declaration && originRequiresAssetLibrary(declaration.origin));
@@ -491,6 +692,11 @@ export function ReferenceImagesInput({
                                 ) &&
                                 !assetLibraryUnsupported;
                             const referenceKey = refKey(item.url);
+                            const canCreateVirtual =
+                                Boolean(onCreateVirtualAsset) &&
+                                declaration?.origin === 'thirdparty-ai' &&
+                                !assetLibraryUnsupported;
+                            const isCreatingVirtual = creatingVirtualKey === referenceKey;
                             return (
                                 <div
                                     key={`${item.label}-${item.url}`}
@@ -522,7 +728,7 @@ export function ReferenceImagesInput({
                                         </SelectContent>
                                     </Select>
                                     {declaration?.origin && actionLabel && (
-                                        <div className='flex flex-wrap items-center gap-2 text-xs text-amber-100/80'>
+                                        <div className='flex flex-wrap items-center gap-2 text-xs text-amber-100/80 sm:col-span-3 sm:col-start-3'>
                                             <span className='min-w-0 flex-1'>
                                                 {assetLibraryUnsupported
                                                     ? ASSET_LIBRARY_MODEL_BLOCK_REASON
@@ -547,6 +753,63 @@ export function ReferenceImagesInput({
                                                 className='shrink-0 rounded-md border border-white/15 bg-white/5 px-2 py-1 text-xs text-white/65 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:text-white/40'>
                                                 {assetLibraryUnsupported ? 'Switch model first' : actionLabel}
                                             </button>
+                                            {!assetLibraryUnsupported && mappingOptions.length > 0 && (
+                                                <div className='flex basis-full flex-wrap items-center gap-1.5 pt-1'>
+                                                    <span className='mr-1 text-white/45'>
+                                                        Map to existing:
+                                                    </span>
+                                                    {mappingOptions.map((portrait) => {
+                                                        const assetUrl = portraitReferenceUrl(portrait.assetId);
+                                                        const selected = urls.includes(assetUrl);
+                                                        return (
+                                                            <button
+                                                                key={portrait.assetId}
+                                                                type='button'
+                                                                title={`Use ${portrait.name}`}
+                                                                onClick={() => replaceUrl(item.url, assetUrl)}
+                                                                disabled={disabled || selected}
+                                                                className='inline-flex max-w-full items-center gap-1.5 rounded-full border border-white/15 bg-white/5 py-1 pr-2 pl-1 text-xs text-white/75 transition-colors hover:border-white/30 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-45'>
+                                                                <span className='h-5 w-5 shrink-0 overflow-hidden rounded-full border border-white/15 bg-white/5'>
+                                                                    {/* eslint-disable-next-line @next/next/no-img-element -- worker-hosted asset thumbnail */}
+                                                                    <img
+                                                                        src={portrait.thumbUrl}
+                                                                        alt={portrait.name}
+                                                                        loading='lazy'
+                                                                        className='h-full w-full object-cover'
+                                                                    />
+                                                                </span>
+                                                                <span className='max-w-32 truncate'>{portrait.name}</span>
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+                                            {canCreateVirtual && (
+                                                <div className='flex basis-full flex-wrap items-center gap-2 pt-1'>
+                                                    <Input
+                                                        value={virtualNames[referenceKey] ?? ''}
+                                                        onChange={(event) =>
+                                                            setVirtualNames((current) => ({
+                                                                ...current,
+                                                                [referenceKey]: event.target.value
+                                                            }))
+                                                        }
+                                                        disabled={disabled || isCreatingVirtual}
+                                                        placeholder='Virtual character name'
+                                                        className='h-8 min-w-40 flex-1 border-white/20 bg-black text-xs text-white placeholder:text-white/35 focus:border-white/50 focus:ring-white/50'
+                                                    />
+                                                    <button
+                                                        type='button'
+                                                        onClick={() => void createVirtualAsset(item.url, item.label)}
+                                                        disabled={disabled || isCreatingVirtual}
+                                                        className='inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-cyan-300/25 bg-cyan-300/[0.08] px-2 text-xs text-cyan-100 transition-colors hover:bg-cyan-300/[0.14] disabled:cursor-not-allowed disabled:opacity-45'>
+                                                        {isCreatingVirtual && (
+                                                            <Loader2 className='h-3 w-3 animate-spin' />
+                                                        )}
+                                                        Create virtual asset
+                                                    </button>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </div>

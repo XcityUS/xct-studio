@@ -333,6 +333,7 @@ export function VideoOutput({
                         {onFinalize && (
                             <Button
                                 onClick={handleFinalize}
+                                title='Review settings and generate a paid final version'
                                 variant='outline'
                                 className='border-white/20 bg-black text-white hover:bg-white/10 hover:text-white'>
                                 <Rocket className='mr-2 h-4 w-4' />
@@ -435,6 +436,7 @@ export function VideoOutput({
                             {onFinalize && (
                                 <Button
                                     onClick={handleFinalize}
+                                    title='Review settings and generate a paid final version'
                                     variant='outline'
                                     className='min-w-0 flex-1 basis-36 border-white/20 bg-black text-white hover:bg-white/10 hover:text-white'>
                                     <Rocket className='mr-2 h-4 w-4' />

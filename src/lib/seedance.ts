@@ -109,7 +109,7 @@ export const SEEDANCE_MODELS = [
         },
         minSeconds: 4,
         maxSeconds: 30,
-        maxReferenceImages: 9
+        maxReferenceImages: 30
     }
 ] as const satisfies readonly SeedanceModel[];
 
@@ -120,6 +120,7 @@ export const MIN_SECONDS = Math.min(...SEEDANCE_MODELS.map((m) => m.minSeconds))
 export const MAX_SECONDS = Math.max(...SEEDANCE_MODELS.map((m) => m.maxSeconds));
 
 export const DEFAULT_MODEL: VideoModel = 'seedance-1-5-pro-251215';
+export const DEFAULT_VIDEO_REFERENCE_MODEL: VideoModel = 'dreamina-seedance-2-5-260628';
 export const DEFAULT_RATIO: VideoRatio = '16:9';
 export const DEFAULT_RESOLUTION: VideoResolution = '720p';
 export const DEFAULT_SECONDS = 5;

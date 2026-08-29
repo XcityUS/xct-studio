@@ -102,6 +102,8 @@ type CreationFormProps = {
     onSynthesizeSpeech?: (text: string, voice: TtsVoice) => Promise<string>;
     /** Uploads a local video file, resolving to its public URL. Absent = URL-only mode. */
     onUploadVideo?: (file: File) => Promise<string>;
+    /** Creates a BytePlus virtual-character asset from a reference image and returns asset://... */
+    onCreateVirtualAsset?: (input: { url: string; name: string }) => Promise<string>;
     /** Rewrites the prompt via the gateway's chat API. Absent = button hidden. */
     onOptimizePrompt?: (prompt: string) => Promise<string>;
     /** Splits a script into Seedance shot rows via the gateway's chat API. */
@@ -184,6 +186,7 @@ export function CreationForm({
     onUploadAudio,
     onSynthesizeSpeech,
     onUploadVideo,
+    onCreateVirtualAsset,
     onOptimizePrompt,
     onBreakdownScript,
     onOpenAssets,
@@ -867,6 +870,9 @@ export function CreationForm({
                         onDeclare={onDeclareReference}
                         approvedAuthorizationIds={approvedAuthorizationIds}
                         onOpenAssets={onOpenAssets}
+                        portraits={portraits}
+                        showCharacters={false}
+                        onCreateVirtualAsset={onCreateVirtualAsset}
                         disabled={isLoading}
                     />
                     {showReferenceAudio && (

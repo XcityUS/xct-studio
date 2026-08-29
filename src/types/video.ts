@@ -113,8 +113,14 @@ export type VideoJobCreate = {
     omni_reference_task_type?: 'edit' | 'extend';
     /** Provider ratio override for omni-reference video editing/extension. */
     omni_reference_ratio?: 'adaptive';
-    /** Provider duration override for omni-reference video editing/extension. */
-    omni_reference_duration?: -1;
+    /** Provider duration override for omni-reference workflows. Do not set for video editing tasks. */
+    omni_reference_duration?: number;
+    /** Omit resolution for provider task types where output specs follow the reference video. */
+    omit_resolution?: boolean;
+    /** Omit ratio for provider task types where the output follows the reference video. */
+    omit_ratio?: boolean;
+    /** Omit seconds/duration for provider task types where the output follows the reference video. */
+    omit_duration?: boolean;
     /**
      * Optional background music / timbre reference for multi-reference mode.
      * History stores the public URL; submit code may inline it as a data URI.

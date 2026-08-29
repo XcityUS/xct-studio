@@ -25,15 +25,19 @@ function referenceItem(url: string, role: GatewayReferenceItem['role']): Gateway
  */
 function buildCreateBody(params: VideoJobCreate): Record<string, unknown> {
     const extraBody: Record<string, unknown> = {
-        resolution: params.resolution,
         generate_audio: params.generate_audio
     };
+    if (!params.omit_resolution) {
+        extraBody.resolution = params.resolution;
+    }
     const body: Record<string, unknown> = {
         model: params.model,
         prompt: params.prompt,
-        seconds: String(params.omni_reference_duration ?? clampSeconds(params.seconds, params.model)),
         extra_body: extraBody
     };
+    if (!params.omit_duration) {
+        body.seconds = String(params.omni_reference_duration ?? clampSeconds(params.seconds, params.model));
+    }
     if (
         (params.reference_image_urls && params.reference_image_urls.length > 0) ||
         (params.reference_video_urls && params.reference_video_urls.length > 0)
@@ -45,7 +49,9 @@ function buildCreateBody(params: VideoJobCreate): Record<string, unknown> {
             ...(params.reference_video_urls ?? []).map((url) => referenceItem(url, 'reference_video')),
             ...(params.reference_audio_url ? [referenceItem(params.reference_audio_url, 'reference_audio')] : [])
         ];
-        extraBody.ratio = params.omni_reference_ratio ?? params.ratio;
+        if (!params.omit_ratio) {
+            extraBody.ratio = params.omni_reference_ratio ?? params.ratio;
+        }
     } else if (params.input_reference_url) {
         // BytePlus rejects `ratio` on first-frame (image-to-video) tasks with
         // InvalidParameter.TaskTypeConstraint — the output ratio always
@@ -65,7 +71,7 @@ function buildCreateBody(params: VideoJobCreate): Record<string, unknown> {
     if (params.omni_reference_task_type) {
         extraBody.omni_reference_task_type = params.omni_reference_task_type;
     }
-    if (params.omni_reference_duration !== undefined) {
+    if (!params.omit_duration && params.omni_reference_duration !== undefined) {
         extraBody.duration = params.omni_reference_duration;
     }
     return body;
@@ -264,11 +270,12 @@ export class VideoService {
             if (code === 'invalid_api_key') {
                 throw new InvalidApiKeyError(gatewayMessage);
             }
-            if (
-                status === 400 &&
+            const realPersonReferenceBlocked =
                 typeof gatewayMessage === 'string' &&
-                gatewayMessage.includes('InputImageSensitiveContentDetected')
-            ) {
+                (gatewayMessage.includes('InputImageSensitiveContentDetected') ||
+                    gatewayMessage.includes('PrivacyInformation') ||
+                    /may contain real person/i.test(gatewayMessage));
+            if ((status === undefined || status === 400) && realPersonReferenceBlocked) {
                 throw new RealPersonImageError(gatewayMessage);
             }
             // 404 = model unknown to the gateway; 400 only counts when the
