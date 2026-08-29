@@ -1168,7 +1168,7 @@ export function VideoHistoryPanel({
                                                                 <button
                                                                     type='button'
                                                                     onClick={() => onFinalizeItem(item)}
-                                                                    title='Generate the final version at the selected resolution'
+                                                                    title='Review settings and generate a paid final version'
                                                                     className='flex flex-1 items-center justify-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white'>
                                                                     <Rocket size={11} />
                                                                     Finalize
