@@ -79,7 +79,7 @@ function declarationForUrl(
 }
 
 function declarationActionLabel(origin: ReferenceOrigin): string | null {
-    if (origin === 'thirdparty-ai' || origin === 'real-person') return 'Set this up in Assets';
+    if (origin === 'real-person') return 'Set this up in Assets';
     if (origin === 'licensed-ip') return 'Submit authorization';
     return null;
 }
@@ -686,8 +686,7 @@ export function ReferenceImagesInput({
                             const canOpenAssets =
                                 Boolean(onOpenAssets) &&
                                 Boolean(
-                                    declaration?.origin === 'thirdparty-ai' ||
-                                        declaration?.origin === 'real-person' ||
+                                    declaration?.origin === 'real-person' ||
                                         declaration?.origin === 'licensed-ip'
                                 ) &&
                                 !assetLibraryUnsupported;
@@ -696,65 +695,80 @@ export function ReferenceImagesInput({
                                 Boolean(onCreateVirtualAsset) &&
                                 declaration?.origin === 'thirdparty-ai' &&
                                 !assetLibraryUnsupported;
+                            const virtualLibraryUnavailable =
+                                declaration?.origin === 'thirdparty-ai' &&
+                                !assetLibraryUnsupported &&
+                                !onCreateVirtualAsset;
                             const isCreatingVirtual = creatingVirtualKey === referenceKey;
+                            const originHint = assetLibraryUnsupported
+                                ? ASSET_LIBRARY_MODEL_BLOCK_REASON
+                                : virtualLibraryUnavailable
+                                  ? 'Virtual portrait library is not configured on this deployment. Use AI-generated · Seedream/BytePlus if it came from BytePlus, or ask an admin to enable Assets.'
+                                  : declaration?.origin
+                                    ? REFERENCE_ORIGIN_LABELS[declaration.origin].hint
+                                    : '';
                             return (
                                 <div
                                     key={`${item.label}-${item.url}`}
-                                    className='grid gap-2 rounded-md border border-white/10 bg-black/40 p-2 sm:grid-cols-[auto_auto_1fr] sm:items-center'>
-                                    <div className='flex items-center gap-2'>
+                                    className='space-y-3 rounded-md border border-white/10 bg-black/40 p-3'>
+                                    <div className='grid gap-3 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center'>
+                                        <div className='flex min-w-0 items-center gap-2'>
                                         <ReferencePreview
                                             url={item.url}
                                             alt={`${item.label} declaration`}
                                             className='h-8 w-8'
                                         />
-                                        <span className='w-14 text-xs text-white/50'>{item.label}</span>
+                                            <span className='min-w-0 text-xs text-white/50'>{item.label}</span>
+                                        </div>
+                                        <Select
+                                            value={declaration?.origin}
+                                            onValueChange={(value) => onDeclare(item.url, value as ReferenceOrigin)}
+                                            disabled={disabled}>
+                                            <SelectTrigger className='h-9 w-full border-white/20 bg-black text-xs text-white focus:border-white/50 focus:ring-white/50'>
+                                                <SelectValue placeholder='Select origin' />
+                                            </SelectTrigger>
+                                            <SelectContent className='border-white/20 bg-black text-white'>
+                                                {REFERENCE_ORIGINS.map((origin) => (
+                                                    <SelectItem
+                                                        key={origin}
+                                                        value={origin}
+                                                        className='focus:bg-white/10 focus:text-white'>
+                                                        {REFERENCE_ORIGIN_LABELS[origin].label}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
                                     </div>
-                                    <Select
-                                        value={declaration?.origin ?? ''}
-                                        onValueChange={(value) => onDeclare(item.url, value as ReferenceOrigin)}
-                                        disabled={disabled}>
-                                        <SelectTrigger className='h-9 border-white/20 bg-black text-xs text-white focus:border-white/50 focus:ring-white/50 sm:w-64'>
-                                            <SelectValue placeholder='Select origin' />
-                                        </SelectTrigger>
-                                        <SelectContent className='border-white/20 bg-black text-white'>
-                                            {REFERENCE_ORIGINS.map((origin) => (
-                                                <SelectItem
-                                                    key={origin}
-                                                    value={origin}
-                                                    className='focus:bg-white/10 focus:text-white'>
-                                                    {REFERENCE_ORIGIN_LABELS[origin].label}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                    {declaration?.origin && actionLabel && (
-                                        <div className='flex flex-wrap items-center gap-2 text-xs text-amber-100/80 sm:col-span-3 sm:col-start-3'>
-                                            <span className='min-w-0 flex-1'>
-                                                {assetLibraryUnsupported
-                                                    ? ASSET_LIBRARY_MODEL_BLOCK_REASON
-                                                    : REFERENCE_ORIGIN_LABELS[declaration.origin].hint}
-                                            </span>
-                                            <button
-                                                type='button'
-                                                title={
-                                                    canOpenAssets
-                                                        ? 'Open Assets'
-                                                        : assetLibraryUnsupported
-                                                          ? 'Switch model first'
-                                                          : 'Open Assets'
-                                                }
-                                                onClick={() =>
-                                                    canOpenAssets &&
-                                                    onOpenAssets?.(
-                                                        declaration?.origin === 'licensed-ip' ? referenceKey : undefined
-                                                    )
-                                                }
-                                                disabled={!canOpenAssets || disabled}
-                                                className='shrink-0 rounded-md border border-white/15 bg-white/5 px-2 py-1 text-xs text-white/65 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:text-white/40'>
-                                                {assetLibraryUnsupported ? 'Switch model first' : actionLabel}
-                                            </button>
+                                    {declaration?.origin && (
+                                        <div className='space-y-3 text-xs text-amber-100/80'>
+                                            <div className='flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between'>
+                                                <span className='min-w-0 leading-5'>{originHint}</span>
+                                                {actionLabel && (
+                                                    <button
+                                                        type='button'
+                                                        title={
+                                                            canOpenAssets
+                                                                ? 'Open Assets'
+                                                                : assetLibraryUnsupported
+                                                                  ? 'Switch model first'
+                                                                  : 'Open Assets'
+                                                        }
+                                                        onClick={() =>
+                                                            canOpenAssets &&
+                                                            onOpenAssets?.(
+                                                                declaration?.origin === 'licensed-ip'
+                                                                    ? referenceKey
+                                                                    : undefined
+                                                            )
+                                                        }
+                                                        disabled={!canOpenAssets || disabled}
+                                                        className='shrink-0 rounded-md border border-white/15 bg-white/5 px-2 py-1 text-xs text-white/65 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:text-white/40'>
+                                                        {assetLibraryUnsupported ? 'Switch model first' : actionLabel}
+                                                    </button>
+                                                )}
+                                            </div>
                                             {!assetLibraryUnsupported && mappingOptions.length > 0 && (
-                                                <div className='flex basis-full flex-wrap items-center gap-1.5 pt-1'>
+                                                <div className='flex flex-wrap items-center gap-1.5'>
                                                     <span className='mr-1 text-white/45'>
                                                         Map to existing:
                                                     </span>
@@ -785,7 +799,7 @@ export function ReferenceImagesInput({
                                                 </div>
                                             )}
                                             {canCreateVirtual && (
-                                                <div className='flex basis-full flex-wrap items-center gap-2 pt-1'>
+                                                <div className='grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]'>
                                                     <Input
                                                         value={virtualNames[referenceKey] ?? ''}
                                                         onChange={(event) =>
@@ -796,13 +810,13 @@ export function ReferenceImagesInput({
                                                         }
                                                         disabled={disabled || isCreatingVirtual}
                                                         placeholder='Virtual character name'
-                                                        className='h-8 min-w-40 flex-1 border-white/20 bg-black text-xs text-white placeholder:text-white/35 focus:border-white/50 focus:ring-white/50'
+                                                        className='h-8 min-w-0 border-white/20 bg-black text-xs text-white placeholder:text-white/35 focus:border-white/50 focus:ring-white/50'
                                                     />
                                                     <button
                                                         type='button'
                                                         onClick={() => void createVirtualAsset(item.url, item.label)}
                                                         disabled={disabled || isCreatingVirtual}
-                                                        className='inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-cyan-300/25 bg-cyan-300/[0.08] px-2 text-xs text-cyan-100 transition-colors hover:bg-cyan-300/[0.14] disabled:cursor-not-allowed disabled:opacity-45'>
+                                                        className='inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md border border-cyan-300/25 bg-cyan-300/[0.08] px-3 text-xs text-cyan-100 transition-colors hover:bg-cyan-300/[0.14] disabled:cursor-not-allowed disabled:opacity-45'>
                                                         {isCreatingVirtual && (
                                                             <Loader2 className='h-3 w-3 animate-spin' />
                                                         )}

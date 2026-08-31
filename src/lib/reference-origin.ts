@@ -33,7 +33,7 @@ export const REFERENCE_ORIGIN_LABELS: Record<ReferenceOrigin, { label: string; h
     },
     'thirdparty-ai': {
         label: 'AI-generated · other model',
-        hint: 'Imagen, nano-banana and friends. Must be added to the virtual portrait library first.'
+        hint: 'Imagen, nano-banana and other non-BytePlus renders. Create a virtual asset here before submitting.'
     },
     'real-person': {
         label: 'A real person',

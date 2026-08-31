@@ -32,6 +32,7 @@ import {
 } from '@/lib/portrait';
 import {
     Check,
+    ChevronDown,
     Copy,
     FileText,
     ImagePlus,
@@ -179,7 +180,7 @@ function CopyUrlButton({ url }: { url: string }) {
                     setTimeout(() => setCopyFailed(false), 2500);
                 }
             }}
-            className='flex flex-1 items-center justify-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white'>
+            className='inline-flex h-9 min-w-0 items-center justify-center gap-1 rounded-md bg-white/10 px-2 text-xs text-white/70 transition-colors hover:bg-white/20 hover:text-white'>
             {copied ? <Check size={11} className='text-green-400' /> : <Copy size={11} />}
             {copyFailed ? 'Copy failed' : copied ? 'Copied' : 'Copy URL'}
         </button>
@@ -229,7 +230,7 @@ function AuthorizationDocButton({
                 type='button'
                 onClick={() => void openDoc()}
                 disabled={!item.has_doc || isLoadingDoc}
-                className='inline-flex items-center gap-1 rounded bg-white/10 px-2 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-40'>
+                className='inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-white/10 bg-white/10 px-2.5 text-xs text-white/70 transition-colors hover:bg-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-40'>
                 {isLoadingDoc ? <Loader2 className='h-3 w-3 animate-spin' /> : <FileText className='h-3 w-3' />}
                 {item.has_doc ? 'Open doc' : 'No doc'}
             </button>
@@ -250,28 +251,42 @@ function AuthorizationListItem({
     item: AuthorizationItem;
     fetchAuthorizationDoc: (id: string) => Promise<Blob>;
 }) {
+    const submittedAt = formatDate(item.created_at) || '-';
+    const reviewedAt = item.reviewed_at ? formatDate(item.reviewed_at) : '';
+
     return (
-        <div className='space-y-2 rounded-md border border-white/10 bg-white/[0.03] p-2'>
-            <div className='flex items-start justify-between gap-2'>
-                <div className='min-w-0'>
+        <div className='flex min-h-44 flex-col rounded-md border border-white/10 bg-black/35 p-3'>
+            <div className='flex items-start justify-between gap-3'>
+                <div className='min-w-0 space-y-1'>
                     <div className='truncate text-sm font-medium text-white' title={item.subject_name}>
-                        {item.subject_name}
+                        {item.subject_name || 'Untitled subject'}
                     </div>
-                    <div className='mt-0.5 font-mono text-[10px] text-white/35' title={item.reference_key}>
-                        {shortReferenceKey(item.reference_key)}
+                    <div
+                        className='inline-flex max-w-full rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-[10px] text-white/40'
+                        title={item.reference_key}>
+                        <span className='truncate'>{shortReferenceKey(item.reference_key)}</span>
                     </div>
                 </div>
                 <AuthorizationStatusBadge status={item.status} />
             </div>
-            {item.note && <p className='line-clamp-2 text-xs leading-5 text-white/50'>{item.note}</p>}
-            <div className='flex flex-wrap items-end justify-between gap-2'>
-                <div className='text-[10px] text-white/35'>
-                    <div>Submitted {formatDate(item.created_at)}</div>
-                    {item.reviewed_at && <div>Reviewed {formatDate(item.reviewed_at)}</div>}
+            <p
+                className={`mt-3 min-h-14 rounded-md px-2 py-1.5 text-xs leading-5 ${
+                    item.note ? 'bg-white/[0.04] text-white/55' : 'border border-dashed border-white/10 text-white/25'
+                }`}>
+                <span className='line-clamp-2'>{item.note || 'No note'}</span>
+            </p>
+            <div className='mt-auto flex flex-wrap items-end justify-between gap-3 border-t border-white/10 pt-3'>
+                <div className='space-y-0.5 text-[10px] text-white/35'>
+                    <div>Submitted {submittedAt}</div>
+                    <div className={reviewedAt ? undefined : 'text-transparent'}>Reviewed {reviewedAt || '-'}</div>
                 </div>
                 <AuthorizationDocButton item={item} fetchAuthorizationDoc={fetchAuthorizationDoc} />
             </div>
-            {item.review_note && <p className='text-xs text-white/45'>Review note: {item.review_note}</p>}
+            {item.review_note && (
+                <p className='rounded-md border border-white/10 bg-white/[0.03] px-2 py-1.5 text-xs text-white/50'>
+                    Review note: {item.review_note}
+                </p>
+            )}
         </div>
     );
 }
@@ -1113,11 +1128,11 @@ export function AssetsPanel({
                     </div>
                 )}
 
-                <div className='mb-4 space-y-3 border-b border-white/10 pb-4'>
+                <div className='mb-4 space-y-4 border-b border-white/10 pb-4'>
                     <div className='flex flex-wrap items-start justify-between gap-3'>
                         <div className='min-w-0 flex-1'>
-                            <h3 className='text-xs font-medium text-white/50'>Licensed characters</h3>
-                            <p className='mt-1 text-xs leading-5 text-white/40'>
+                            <h3 className='text-sm font-medium text-white'>Licensed characters</h3>
+                            <p className='mt-1 max-w-4xl text-xs leading-5 text-white/45'>
                                 Submit proof that you can use a celebrity likeness or copyrighted character. Approval
                                 only unblocks this studio&apos;s own reference check; BytePlus may still refuse the
                                 image during automated moderation.
@@ -1171,16 +1186,25 @@ export function AssetsPanel({
 
                     <form
                         onSubmit={(event) => void handleSubmitAuthorization(event)}
-                        className='space-y-3 rounded-md border border-white/10 bg-white/[0.03] p-3'>
-                        <div className='grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]'>
-                            <div className='space-y-2'>
+                        className='max-w-5xl space-y-4'>
+                        <div className='flex items-start gap-2'>
+                            <ShieldCheck className='mt-0.5 h-4 w-4 shrink-0 text-amber-200/80' />
+                            <div className='min-w-0'>
+                                <h4 className='text-sm font-medium text-white'>Submit authorization</h4>
+                                <p className='mt-0.5 text-xs text-white/40'>
+                                    Pick the blocked reference, name the subject, then attach the authorization file.
+                                </p>
+                            </div>
+                        </div>
+                        <div className='grid gap-3 md:grid-cols-[minmax(0,1.15fr)_minmax(12rem,0.85fr)]'>
+                            <div className='space-y-1.5'>
                                 <Label htmlFor='authorization-reference' className='text-xs text-white/70'>
                                     Reference image
                                 </Label>
                                 {authorizationTargets.length > 0 ? (
-                                    <div className='flex gap-2'>
+                                    <div className='grid grid-cols-[2.5rem_minmax(0,1fr)] items-center gap-2'>
                                         {selectedAuthorizationTarget && (
-                                            <div className='h-9 w-9 shrink-0 overflow-hidden rounded border border-white/15 bg-white/5'>
+                                            <div className='h-10 w-10 shrink-0 overflow-hidden rounded-md border border-white/15 bg-white/5'>
                                                 {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary reference URL */}
                                                 <img
                                                     src={selectedAuthorizationTarget.url}
@@ -1189,27 +1213,30 @@ export function AssetsPanel({
                                                 />
                                             </div>
                                         )}
-                                        <select
-                                            id='authorization-reference'
-                                            value={authorizationReferenceKey}
-                                            onChange={(event) => setAuthorizationReferenceKey(event.target.value)}
-                                            disabled={isSubmittingAuthorization}
-                                            className='h-9 min-w-0 flex-1 rounded-md border border-white/20 bg-black px-2 text-xs text-white disabled:opacity-40'>
-                                            {authorizationTargets.map((target) => (
-                                                <option key={target.key} value={target.key}>
-                                                    {target.label}
-                                                    {target.authorizationId ? ` · ${target.authorizationId}` : ''}
-                                                </option>
-                                            ))}
-                                        </select>
+                                        <div className='relative min-w-0'>
+                                            <select
+                                                id='authorization-reference'
+                                                value={authorizationReferenceKey}
+                                                onChange={(event) => setAuthorizationReferenceKey(event.target.value)}
+                                                disabled={isSubmittingAuthorization}
+                                                className='h-10 w-full appearance-none rounded-md border border-white/20 bg-black px-3 pr-10 text-sm text-white disabled:opacity-40'>
+                                                {authorizationTargets.map((target) => (
+                                                    <option key={target.key} value={target.key}>
+                                                        {target.label}
+                                                        {target.authorizationId ? ` · ${target.authorizationId}` : ''}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            <ChevronDown className='pointer-events-none absolute top-1/2 right-3 h-4 w-4 -translate-y-1/2 text-white/55' />
+                                        </div>
                                     </div>
                                 ) : (
-                                    <p className='rounded-md border border-amber-300/20 bg-amber-300/[0.06] px-3 py-2 text-xs text-amber-100/80'>
+                                    <p className='rounded-md border border-amber-300/20 bg-amber-300/[0.06] px-3 py-2 text-xs leading-5 text-amber-100/80'>
                                         Mark a video reference image as a celebrity or licensed character first.
                                     </p>
                                 )}
                             </div>
-                            <div className='space-y-2'>
+                            <div className='space-y-1.5'>
                                 <Label htmlFor='authorization-subject' className='text-xs text-white/70'>
                                     Subject name
                                 </Label>
@@ -1219,11 +1246,11 @@ export function AssetsPanel({
                                     onChange={(event) => setAuthorizationSubjectName(event.target.value)}
                                     placeholder='Celebrity or character name'
                                     disabled={isSubmittingAuthorization || authorizationTargets.length === 0}
-                                    className='h-9 rounded-md border border-white/20 bg-black text-xs text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
+                                    className='h-10 rounded-md border border-white/20 bg-black text-sm text-white placeholder:text-white/35 focus:border-white/50 focus:ring-white/50'
                                 />
                             </div>
                         </div>
-                        <div className='space-y-2'>
+                        <div className='space-y-1.5'>
                             <Label htmlFor='authorization-note' className='text-xs text-white/70'>
                                 Note
                             </Label>
@@ -1233,11 +1260,11 @@ export function AssetsPanel({
                                 onChange={(event) => setAuthorizationNote(event.target.value)}
                                 placeholder='Agreement summary, usage scope, reviewer context'
                                 disabled={isSubmittingAuthorization || authorizationTargets.length === 0}
-                                className='min-h-20 w-full resize-y rounded-md border border-white/20 bg-black px-3 py-2 text-xs text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
+                                className='min-h-20 w-full resize-y rounded-md border border-white/20 bg-black px-3 py-2 text-sm text-white placeholder:text-white/35 focus:border-white/50 focus:ring-white/50'
                             />
                         </div>
-                        <div className='grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end'>
-                            <div className='space-y-2'>
+                        <div className='grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-start'>
+                            <div className='space-y-1.5'>
                                 <Label htmlFor='authorization-doc' className='text-xs text-white/70'>
                                     Authorization document
                                 </Label>
@@ -1248,7 +1275,7 @@ export function AssetsPanel({
                                     accept='application/pdf,image/png,image/jpeg,image/webp'
                                     onChange={(event) => setAuthorizationFile(event.target.files?.[0] ?? null)}
                                     disabled={isSubmittingAuthorization || authorizationTargets.length === 0}
-                                    className='h-9 rounded-md border border-white/20 bg-black text-xs text-white file:mr-3 file:rounded file:border-0 file:bg-white/10 file:px-2 file:py-1 file:text-xs file:text-white hover:file:bg-white/20 disabled:opacity-40'
+                                    className='h-10 rounded-md border border-white/20 bg-black text-sm text-white file:mr-3 file:rounded-md file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-xs file:text-white hover:file:bg-white/20 disabled:opacity-40'
                                 />
                                 <p className='text-[10px] text-white/35'>PDF · PNG · JPEG · WebP · up to 5 MB</p>
                             </div>
@@ -1261,7 +1288,7 @@ export function AssetsPanel({
                                     !authorizationSubjectName.trim() ||
                                     !authorizationFile
                                 }
-                                className='h-9 bg-white text-xs text-black hover:bg-white/90 disabled:bg-white/40'>
+                                className='mt-5 h-10 min-w-40 bg-white px-4 text-sm text-black hover:bg-white/90 disabled:bg-white/40 md:mt-[1.375rem]'>
                                 {isSubmittingAuthorization ? (
                                     <Loader2 className='h-3 w-3 animate-spin' />
                                 ) : (
@@ -1272,7 +1299,7 @@ export function AssetsPanel({
                         </div>
                     </form>
 
-                    <div className='space-y-2'>
+                    <div className='space-y-3'>
                         <div className='flex items-center justify-between gap-2'>
                             <h4 className='text-sm font-medium text-white'>Your submissions</h4>
                             {isLoadingAuthorizations && (
@@ -1290,7 +1317,7 @@ export function AssetsPanel({
                         ) : (authorizations ?? []).length === 0 ? (
                             <p className='text-xs text-white/40'>No authorization submissions yet.</p>
                         ) : (
-                            <div className='grid gap-2 lg:grid-cols-2'>
+                            <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-3'>
                                 {(authorizations ?? []).map((item) => (
                                     <AuthorizationListItem
                                         key={item.id}
@@ -1367,7 +1394,7 @@ export function AssetsPanel({
                 ) : (
                     <div className='grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5'>
                         {visible.map((asset) => (
-                            <div key={asset.key} className='flex flex-col' title={asset.key}>
+                            <div key={asset.key} className='flex h-full flex-col' title={asset.key}>
                                 <div className='relative aspect-square w-full overflow-hidden rounded-t-md border border-white/20 bg-neutral-900'>
                                     {asset.kind === 'image' ? (
                                         // eslint-disable-next-line @next/next/no-img-element -- worker-hosted URL
@@ -1399,33 +1426,48 @@ export function AssetsPanel({
                                     <span className='pointer-events-none absolute top-1 left-1 rounded-full bg-black/70 px-1.5 py-0.5 text-[10px] text-white/80'>
                                         {asset.kind}
                                     </span>
+                                    <button
+                                        type='button'
+                                        title='Delete from cloud storage'
+                                        onClick={() => void handleDelete(asset)}
+                                        className='absolute top-1 right-1 inline-flex h-7 w-7 items-center justify-center rounded-md bg-red-600/85 text-white shadow-sm transition-colors hover:bg-red-500'>
+                                        <Trash2 size={12} />
+                                    </button>
+                                    <div className='pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/65 to-transparent px-2 pt-8 pb-2'>
+                                        <div className='h-4 truncate text-xs text-white/90'>
+                                            {asset.name || asset.key.split('/').pop() || asset.key}
+                                        </div>
+                                        <div className='mt-1 flex h-4 items-center justify-between text-[10px] text-white/55'>
+                                            <span>
+                                                {asset.uploaded ? new Date(asset.uploaded).toLocaleDateString() : ''}
+                                            </span>
+                                            <span>{formatBytes(asset.bytes)}</span>
+                                        </div>
+                                    </div>
                                 </div>
                                 <div className='rounded-b-md border border-t-0 border-white/20 bg-neutral-900/50 p-2'>
-                                    {asset.name && (
-                                        <div className='mb-1 truncate text-xs text-white/80'>{asset.name}</div>
-                                    )}
-                                    <div className='flex items-center justify-between text-[10px] text-white/40'>
-                                        <span>
-                                            {asset.uploaded ? new Date(asset.uploaded).toLocaleDateString() : ''}
-                                        </span>
-                                        <span>{formatBytes(asset.bytes)}</span>
-                                    </div>
-                                    <div className='mt-1.5 flex flex-wrap items-center gap-1'>
+                                    <div
+                                        className={
+                                            asset.kind === 'image'
+                                                ? 'grid grid-cols-3 gap-1.5'
+                                                : 'grid grid-cols-2 gap-1.5'
+                                        }>
                                         {asset.kind === 'image' && (
                                             <>
                                                 <button
                                                     type='button'
                                                     title='Add to the video form as a reference image'
                                                     onClick={() => onUseAsReference(asset.url)}
-                                                    className='flex min-w-[4rem] flex-1 items-center justify-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white'>
+                                                    className='inline-flex h-9 min-w-0 items-center justify-center gap-1 rounded-md bg-white/10 px-2 text-xs text-white/70 transition-colors hover:bg-white/20 hover:text-white'>
                                                     <ImagePlus size={11} />
                                                     Use as ref
                                                 </button>
+                                                <CopyUrlButton url={asset.url} />
                                                 <button
                                                     type='button'
                                                     title='Save this image as a named character'
                                                     onClick={() => openCharacterDialog(asset)}
-                                                    className='flex min-w-[6.5rem] flex-1 items-center justify-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white'>
+                                                    className='inline-flex h-9 min-w-0 items-center justify-center gap-1 rounded-md bg-white/10 px-2 text-xs text-white/70 transition-colors hover:bg-white/20 hover:text-white'>
                                                     <UserPlus size={11} />
                                                     Save as character
                                                 </button>
@@ -1436,19 +1478,12 @@ export function AssetsPanel({
                                                 type='button'
                                                 title='Add to the video form as a reference video'
                                                 onClick={() => onUseAsReferenceVideo(asset.url)}
-                                                className='flex min-w-[5rem] flex-1 items-center justify-center gap-1 rounded bg-white/10 px-1 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white'>
+                                                className='inline-flex h-9 min-w-0 items-center justify-center gap-1 rounded-md bg-white/10 px-2 text-xs text-white/70 transition-colors hover:bg-white/20 hover:text-white'>
                                                 <Video size={11} />
                                                 Use as ref video
                                             </button>
                                         )}
-                                        <CopyUrlButton url={asset.url} />
-                                        <button
-                                            type='button'
-                                            title='Delete from cloud storage'
-                                            onClick={() => void handleDelete(asset)}
-                                            className='flex items-center justify-center rounded bg-red-600/60 p-1 text-white transition-colors hover:bg-red-500/80'>
-                                            <Trash2 size={11} />
-                                        </button>
+                                        {asset.kind !== 'image' && <CopyUrlButton url={asset.url} />}
                                     </div>
                                 </div>
                             </div>

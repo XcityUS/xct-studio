@@ -38,6 +38,7 @@ type VideoOutputProps = {
     onSendToRemix?: (videoId: string) => void;
     onDownload?: (videoId: string) => void;
     onExtend?: (videoId: string) => void;
+    isExtendPending?: boolean;
     onFinalize?: (videoId: string) => void;
     onShare?: (item: VideoMetadata) => void;
     shareItem?: VideoMetadata;
@@ -124,6 +125,7 @@ export function VideoOutput({
     onSendToRemix,
     onDownload,
     onExtend,
+    isExtendPending = false,
     onFinalize,
     onShare,
     shareItem,
@@ -441,10 +443,15 @@ export function VideoOutput({
                             {onExtend && (
                                 <Button
                                     onClick={handleExtend}
+                                    disabled={isExtendPending}
                                     variant='outline'
-                                    className='min-w-0 flex-1 basis-36 border-white/20 bg-black text-white hover:bg-white/10 hover:text-white'>
-                                    <StepForward className='mr-2 h-4 w-4' />
-                                    Extend
+                                    className='min-w-0 flex-1 basis-36 border-white/20 bg-black text-white hover:bg-white/10 hover:text-white disabled:cursor-wait disabled:opacity-60'>
+                                    {isExtendPending ? (
+                                        <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                                    ) : (
+                                        <StepForward className='mr-2 h-4 w-4' />
+                                    )}
+                                    {isExtendPending ? 'Preparing...' : 'Extend'}
                                 </Button>
                             )}
                             {onFinalize && (
