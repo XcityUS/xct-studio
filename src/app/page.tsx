@@ -130,7 +130,7 @@ import { synthesizeSpeech, type TtsVoice } from '@/lib/tts';
 import { VideoService } from '@/lib/video-service';
 import { XCITY_SSO_ENABLED, xcityLoginHref } from '@/lib/xcity-sso';
 import type { VideoJob, VideoJobCreate, VideoMetadata } from '@/types/video';
-import { Check, Copy, Loader2 } from 'lucide-react';
+import { Check, Copy, ExternalLink, Loader2 } from 'lucide-react';
 import * as React from 'react';
 
 function fileNameWithoutExtension(fileName: string): string {
@@ -154,6 +154,46 @@ const MAX_WATERMARK_TEXT_LENGTH = 100;
 type StudioTab = 'video' | 'image' | 'assets' | 'community';
 type AuthorizationTarget = { key: string; label: string; url: string; authorizationId?: string };
 type WatermarkQueueItem = { item: VideoMetadata; text?: string };
+type SocialShareTarget = {
+    id: string;
+    label: string;
+    url: (shareUrl: string) => string;
+    copyFirst?: boolean;
+};
+
+const SOCIAL_SHARE_TARGETS: SocialShareTarget[] = [
+    {
+        id: 'tiktok',
+        label: 'TikTok',
+        url: () => 'https://www.tiktok.com/upload',
+        copyFirst: true
+    },
+    {
+        id: 'instagram',
+        label: 'Instagram',
+        url: () => 'https://www.instagram.com/',
+        copyFirst: true
+    },
+    {
+        id: 'youtube',
+        label: 'YouTube',
+        url: () => 'https://www.youtube.com/upload',
+        copyFirst: true
+    },
+    {
+        id: 'facebook',
+        label: 'Facebook',
+        url: (shareUrl) => `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`
+    },
+    {
+        id: 'twitter',
+        label: 'Twitter',
+        url: (shareUrl) =>
+            `https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(
+                'Created with Xcity Studio'
+            )}`
+    }
+];
 
 /** Where a message belongs, so it lands next to the control that raised it. */
 type ErrorScope = 'create' | 'output';
@@ -416,6 +456,7 @@ export default function HomePage() {
     const [shareDialogError, setShareDialogError] = React.useState<string | null>(null);
     const [sharingVideoId, setSharingVideoId] = React.useState<string | null>(null);
     const [shareUrlCopied, setShareUrlCopied] = React.useState(false);
+    const [sharePlatformNotice, setSharePlatformNotice] = React.useState<string | null>(null);
     const [manualArchiveIds, setManualArchiveIds] = React.useState<Set<string>>(new Set());
     const regenerateReplacementRef = React.useRef<Map<string, VideoMetadata>>(new Map());
     const brandingRequestedIdsRef = React.useRef<Map<string, boolean>>(new Map());
@@ -538,6 +579,16 @@ export default function HomePage() {
     // model first (see gallery-preset), because programmatic setState skips
     // the form's own Select-driven correction.
     const creationFormRef = React.useRef<HTMLDivElement>(null);
+    const scrollToCreationForm = React.useCallback(() => {
+        requestAnimationFrame(() => {
+            const target = creationFormRef.current;
+            if (target) {
+                target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } else {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+        });
+    }, []);
 
     const applyPreset = React.useCallback(
         (item: GalleryItem) => {
@@ -558,9 +609,9 @@ export default function HomePage() {
             setCreateWatermark(p.watermark ?? false);
             setCreateWatermarkText(normalizeWatermarkText(p.watermarkText));
             setError(p.adjusted.length ? `Adjusted for ${p.model}: ${p.adjusted.join(', ')}` : null);
-            creationFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            scrollToCreationForm();
         },
-        [setError]
+        [scrollToCreationForm, setError]
     );
 
     const loadSharedSettings = React.useCallback(
@@ -590,13 +641,13 @@ export default function HomePage() {
                 setActiveTab('video');
                 setShareNotice('Loaded shared settings — generate to recreate');
                 setError(adjusted.length ? `Adjusted shared settings: ${adjusted.join(', ')}` : null);
-                creationFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                scrollToCreationForm();
             } catch (err) {
                 console.error('Error loading share:', err);
                 setError(err instanceof Error ? err.message : 'Could not load shared settings.');
             }
         },
-        [setError]
+        [scrollToCreationForm, setError]
     );
 
     const loadedShareIdRef = React.useRef<string | null>(null);
@@ -623,9 +674,9 @@ export default function HomePage() {
             // Leave the prompt to the user: describing the motion is the point of
             // image-to-video, and inheriting the original prompt fights that.
             setCreatePrompt('');
-            creationFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            scrollToCreationForm();
         },
-        [declareGeneratedReference]
+        [declareGeneratedReference, scrollToCreationForm]
     );
 
     React.useEffect(() => {
@@ -2113,6 +2164,7 @@ export default function HomePage() {
         setIsShareDialogOpen(open);
         if (!open) {
             setShareUrlCopied(false);
+            setSharePlatformNotice(null);
             setShareDialogId('');
             setShareCommunityStatus('idle');
             setShareCommunityError(null);
@@ -2129,6 +2181,28 @@ export default function HomePage() {
             console.error('Failed to copy share URL:', err);
         }
     }, [shareDialogUrl]);
+
+    const handleSocialShare = React.useCallback(
+        async (target: SocialShareTarget) => {
+            if (!shareDialogUrl) return;
+            setSharePlatformNotice(null);
+
+            if (target.copyFirst) {
+                try {
+                    await navigator.clipboard.writeText(shareDialogUrl);
+                    setShareUrlCopied(true);
+                    setSharePlatformNotice(`Link copied. Paste it into ${target.label} when the new tab opens.`);
+                    setTimeout(() => setShareUrlCopied(false), 2000);
+                } catch (err) {
+                    console.error(`Failed to copy share URL before opening ${target.label}:`, err);
+                    setSharePlatformNotice(`${target.label} opened. Copy the link manually if paste is unavailable.`);
+                }
+            }
+
+            window.open(target.url(shareDialogUrl), '_blank', 'noopener,noreferrer');
+        },
+        [shareDialogUrl]
+    );
 
     const handleSubmitShareToCommunity = React.useCallback(async () => {
         if (!shareDialogId) return;
@@ -2211,12 +2285,8 @@ export default function HomePage() {
         setCreateWatermark(params.watermark ?? false);
         setCreateWatermarkText(normalizeWatermarkText(params.watermarkText));
         setActiveTab('video');
-        if (creationFormRef.current) {
-            creationFormRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        } else {
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-    }, []);
+        scrollToCreationForm();
+    }, [scrollToCreationForm]);
 
     const showReferenceDeclarationGate = React.useCallback(
         (params: CreationFormData, blockedReferences: string[]) => {
@@ -2664,7 +2734,7 @@ export default function HomePage() {
                 const params = buildParamsFromItem(item);
 
                 setCreateModel(params.model);
-                setCreatePrompt('');
+                setCreatePrompt('继续上一段视频，从当前最后一帧自然衔接并推进下一段内容。');
                 setCreateRatio(params.ratio);
                 setCreateResolution(params.resolution);
                 setCreateSeconds(params.seconds);
@@ -2677,8 +2747,12 @@ export default function HomePage() {
                 setCreateSeed(params.seed);
                 setCreateWatermark(params.watermark ?? false);
                 setCreateWatermarkText(normalizeWatermarkText(params.watermarkText));
+                setError(
+                    'Extend loaded the last frame as the next segment’s first frame. Edit the prompt, then create.',
+                    'create'
+                );
                 setActiveTab('video');
-                creationFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                scrollToCreationForm();
             } catch (err) {
                 console.error('Error extending video:', err);
                 if (err instanceof InvalidApiKeyError) {
@@ -2688,7 +2762,15 @@ export default function HomePage() {
                 }
             }
         },
-        [buildParamsFromItem, declareGeneratedReference, getVideoSrc, handleInvalidApiKey, handleUploadImage, setError]
+        [
+            buildParamsFromItem,
+            declareGeneratedReference,
+            getVideoSrc,
+            handleInvalidApiKey,
+            handleUploadImage,
+            scrollToCreationForm,
+            setError
+        ]
     );
 
     const handleExtendCurrentVideo = React.useCallback(
@@ -3363,6 +3445,25 @@ export default function HomePage() {
                             <p className='text-xs text-neutral-400'>
                                 Recreate links load prompt and generation settings only. Reference media are not shared.
                             </p>
+                            <div className='space-y-2'>
+                                <p className='text-xs font-medium text-white/70'>Forward to</p>
+                                <div className='grid grid-cols-2 gap-2 sm:grid-cols-3'>
+                                    {SOCIAL_SHARE_TARGETS.map((target) => (
+                                        <Button
+                                            key={target.id}
+                                            type='button'
+                                            variant='secondary'
+                                            onClick={() => void handleSocialShare(target)}
+                                            className='min-w-0 justify-start bg-white/10 text-white hover:bg-white/20'>
+                                            <ExternalLink className='h-4 w-4' />
+                                            <span className='truncate'>{target.label}</span>
+                                        </Button>
+                                    ))}
+                                </div>
+                                {sharePlatformNotice && (
+                                    <p className='text-xs text-neutral-300'>{sharePlatformNotice}</p>
+                                )}
+                            </div>
                             {shareCommunityStatus === 'submitted' ? (
                                 <div className='flex items-center gap-2 rounded-md border border-green-500/25 bg-green-500/10 px-3 py-2 text-sm text-green-200'>
                                     <Check className='h-4 w-4' />

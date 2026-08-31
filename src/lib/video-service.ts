@@ -45,12 +45,18 @@ function buildCreateBody(params: VideoJobCreate): Record<string, unknown> {
         // Multi-reference mode. Ratio stays valid here — only the first-frame
         // mode derives it from the image.
         body.input_reference = [
+            ...(params.input_reference_url ? [referenceItem(params.input_reference_url, 'first_frame')] : []),
+            ...(params.input_reference_url && params.last_frame_url
+                ? [referenceItem(params.last_frame_url, 'last_frame')]
+                : []),
             ...(params.reference_image_urls ?? []).map((url) => referenceItem(url, 'reference_image')),
             ...(params.reference_video_urls ?? []).map((url) => referenceItem(url, 'reference_video')),
             ...(params.reference_audio_url ? [referenceItem(params.reference_audio_url, 'reference_audio')] : [])
         ];
         if (!params.omit_ratio) {
-            extraBody.ratio = params.omni_reference_ratio ?? params.ratio;
+            if (!params.input_reference_url) {
+                extraBody.ratio = params.omni_reference_ratio ?? params.ratio;
+            }
         }
     } else if (params.input_reference_url) {
         // BytePlus rejects `ratio` on first-frame (image-to-video) tasks with

@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { XCITY_BILLING_URL, shouldShowBillingAction } from '@/lib/billing';
 import { cn } from '@/lib/utils';
 import { estimateVideoProgress } from '@/lib/progress';
 import type { VideoJob, VideoMetadata } from '@/types/video';
@@ -13,6 +14,7 @@ import {
     Clock,
     Copy,
     Check,
+    CreditCard,
     Download,
     Loader2,
     Maximize2,
@@ -202,6 +204,8 @@ export function VideoOutput({
         job?.status === 'completed' && !mediaExpired && typeof videoSrc === 'string'
             ? { job, videoSrc }
             : null;
+    const isActionBudgetError = shouldShowBillingAction(error);
+    const isJobBudgetError = shouldShowBillingAction(job?.error?.message);
 
     // Rendered next to the buttons that raise it — an alert at the top of the
     // panel meant scrolling back up to find out why a click did nothing.
@@ -209,7 +213,17 @@ export function VideoOutput({
         <div
             role='alert'
             className='shrink-0 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200'>
-            {error}
+            <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+                <span className='min-w-0 break-words'>{error}</span>
+                {isActionBudgetError && (
+                    <Button asChild size='sm' className='w-full bg-white text-black hover:bg-white/90 sm:w-auto'>
+                        <a href={XCITY_BILLING_URL}>
+                            <CreditCard className='h-4 w-4' />
+                            Billing
+                        </a>
+                    </Button>
+                )}
+            </div>
         </div>
     ) : null;
     const isCompletedWithVideo = Boolean(completedOutput);
@@ -502,6 +516,17 @@ export function VideoOutput({
                                 <div className='mt-4 max-w-md rounded-md border border-red-500/30 bg-red-500/10 p-4'>
                                     <p className='text-sm font-medium text-red-200'>Error:</p>
                                     <p className='mt-1 text-sm text-red-300'>{job.error.message}</p>
+                                    {isJobBudgetError && (
+                                        <Button
+                                            asChild
+                                            size='sm'
+                                            className='mt-3 w-full bg-white text-black hover:bg-white/90 sm:w-auto'>
+                                            <a href={XCITY_BILLING_URL}>
+                                                <CreditCard className='h-4 w-4' />
+                                                Billing
+                                            </a>
+                                        </Button>
+                                    )}
                                 </div>
                             )}
                         </div>

@@ -10,6 +10,8 @@ import {
     DialogTitle
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { XCITY_BILLING_URL, shouldShowBillingAction } from '@/lib/billing';
+import { CreditCard } from 'lucide-react';
 import * as React from 'react';
 
 interface ApiKeyDialogProps {
@@ -23,6 +25,7 @@ export function ApiKeyDialog({ isOpen, onOpenChange, onSave }: ApiKeyDialogProps
     const [isSaving, setIsSaving] = React.useState(false);
     const [saveError, setSaveError] = React.useState<string | null>(null);
     const inputRef = React.useRef<HTMLInputElement>(null);
+    const showBillingAction = shouldShowBillingAction(saveError);
 
     const handleSave = async () => {
         if (isSaving || !currentApiKey.trim()) {
@@ -81,7 +84,26 @@ export function ApiKeyDialog({ isOpen, onOpenChange, onSave }: ApiKeyDialogProps
                             }}
                         />
                     </div>
-                    {saveError && <p className='text-sm text-red-400'>{saveError}</p>}
+                    {saveError && (
+                        <div
+                            role='alert'
+                            className='rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200'>
+                            <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+                                <span className='min-w-0 break-words'>{saveError}</span>
+                                {showBillingAction && (
+                                    <Button
+                                        asChild
+                                        size='sm'
+                                        className='w-full bg-white text-black hover:bg-white/90 sm:w-auto'>
+                                        <a href={XCITY_BILLING_URL}>
+                                            <CreditCard className='h-4 w-4' />
+                                            Billing
+                                        </a>
+                                    </Button>
+                                )}
+                            </div>
+                        </div>
+                    )}
                 </div>
                 <DialogFooter>
                     <Button
