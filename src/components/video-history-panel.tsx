@@ -60,6 +60,8 @@ type VideoHistoryPanelProps = {
     onFinalizeItem?: (item: VideoMetadata) => void;
     /** 续片 — continue this completed video from its last frame. */
     onExtendItem?: (item: VideoMetadata) => void;
+    /** Items currently preparing their last frame for Extend. */
+    extendPendingIds?: Set<string>;
     /** Share — create a public share page for this completed video. */
     onShareItem?: (item: VideoMetadata) => void;
     /** Adds the Studio branding watermark to an already completed video. */
@@ -233,6 +235,7 @@ export function VideoHistoryPanel({
     onRegenerateItem,
     onFinalizeItem,
     onExtendItem,
+    extendPendingIds,
     onShareItem,
     onAddWatermark,
     onRemoveWatermark,
@@ -1158,10 +1161,19 @@ export function VideoHistoryPanel({
                                                                 <button
                                                                     type='button'
                                                                     onClick={() => onExtendItem(item)}
+                                                                    disabled={extendPendingIds?.has(item.id)}
                                                                     title='Continue from the last frame'
-                                                                    className='flex flex-1 items-center justify-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white'>
-                                                                    <StepForward size={11} />
-                                                                    Extend
+                                                                    className={cn(
+                                                                        'flex flex-1 items-center justify-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white',
+                                                                        extendPendingIds?.has(item.id) &&
+                                                                            'cursor-wait opacity-60 hover:bg-white/10 hover:text-white/70'
+                                                                    )}>
+                                                                    {extendPendingIds?.has(item.id) ? (
+                                                                        <Loader2 size={11} className='animate-spin' />
+                                                                    ) : (
+                                                                        <StepForward size={11} />
+                                                                    )}
+                                                                    {extendPendingIds?.has(item.id) ? 'Preparing' : 'Extend'}
                                                                 </button>
                                                             )}
                                                             {onFinalizeItem && isCompleted && isDraft && (

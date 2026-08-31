@@ -226,6 +226,9 @@ export function CreationForm({
         : null;
     const submitMessage = error ?? referenceBlockReason;
     const isBudgetError = Boolean(error && shouldShowBillingAction(error));
+    const isInfoMessage = Boolean(
+        error && /^(Added as reference video|Extend loaded|Adjusted for|Adjusted shared settings|Loaded shared settings)/i.test(error)
+    );
 
     const [isInspirationOpen, setIsInspirationOpen] = React.useState(false);
     const [isShotBuilderOpen, setIsShotBuilderOpen] = React.useState(false);
@@ -277,6 +280,7 @@ export function CreationForm({
         inputVideoSeconds
     });
     const isCostLowerBound = Boolean(estimatedCost && (estimatedCost.lowerBound || hasReferenceVideos));
+    const showEstimatedCost = Boolean(estimatedCost && prompt.trim() && blockedReferences.length === 0);
 
     React.useEffect(() => {
         setReferenceVideoSecondsByUrl((current) => {
@@ -406,7 +410,9 @@ export function CreationForm({
                 </div>
             </CardHeader>
             <form onSubmit={handleSubmit} className='flex h-full flex-1 flex-col overflow-hidden'>
-                <CardContent className='flex-1 space-y-5 overflow-y-auto p-4 lg:overflow-visible'>
+                <CardContent
+                    data-creation-form-scroll
+                    className='flex-1 space-y-5 overflow-y-auto p-4 lg:overflow-visible'>
                     <div className='space-y-1.5'>
                         <div className='flex flex-wrap items-center justify-between gap-2'>
                             <Label htmlFor='prompt' className='text-white'>
@@ -955,10 +961,10 @@ export function CreationForm({
                             </>
                         )}
                     </Button>
-                    {estimatedCost && (
+                    {showEstimatedCost && estimatedCost && (
                         <p className='w-full truncate text-xs whitespace-nowrap text-white/60'>
-                            Est. {isCostLowerBound ? 'from ' : ''}${estimatedCost.totalCost.toFixed(2)} · charged on
-                            success
+                            Next video estimate: {isCostLowerBound ? 'from ' : ''}$
+                            {estimatedCost.totalCost.toFixed(2)} · charged only after success
                         </p>
                     )}
                     {submitMessage && (
@@ -966,9 +972,11 @@ export function CreationForm({
                             role='alert'
                             className={cn(
                                 'w-full rounded-md border px-3 py-2 text-sm',
-                                error
-                                    ? 'border-red-500/40 bg-red-500/10 text-red-200'
-                                    : 'border-amber-400/30 bg-amber-400/10 text-amber-100'
+                                isInfoMessage
+                                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-100'
+                                    : error
+                                      ? 'border-red-500/40 bg-red-500/10 text-red-200'
+                                      : 'border-amber-400/30 bg-amber-400/10 text-amber-100'
                             )}>
                             <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
                                 <span className='min-w-0 break-words'>{submitMessage}</span>

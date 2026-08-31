@@ -437,6 +437,16 @@ export default function HomePage() {
             return next;
         });
     }, []);
+    const [extendPendingIds, setExtendPendingIds] = React.useState<Set<string>>(new Set());
+    const markExtendPending = React.useCallback((id: string, pending: boolean) => {
+        setExtendPendingIds((prev) => {
+            if (prev.has(id) === pending) return prev;
+            const next = new Set(prev);
+            if (pending) next.add(id);
+            else next.delete(id);
+            return next;
+        });
+    }, []);
     const previewStateActionsRef = React.useRef({ markPreviewResolving, markPreviewUnresolved });
     previewStateActionsRef.current = { markPreviewResolving, markPreviewUnresolved };
     const [isApiKeyDialogOpen, setIsApiKeyDialogOpen] = React.useState(false);
@@ -566,8 +576,10 @@ export default function HomePage() {
         (url: string, origin: ReferenceOrigin) => {
             const key = refKey(url);
             if (!key) return;
+            const existing = declarations[key];
+            if (existing?.origin === origin) return;
             setDeclaration(key, {
-                ...(declarations[key] ?? {}),
+                ...(existing ?? {}),
                 origin,
                 declaredAt: Date.now()
             });
@@ -580,13 +592,23 @@ export default function HomePage() {
     // the form's own Select-driven correction.
     const creationFormRef = React.useRef<HTMLDivElement>(null);
     const scrollToCreationForm = React.useCallback(() => {
-        requestAnimationFrame(() => {
-            const target = creationFormRef.current;
-            if (target) {
-                target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            } else {
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-            }
+        return new Promise<void>((resolve) => {
+            requestAnimationFrame(() =>
+                requestAnimationFrame(() => {
+                    const target = creationFormRef.current;
+                    if (target) {
+                        const innerScroller = target.querySelector<HTMLElement>('[data-creation-form-scroll]');
+                        innerScroller?.scrollTo({ top: 0, behavior: 'auto' });
+                        window.scrollTo({
+                            top: Math.max(0, target.getBoundingClientRect().top + window.scrollY - 16),
+                            behavior: 'smooth'
+                        });
+                    } else {
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }
+                    resolve();
+                })
+            );
         });
     }, []);
 
@@ -713,6 +735,7 @@ export default function HomePage() {
     // (checked at runtime via /api/config).
     const [uploadEnabled, setUploadEnabled] = React.useState(false);
     const [isPortraitEnabled, setIsPortraitEnabled] = React.useState(false);
+    const [isVirtualPortraitEnabled, setIsVirtualPortraitEnabled] = React.useState(false);
     const [imageModels, setImageModels] = React.useState<ImageModel[]>([]);
     React.useEffect(() => {
         void mediaArchiveEnabled().then(setUploadEnabled);
@@ -720,6 +743,27 @@ export default function HomePage() {
         void loadImageModels().then(setImageModels);
     }, []);
     const imageGenerationEnabled = imageModels.length > 0;
+
+    React.useEffect(() => {
+        if (!isPortraitEnabled || !apiKey) {
+            setIsVirtualPortraitEnabled(false);
+            return;
+        }
+
+        let cancelled = false;
+        void fetchPortraitStatus(apiKey)
+            .then((status) => {
+                if (!cancelled) setIsVirtualPortraitEnabled(Boolean(status.aigcOk));
+            })
+            .catch((err) => {
+                console.warn('Could not check virtual portrait library:', err);
+                if (!cancelled) setIsVirtualPortraitEnabled(false);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [apiKey, isPortraitEnabled]);
 
     React.useEffect(() => {
         if (!uploadEnabled || !apiKey) {
@@ -1013,6 +1057,11 @@ export default function HomePage() {
 
     const handleCreateVirtualAssetFromReference = React.useCallback(
         async (input: { url: string; name: string }): Promise<string> => {
+            if (!isVirtualPortraitEnabled) {
+                throw new Error(
+                    'Virtual portrait library is not available on this deployment. Use Seedream/BytePlus origin, or ask an admin to enable AIGC portrait assets.'
+                );
+            }
             const name = input.name.trim() || 'Virtual character';
             const validation = await validateAssetImage(input.url);
             if (validation.status === 'rejected') {
@@ -1045,7 +1094,15 @@ export default function HomePage() {
             }
             return portraitReferenceUrl(assetId);
         },
-        [addPortrait, declarations, handleCreatePortraitAsset, handleCreatePortraitGroup, handleGetPortraitAsset, setDeclaration]
+        [
+            addPortrait,
+            declarations,
+            handleCreatePortraitAsset,
+            handleCreatePortraitGroup,
+            handleGetPortraitAsset,
+            isVirtualPortraitEnabled,
+            setDeclaration
+        ]
     );
 
     const handleLoadAssemblyAudioAssets = React.useCallback(async (): Promise<UserAsset[]> => {
@@ -2691,6 +2748,7 @@ export default function HomePage() {
     const handleExtendVideo = React.useCallback(
         async (item: VideoMetadata) => {
             setError(null);
+            markExtendPending(item.id, true);
 
             try {
                 if (!(await mediaArchiveEnabled())) {
@@ -2752,7 +2810,7 @@ export default function HomePage() {
                     'create'
                 );
                 setActiveTab('video');
-                scrollToCreationForm();
+                await scrollToCreationForm();
             } catch (err) {
                 console.error('Error extending video:', err);
                 if (err instanceof InvalidApiKeyError) {
@@ -2760,6 +2818,8 @@ export default function HomePage() {
                 } else {
                     setError(err instanceof Error ? err.message : 'Failed to extend video', 'output');
                 }
+            } finally {
+                markExtendPending(item.id, false);
             }
         },
         [
@@ -2768,6 +2828,7 @@ export default function HomePage() {
             getVideoSrc,
             handleInvalidApiKey,
             handleUploadImage,
+            markExtendPending,
             scrollToCreationForm,
             setError
         ]
@@ -3235,7 +3296,7 @@ export default function HomePage() {
                 isLoadingImageAssets={isLoadingImageAssets}
                 onRefreshImageAssets={() => void refreshImageAssets()}
                 onDeclareReference={handleDeclareReference}
-                onCreateVirtualAsset={handleCreateVirtualAssetFromReference}
+                onCreateVirtualAsset={isVirtualPortraitEnabled ? handleCreateVirtualAssetFromReference : undefined}
                 onUploadImage={uploadEnabled ? handleUploadImage : undefined}
                 onOpenAssets={
                     uploadEnabled || isPortraitEnabled
@@ -3340,7 +3401,9 @@ export default function HomePage() {
                                 onUploadAudio={uploadEnabled ? handleUploadAudio : undefined}
                                 onSynthesizeSpeech={uploadEnabled ? handleSynthesizeSpeech : undefined}
                                 onUploadVideo={uploadEnabled ? handleUploadVideo : undefined}
-                                onCreateVirtualAsset={handleCreateVirtualAssetFromReference}
+                                onCreateVirtualAsset={
+                                    isVirtualPortraitEnabled ? handleCreateVirtualAssetFromReference : undefined
+                                }
                                 onOptimizePrompt={handleOptimizePrompt}
                                 onBreakdownScript={handleBreakdownScript}
                                 // Only offer the jump when the Assets tab actually exists —
@@ -3369,6 +3432,7 @@ export default function HomePage() {
                         }
                         onDownload={handleDownloadVideo}
                         onExtend={handleExtendCurrentVideo}
+                        isExtendPending={Boolean(currentJobId && extendPendingIds.has(currentJobId))}
                         onFinalize={currentHistoryItemIsDraft ? handleFinalizeCurrentVideo : undefined}
                         onShare={handleShareItem}
                         shareItem={currentHistoryItem}
@@ -3399,6 +3463,7 @@ export default function HomePage() {
                     onRegenerateItem={handleRegenerateItem}
                     onFinalizeItem={handleFinalizeItem}
                     onExtendItem={handleExtendVideo}
+                    extendPendingIds={extendPendingIds}
                     onShareItem={handleShareItem}
                     onAddWatermark={handleAddWatermarkToItem}
                     onRemoveWatermark={handleRemoveWatermarkFromItem}
