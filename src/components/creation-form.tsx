@@ -15,6 +15,7 @@ import { Slider } from '@/components/ui/slider';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { VideoCharacter, VideoPortrait } from '@/hooks/use-video-history';
+import { XCITY_BILLING_URL, shouldShowBillingAction } from '@/lib/billing';
 import { calculateVideoCost } from '@/lib/cost-utils';
 import { PROMPT_TEMPLATE_CATEGORIES, applyPromptTemplate } from '@/lib/prompt-templates';
 import {
@@ -46,6 +47,7 @@ import {
     AlertCircle,
     ChevronDown,
     Clapperboard,
+    CreditCard,
     HelpCircle,
     Lightbulb,
     Loader2,
@@ -223,6 +225,7 @@ export function CreationForm({
             : declarationBlockReason(declarations[refKey(firstBlockedReference)], approvedAuthorizationIds)
         : null;
     const submitMessage = error ?? referenceBlockReason;
+    const isBudgetError = Boolean(error && shouldShowBillingAction(error));
 
     const [isInspirationOpen, setIsInspirationOpen] = React.useState(false);
     const [isShotBuilderOpen, setIsShotBuilderOpen] = React.useState(false);
@@ -361,6 +364,7 @@ export function CreationForm({
             formData.final_resolution = resolution;
         }
         const refs = referenceUrls.map((u) => u.trim()).filter(Boolean);
+        const videos = showReferenceVideos ? referenceVideoUrls.map((u) => u.trim()).filter(Boolean) : [];
         if (refs.length === 1) {
             formData.input_reference_url = refs[0];
             const lastFrame = lastFrameUrl.trim();
@@ -373,12 +377,17 @@ export function CreationForm({
             if (showReferenceAudio && audio) {
                 formData.reference_audio_url = audio;
             }
-            const videos = referenceVideoUrls.map((u) => u.trim()).filter(Boolean);
-            if (showReferenceVideos && videos.length) {
-                formData.reference_video_urls = videos.slice(0, 2);
-                formData.reference_video_seconds = formData.reference_video_urls.map(
-                    (url) => referenceVideoSecondsByUrl[url] ?? 0
-                );
+        }
+        if (videos.length) {
+            formData.reference_video_urls = videos.slice(0, 2);
+            formData.reference_video_seconds = formData.reference_video_urls.map(
+                (url) => referenceVideoSecondsByUrl[url] ?? 0
+            );
+            if (refs.length === 1) {
+                formData.omni_reference_task_type = 'extend';
+                formData.omit_resolution = true;
+                formData.omit_ratio = true;
+                formData.camera_fixed = undefined;
             }
         }
         onSubmit(formData);
@@ -961,7 +970,20 @@ export function CreationForm({
                                     ? 'border-red-500/40 bg-red-500/10 text-red-200'
                                     : 'border-amber-400/30 bg-amber-400/10 text-amber-100'
                             )}>
-                            {submitMessage}
+                            <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+                                <span className='min-w-0 break-words'>{submitMessage}</span>
+                                {isBudgetError && (
+                                    <Button
+                                        asChild
+                                        size='sm'
+                                        className='w-full bg-white text-black hover:bg-white/90 sm:w-auto'>
+                                        <a href={XCITY_BILLING_URL}>
+                                            <CreditCard className='h-4 w-4' />
+                                            Billing
+                                        </a>
+                                    </Button>
+                                )}
+                            </div>
                         </div>
                     )}
                 </CardFooter>
