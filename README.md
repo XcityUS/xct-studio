@@ -1,5 +1,7 @@
 # <img src="./public/logo.png" alt="Xcity" width="40" height="41" style="vertical-align: middle; margin-right: 8px;"> Xcity Video Studio
 
+[![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://app.codspeed.io/XcityUS/xct-studio?utm_source=badge)
+
 AI video (and image) generation studio for [xcity.ai](https://xcity.ai) — ByteDance **Seedance** models served through the Xcity **TokenHub** gateway, running live at [studio.xcity.ai](https://studio.xcity.ai).
 
 Forked from [alasano/sora-2-playground](https://github.com/alasano/sora-2-playground) and rebuilt around the Xcity platform: unified SSO keys, direct-to-gateway browser calls, permanent media storage on Cloudflare R2.
@@ -44,6 +46,17 @@ npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000). With no SSO configured you'll be prompted for a TokenHub API key (stored only in the browser).
+
+### Benchmarks
+
+Pure studio logic (cloud-sync merge, cost math, SRT/FCP7 export, media-state resolution, reference keys) is benchmarked with `vitest bench` and tracked on CodSpeed:
+
+```bash
+npm run bench                              # local run
+codspeed run --mode simulation -- npm run bench   # same run, CodSpeed instrumented
+```
+
+Benchmarks live in [bench/](bench/); every pull request gets a performance report from [.github/workflows/codspeed.yml](.github/workflows/codspeed.yml).
 
 ### Environment variables
 
