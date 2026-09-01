@@ -3,7 +3,7 @@ export const AVOID_GENERATED_CAPTIONS_PROMPT =
 const GENERATED_CAPTIONS_PROMPT_HEADER = 'Caption overlay instructions:';
 const LANGUAGE_PROMPT_HEADER = 'Language instructions:';
 const SUBTITLE_LAYOUT_PROMPT =
-    'Subtitle styling: use a compact small subtitle font, keep each subtitle line within the bottom safe area, and keep at least one line-height of vertical spacing between stacked lines. If text would exceed the safe area, reduce the font size first, then wrap to a maximum of two lines per language; subtitle lines must never overlap.';
+    'Subtitle pacing and styling: do not display the full transcript at once. Split long dialogue into short timed subtitle segments and show only the current segment. For bilingual subtitles, show at most one short English segment above its matching Chinese segment at any moment. Use a compact small subtitle font, keep subtitles within the bottom safe area, and keep at least one line-height of vertical spacing between stacked lines. If a segment would exceed the safe area, reduce the font size first, then wrap; subtitle lines must never overlap.';
 export const MAX_GENERATED_CAPTIONS = 2;
 export const NO_GENERATED_CAPTION_LANGUAGE = 'none';
 export const DEFAULT_GENERATED_CAPTION_LANGUAGES = ['en-US', 'zh-CN'] as const;
