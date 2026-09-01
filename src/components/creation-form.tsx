@@ -10,7 +10,6 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -136,6 +135,8 @@ const RATIO_LABELS: Record<VideoRatio, string> = {
 
 const CAMERA_TEMPLATES = PROMPT_TEMPLATE_CATEGORIES.find((category) => category.id === 'camera')?.templates ?? [];
 type GenerationMode = 'draft' | 'final';
+const nativeSelectClass =
+    'h-10 w-full rounded-md border border-white/20 bg-black px-3 text-sm text-white outline-none focus:border-white/50 focus:ring-2 focus:ring-white/50 disabled:cursor-not-allowed disabled:opacity-50';
 
 function InlineError({ children }: { children: React.ReactNode }) {
     return (
@@ -299,8 +300,6 @@ export function CreationForm({
     }, [hasReferenceVideos, referenceVideoSecondsByUrl, referenceVideoUrls]);
     const normalizedVoiceLanguage = normalizeVoiceLanguage(voiceLanguage);
     const normalizedCaptionMode = normalizeCaptionMode(captionMode);
-    const selectedVoice = VOICE_LANGUAGE_OPTIONS.find((item) => item.id === normalizedVoiceLanguage);
-    const selectedCaptionMode = CAPTION_MODE_OPTIONS.find((item) => item.id === normalizedCaptionMode);
     const estimatedCost = calculateVideoCost({
         model: activeModel,
         ratio,
@@ -557,10 +556,11 @@ export function CreationForm({
                         <Label htmlFor='model-select' className='text-white'>
                             Model
                         </Label>
-                        <Select
+                        <select
+                            id='model-select'
                             value={activeModel}
-                            onValueChange={(value) => {
-                                const newModel = value as VideoModel;
+                            onChange={(event) => {
+                                const newModel = event.target.value as VideoModel;
                                 setModel((current) => (current === newModel ? current : newModel));
                                 // Pull the current choices back into range instead
                                 // of submitting something the selected model rejects.
@@ -577,21 +577,14 @@ export function CreationForm({
                                     return prev.length > maxImages ? prev.slice(0, maxImages) : prev;
                                 });
                             }}
-                            disabled={isLoading}>
-                            <SelectTrigger
-                                id='model-select'
-                                className='rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'>
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent className='border-white/20 bg-black text-white'>
-                                {SEEDANCE_MODELS.map((m) => (
-                                    <SelectItem key={m.id} value={m.id} className='focus:bg-white/10 focus:text-white'>
-                                        {m.label}
-                                        <span className='ml-2 text-xs text-white/40'>{m.description}</span>
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
+                            disabled={isLoading}
+                            className={nativeSelectClass}>
+                            {SEEDANCE_MODELS.map((m) => (
+                                <option key={m.id} value={m.id}>
+                                    {m.label} · {m.description}
+                                </option>
+                            ))}
+                        </select>
                     </div>
 
                     <div className='grid grid-cols-2 gap-4'>
@@ -601,23 +594,18 @@ export function CreationForm({
                             </Label>
                             {/* With a reference image the provider derives the ratio
                                 from the image and rejects an explicit one. */}
-                            <Select
+                            <select
+                                id='ratio-select'
                                 value={ratio}
-                                onValueChange={(value) => setRatio(value as VideoRatio)}
-                                disabled={isLoading || isFirstFrameMode}>
-                                <SelectTrigger
-                                    id='ratio-select'
-                                    className='rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50 disabled:opacity-50'>
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent className='border-white/20 bg-black text-white'>
-                                    {RATIOS.map((r) => (
-                                        <SelectItem key={r} value={r} className='focus:bg-white/10 focus:text-white'>
-                                            {RATIO_LABELS[r]}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                                onChange={(event) => setRatio(event.target.value as VideoRatio)}
+                                disabled={isLoading || isFirstFrameMode}
+                                className={nativeSelectClass}>
+                                {RATIOS.map((r) => (
+                                    <option key={r} value={r}>
+                                        {RATIO_LABELS[r]}
+                                    </option>
+                                ))}
+                            </select>
                             {isFirstFrameMode && <p className='text-xs text-white/40'>Follows the reference image</p>}
                         </div>
 
@@ -625,30 +613,19 @@ export function CreationForm({
                             <Label htmlFor='resolution-select' className='text-white'>
                                 Resolution
                             </Label>
-                            <Select
+                            <select
+                                id='resolution-select'
                                 value={resolution}
-                                onValueChange={(value) => setResolution(value as VideoResolution)}
-                                disabled={isLoading}>
-                                <SelectTrigger
-                                    id='resolution-select'
-                                    className='rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'>
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent className='border-white/20 bg-black text-white'>
-                                    {RESOLUTIONS.map((r) => (
-                                        <SelectItem
-                                            key={r}
-                                            value={r}
-                                            disabled={!modelSupportsResolution(activeModel, r)}
-                                            className='focus:bg-white/10 focus:text-white disabled:cursor-not-allowed disabled:opacity-50'>
-                                            {r}
-                                            {!modelSupportsResolution(activeModel, r) && (
-                                                <span className='ml-2 text-xs text-white/40'>not supported</span>
-                                            )}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                                onChange={(event) => setResolution(event.target.value as VideoResolution)}
+                                disabled={isLoading}
+                                className={nativeSelectClass}>
+                                {RESOLUTIONS.map((r) => (
+                                    <option key={r} value={r} disabled={!modelSupportsResolution(activeModel, r)}>
+                                        {r}
+                                        {!modelSupportsResolution(activeModel, r) ? ' · not supported' : ''}
+                                    </option>
+                                ))}
+                            </select>
                         </div>
                     </div>
 
@@ -675,26 +652,18 @@ export function CreationForm({
                             <Label htmlFor='voice-language-select' className='text-white'>
                                 Voice
                             </Label>
-                            <Select
+                            <select
+                                id='voice-language-select'
                                 value={normalizedVoiceLanguage}
-                                onValueChange={setVoiceLanguage}
-                                disabled={isLoading}>
-                                <SelectTrigger
-                                    id='voice-language-select'
-                                    className='rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'>
-                                    <SelectValue>{selectedVoice?.label}</SelectValue>
-                                </SelectTrigger>
-                                <SelectContent className='border-white/20 bg-black text-white'>
-                                    {VOICE_LANGUAGE_OPTIONS.map((voice) => (
-                                        <SelectItem
-                                            key={voice.id}
-                                            value={voice.id}
-                                            className='focus:bg-white/10 focus:text-white'>
-                                            {voice.label}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                                onChange={(event) => setVoiceLanguage(event.target.value)}
+                                disabled={isLoading}
+                                className={nativeSelectClass}>
+                                {VOICE_LANGUAGE_OPTIONS.map((voice) => (
+                                    <option key={voice.id} value={voice.id}>
+                                        {voice.label}
+                                    </option>
+                                ))}
+                            </select>
                         </div>
                         <div className='space-y-2'>
                             <Label className='text-white'>Camera</Label>
@@ -866,23 +835,18 @@ export function CreationForm({
                                             </TooltipContent>
                                         </Tooltip>
                                     </div>
-                                    <Select value={normalizedCaptionMode} onValueChange={setCaptionMode} disabled={isLoading}>
-                                        <SelectTrigger
-                                            id='caption-mode-select'
-                                            className='rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'>
-                                            <SelectValue>{selectedCaptionMode?.label}</SelectValue>
-                                        </SelectTrigger>
-                                        <SelectContent className='border-white/20 bg-black text-white'>
-                                            {CAPTION_MODE_OPTIONS.map((mode) => (
-                                                <SelectItem
-                                                    key={mode.id}
-                                                    value={mode.id}
-                                                    className='focus:bg-white/10 focus:text-white'>
-                                                    {mode.label}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
+                                    <select
+                                        id='caption-mode-select'
+                                        value={normalizedCaptionMode}
+                                        onChange={(event) => setCaptionMode(event.target.value)}
+                                        disabled={isLoading}
+                                        className={nativeSelectClass}>
+                                        {CAPTION_MODE_OPTIONS.map((mode) => (
+                                            <option key={mode.id} value={mode.id}>
+                                                {mode.label}
+                                            </option>
+                                        ))}
+                                    </select>
                                 </div>
                             </div>
                         )}
