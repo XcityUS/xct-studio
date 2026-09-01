@@ -3608,7 +3608,7 @@ export default function HomePage() {
     );
 
     return (
-        <main className='flex flex-col items-center bg-black p-4 text-white md:p-8 lg:p-12'>
+        <main className='bg-black py-4 text-white md:py-8 lg:py-12'>
             <ApiKeyDialog isOpen={isApiKeyDialogOpen} onOpenChange={setIsApiKeyDialogOpen} onSave={handleSaveApiKey} />
             <Dialog open={isShareDialogOpen} onOpenChange={handleShareDialogOpenChange}>
                 <DialogContent className='border-neutral-700 bg-neutral-900 text-white sm:max-w-[460px]'>
@@ -3702,7 +3702,7 @@ export default function HomePage() {
                 </DialogContent>
             </Dialog>
 
-            <div className='w-full max-w-7xl space-y-6'>
+            <div className='mx-auto w-full max-w-7xl space-y-6 px-4 md:px-6'>
                 {imageGenerationEnabled || uploadEnabled || isPortraitEnabled ? (
                     <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as StudioTab)}>
                         <TabsList className='mb-4 border border-white/10 bg-white/5'>
