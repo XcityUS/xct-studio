@@ -44,6 +44,7 @@ import { calculateVideoCost } from '@/lib/cost-utils';
 import { db, type ImageRecord } from '@/lib/db';
 import { InvalidApiKeyError, RealPersonImageError } from '@/lib/errors';
 import type { GalleryItem } from '@/lib/gallery';
+import { BudgetExceededError, RateLimitError } from '@/lib/openai-client';
 import { reconcilePreset } from '@/lib/gallery-preset';
 import {
     generateImages,
@@ -2255,7 +2256,16 @@ export default function HomePage() {
             }
             return job.id;
         } catch (err: unknown) {
-            console.error('Error creating video:', err);
+            const isExpectedCreateError =
+                err instanceof InvalidApiKeyError ||
+                err instanceof RealPersonImageError ||
+                err instanceof BudgetExceededError ||
+                err instanceof RateLimitError;
+            if (isExpectedCreateError) {
+                console.warn('Video creation failed:', err.message);
+            } else {
+                console.error('Error creating video:', err);
+            }
             if (err instanceof InvalidApiKeyError) {
                 handleInvalidApiKey(err.message);
             } else if (err instanceof RealPersonImageError) {
