@@ -134,7 +134,7 @@ const RATIO_LABELS: Record<VideoRatio, string> = {
 const CAMERA_TEMPLATES = PROMPT_TEMPLATE_CATEGORIES.find((category) => category.id === 'camera')?.templates ?? [];
 type GenerationMode = 'draft' | 'final';
 const nativeSelectClass =
-    'h-10 w-full rounded-md border border-white/20 bg-black px-3 text-sm text-white outline-none focus:border-white/50 focus:ring-2 focus:ring-white/50 disabled:cursor-not-allowed disabled:opacity-50';
+    'h-10 w-full appearance-none rounded-md border border-white/20 bg-black pl-3 pr-10 text-sm text-white outline-none focus:border-white/50 focus:ring-2 focus:ring-white/50 disabled:cursor-not-allowed disabled:opacity-50';
 const nativeRangeClass =
     'h-6 w-full cursor-pointer accent-white disabled:cursor-not-allowed disabled:opacity-50';
 const nativeCheckboxClass =
@@ -147,6 +147,22 @@ function InlineError({ children }: { children: React.ReactNode }) {
             className='flex w-full items-start gap-2 rounded-md border border-red-400/25 bg-red-500/[0.08] px-3 py-2 text-xs leading-5 text-red-200'>
             <AlertCircle className='mt-0.5 h-4 w-4 shrink-0 text-red-300' />
             <span className='min-w-0 break-words'>{children}</span>
+        </div>
+    );
+}
+
+function NativeSelect({ className, children, disabled, ...props }: React.SelectHTMLAttributes<HTMLSelectElement>) {
+    return (
+        <div className='relative'>
+            <select {...props} disabled={disabled} className={cn(nativeSelectClass, className)}>
+                {children}
+            </select>
+            <ChevronDown
+                className={cn(
+                    'pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50',
+                    disabled && 'text-white/25'
+                )}
+            />
         </div>
     );
 }
@@ -565,7 +581,7 @@ export function CreationForm({
                         <Label htmlFor='model-select' className='text-white'>
                             Model
                         </Label>
-                        <select
+                        <NativeSelect
                             id='model-select'
                             value={activeModel}
                             onChange={(event) => {
@@ -586,14 +602,13 @@ export function CreationForm({
                                     return prev.length > maxImages ? prev.slice(0, maxImages) : prev;
                                 });
                             }}
-                            disabled={isLoading}
-                            className={nativeSelectClass}>
+                            disabled={isLoading}>
                             {SEEDANCE_MODELS.map((m) => (
                                 <option key={m.id} value={m.id}>
                                     {m.label} · {m.description}
                                 </option>
                             ))}
-                        </select>
+                        </NativeSelect>
                     </div>
 
                     <div className='grid grid-cols-2 gap-4'>
@@ -603,18 +618,17 @@ export function CreationForm({
                             </Label>
                             {/* With a reference image the provider derives the ratio
                                 from the image and rejects an explicit one. */}
-                            <select
+                            <NativeSelect
                                 id='ratio-select'
                                 value={ratio}
                                 onChange={(event) => setRatio(event.target.value as VideoRatio)}
-                                disabled={isLoading || isFirstFrameMode}
-                                className={nativeSelectClass}>
+                                disabled={isLoading || isFirstFrameMode}>
                                 {RATIOS.map((r) => (
                                     <option key={r} value={r}>
                                         {RATIO_LABELS[r]}
                                     </option>
                                 ))}
-                            </select>
+                            </NativeSelect>
                             {isFirstFrameMode && <p className='text-xs text-white/40'>Follows the reference image</p>}
                         </div>
 
@@ -622,19 +636,18 @@ export function CreationForm({
                             <Label htmlFor='resolution-select' className='text-white'>
                                 Resolution
                             </Label>
-                            <select
+                            <NativeSelect
                                 id='resolution-select'
                                 value={resolution}
                                 onChange={(event) => setResolution(event.target.value as VideoResolution)}
-                                disabled={isLoading}
-                                className={nativeSelectClass}>
+                                disabled={isLoading}>
                                 {RESOLUTIONS.map((r) => (
                                     <option key={r} value={r} disabled={!modelSupportsResolution(activeModel, r)}>
                                         {r}
                                         {!modelSupportsResolution(activeModel, r) ? ' · not supported' : ''}
                                     </option>
                                 ))}
-                            </select>
+                            </NativeSelect>
                         </div>
                     </div>
 
@@ -663,18 +676,17 @@ export function CreationForm({
                             <Label htmlFor='voice-language-select' className='text-white'>
                                 Voice
                             </Label>
-                            <select
+                            <NativeSelect
                                 id='voice-language-select'
                                 value={normalizedVoiceLanguage}
                                 onChange={(event) => setVoiceLanguage(event.target.value)}
-                                disabled={isLoading}
-                                className={nativeSelectClass}>
+                                disabled={isLoading}>
                                 {VOICE_LANGUAGE_OPTIONS.map((voice) => (
                                     <option key={voice.id} value={voice.id}>
                                         {voice.label}
                                     </option>
                                 ))}
-                            </select>
+                            </NativeSelect>
                         </div>
                         <div className='space-y-2'>
                             <Label className='text-white'>Camera</Label>
@@ -848,18 +860,17 @@ export function CreationForm({
                                             </TooltipContent>
                                         </Tooltip>
                                     </div>
-                                    <select
+                                    <NativeSelect
                                         id='caption-mode-select'
                                         value={normalizedCaptionMode}
                                         onChange={(event) => setCaptionMode(event.target.value)}
-                                        disabled={isLoading}
-                                        className={nativeSelectClass}>
+                                        disabled={isLoading}>
                                         {CAPTION_MODE_OPTIONS.map((mode) => (
                                             <option key={mode.id} value={mode.id}>
                                                 {mode.label}
                                             </option>
                                         ))}
-                                    </select>
+                                    </NativeSelect>
                                 </div>
                             </div>
                         )}
