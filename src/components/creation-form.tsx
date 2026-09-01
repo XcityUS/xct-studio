@@ -7,10 +7,8 @@ import { ReferenceVideosInput } from '@/components/reference-videos-input';
 import { ShotBuilderDialog, type ShotDraft } from '@/components/shot-builder';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Slider } from '@/components/ui/slider';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { VideoCharacter, VideoPortrait } from '@/hooks/use-video-history';
@@ -137,6 +135,10 @@ const CAMERA_TEMPLATES = PROMPT_TEMPLATE_CATEGORIES.find((category) => category.
 type GenerationMode = 'draft' | 'final';
 const nativeSelectClass =
     'h-10 w-full rounded-md border border-white/20 bg-black px-3 text-sm text-white outline-none focus:border-white/50 focus:ring-2 focus:ring-white/50 disabled:cursor-not-allowed disabled:opacity-50';
+const nativeRangeClass =
+    'h-6 w-full cursor-pointer accent-white disabled:cursor-not-allowed disabled:opacity-50';
+const nativeCheckboxClass =
+    'h-4 w-4 shrink-0 rounded border border-white/40 bg-black accent-white disabled:cursor-not-allowed disabled:opacity-40';
 
 function InlineError({ children }: { children: React.ReactNode }) {
     return (
@@ -209,6 +211,7 @@ export function CreationForm({
 }: CreationFormProps) {
     const activeModel = getSeedanceModel(model) ? model : DEFAULT_MODEL;
     const { min: minSeconds, max: maxSeconds } = secondsRange(activeModel);
+    const activeSeconds = clampSeconds(seconds, activeModel);
     const modelDef = getSeedanceModel(activeModel);
     const refCap = maxReferenceImages(activeModel);
     // Ratio is provider-derived only in first-frame mode (exactly one image).
@@ -286,6 +289,12 @@ export function CreationForm({
     }, [supportsDraftMode]);
 
     React.useEffect(() => {
+        if (seconds !== activeSeconds) {
+            setSeconds(activeSeconds);
+        }
+    }, [activeSeconds, seconds, setSeconds]);
+
+    React.useEffect(() => {
         if (!supportsCameraFixed && cameraFixed) {
             setCameraFixed(false);
         }
@@ -304,7 +313,7 @@ export function CreationForm({
         model: activeModel,
         ratio,
         resolution: activeResolution,
-        seconds,
+        seconds: activeSeconds,
         generateAudio: normalizedVoiceLanguage !== SILENT_VOICE_LANGUAGE,
         inputVideoSeconds
     });
@@ -385,7 +394,7 @@ export function CreationForm({
             prompt,
             ratio,
             resolution: activeResolution,
-            seconds,
+            seconds: activeSeconds,
             generate_audio: normalizedVoiceLanguage !== SILENT_VOICE_LANGUAGE,
             camera_fixed: cameraFixed,
             seed,
@@ -632,15 +641,17 @@ export function CreationForm({
                     <div className='space-y-2'>
                         <div className='flex items-center justify-between'>
                             <Label className='text-white'>Duration</Label>
-                            <span className='text-sm text-white/60'>{seconds} seconds</span>
+                            <span className='text-sm text-white/60'>{activeSeconds} seconds</span>
                         </div>
-                        <Slider
-                            value={[seconds]}
+                        <input
+                            type='range'
                             min={minSeconds}
                             max={maxSeconds}
                             step={1}
-                            onValueChange={(value) => setSeconds(value[0] ?? seconds)}
+                            value={activeSeconds}
+                            onChange={(event) => setSeconds(clampSeconds(Number(event.target.value), activeModel))}
                             disabled={isLoading}
+                            className={nativeRangeClass}
                         />
                         <p className='text-xs text-white/40'>
                             {modelDef?.label ?? 'Seedance'} clips run {minSeconds}–{maxSeconds} seconds.
@@ -668,12 +679,13 @@ export function CreationForm({
                         <div className='space-y-2'>
                             <Label className='text-white'>Camera</Label>
                             <div className='flex h-10 items-center gap-2 rounded-md border border-white/10 bg-white/[0.02] px-3'>
-                                <Checkbox
+                                <input
+                                    type='checkbox'
                                     id='camera-fixed'
                                     checked={cameraFixed}
-                                    onCheckedChange={(checked) => setCameraFixed(checked === true)}
+                                    onChange={(event) => setCameraFixed(event.target.checked)}
                                     disabled={isLoading || !supportsCameraFixed}
-                                    className='border-white/40 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black'
+                                    className={nativeCheckboxClass}
                                 />
                                 <Label
                                     htmlFor='camera-fixed'
@@ -766,12 +778,13 @@ export function CreationForm({
                                     />
                                 </div>
                                 <div className='flex items-center space-x-2'>
-                                    <Checkbox
+                                    <input
+                                        type='checkbox'
                                         id='watermark'
                                         checked={watermark}
-                                        onCheckedChange={(checked) => setWatermark(checked === true)}
+                                        onChange={(event) => setWatermark(event.target.checked)}
                                         disabled={isLoading}
-                                        className='border-white/40 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black'
+                                        className={nativeCheckboxClass}
                                     />
                                     <div className='flex items-center gap-1.5'>
                                         <Label htmlFor='watermark' className='cursor-pointer text-white/80'>
