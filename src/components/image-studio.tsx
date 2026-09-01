@@ -77,6 +77,7 @@ export function ImageStudio({ imageModels, onGenerate, onAnimate }: ImageStudioP
     const [count, setCount] = React.useState(1);
     const [isGenerating, setIsGenerating] = React.useState(false);
     const [error, setError] = React.useState<string | null>(null);
+    const [lastBatchSummary, setLastBatchSummary] = React.useState<string | null>(null);
     const [animatingId, setAnimatingId] = React.useState<string | null>(null);
 
     const records = useLiveQuery<ImageRecord[] | undefined>(
@@ -100,7 +101,9 @@ export function ImageStudio({ imageModels, onGenerate, onAnimate }: ImageStudioP
         }
         setIsGenerating(true);
         setError(null);
+        setLastBatchSummary(null);
         try {
+            const requestedCount = count;
             const images = await onGenerate({ prompt: trimmedPrompt, model, size, n: count });
             const now = Date.now();
             await db.images.bulkPut(
@@ -114,6 +117,7 @@ export function ImageStudio({ imageModels, onGenerate, onAnimate }: ImageStudioP
                     created_at: now
                 }))
             );
+            setLastBatchSummary(`Generated ${images.length}/${requestedCount} image${requestedCount === 1 ? '' : 's'}.`);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Image generation failed.');
         } finally {
@@ -228,6 +232,7 @@ export function ImageStudio({ imageModels, onGenerate, onAnimate }: ImageStudioP
                                         type='button'
                                         onClick={() => setCount(n)}
                                         disabled={isGenerating}
+                                        aria-pressed={count === n}
                                         className={cn(
                                             'h-8 w-8 rounded-md text-sm transition-colors',
                                             count === n
@@ -241,6 +246,7 @@ export function ImageStudio({ imageModels, onGenerate, onAnimate }: ImageStudioP
                         </div>
 
                         {error && <p className='text-sm text-red-400'>{error}</p>}
+                        {lastBatchSummary && !error && <p className='text-sm text-white/50'>{lastBatchSummary}</p>}
 
                         <Button
                             type='submit'
@@ -249,7 +255,7 @@ export function ImageStudio({ imageModels, onGenerate, onAnimate }: ImageStudioP
                             {isGenerating ? (
                                 <>
                                     <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                                    Generating…
+                                    Generating {count} image{count === 1 ? '' : 's'}...
                                 </>
                             ) : (
                                 <>

@@ -53,7 +53,8 @@ export async function generateImages(
     baseURL?: string
 ): Promise<GeneratedImage[]> {
     const client = createFrontendOpenAI(apiKey, baseURL);
-    const requestedCount = Math.max(1, Math.min(4, Math.trunc(params.n)));
+    const normalizedCount = Math.trunc(params.n);
+    const requestedCount = Number.isFinite(normalizedCount) ? Math.max(1, Math.min(4, normalizedCount)) : 1;
 
     async function requestImages(n: number): Promise<GeneratedImage[]> {
         const response = await client.images.generate({
@@ -87,14 +88,17 @@ export async function generateImages(
     }
 
     try {
-        const results = await requestImages(requestedCount);
+        const results: GeneratedImage[] = [];
         while (results.length < requestedCount) {
-            const [image] = await requestImages(1);
-            if (!image) break;
-            results.push(image);
+            const batch = await requestImages(1);
+            if (batch.length === 0) break;
+            results.push(...batch.slice(0, requestedCount - results.length));
         }
         if (results.length === 0) {
             throw new Error('The gateway returned no images.');
+        }
+        if (results.length < requestedCount) {
+            throw new Error(`The gateway returned ${results.length} of ${requestedCount} requested images.`);
         }
         return results.slice(0, requestedCount);
     } catch (error) {
