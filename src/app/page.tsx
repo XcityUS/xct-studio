@@ -3593,21 +3593,11 @@ export default function HomePage() {
                     ) : null}
                     <DialogFooter>
                         {shareDialogUrl && (
-                            <>
-                                <Button
-                                    type='button'
-                                    variant='secondary'
-                                    onClick={handleCopyShareUrl}
-                                    className='bg-white/10 text-white hover:bg-white/20'>
-                                    {shareUrlCopied ? <Check className='h-4 w-4' /> : <Copy className='h-4 w-4' />}
-                                    {shareUrlCopied ? 'Copied' : 'Copy'}
-                                </Button>
-                                <Button asChild className='bg-white text-black hover:bg-white/90'>
-                                    <a href={shareDialogUrl} target='_blank' rel='noreferrer'>
-                                        Open
-                                    </a>
-                                </Button>
-                            </>
+                            <Button asChild className='bg-white text-black hover:bg-white/90'>
+                                <a href={shareDialogUrl} target='_blank' rel='noreferrer'>
+                                    Open
+                                </a>
+                            </Button>
                         )}
                     </DialogFooter>
                 </DialogContent>
