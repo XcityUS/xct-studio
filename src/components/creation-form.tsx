@@ -17,7 +17,13 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import type { VideoCharacter, VideoPortrait } from '@/hooks/use-video-history';
 import { XCITY_BILLING_URL, shouldShowBillingAction } from '@/lib/billing';
 import { calculateVideoCost } from '@/lib/cost-utils';
-import { MAX_GENERATED_CAPTIONS, normalizeGeneratedCaptionTexts } from '@/lib/prompt-guards';
+import {
+    GENERATED_CAPTION_LANGUAGES,
+    MAX_GENERATED_CAPTIONS,
+    NO_GENERATED_CAPTION_LANGUAGE,
+    normalizeGeneratedCaptionItems,
+    normalizeGeneratedCaptionLanguages,
+} from '@/lib/prompt-guards';
 import { PROMPT_TEMPLATE_CATEGORIES, applyPromptTemplate } from '@/lib/prompt-templates';
 import {
     ASSET_LIBRARY_MODEL_BLOCK_REASON,
@@ -101,6 +107,8 @@ type CreationFormProps = {
     setAvoidGeneratedCaptions: React.Dispatch<React.SetStateAction<boolean>>;
     generatedCaptions: string[];
     setGeneratedCaptions: React.Dispatch<React.SetStateAction<string[]>>;
+    generatedCaptionLanguages: string[];
+    setGeneratedCaptionLanguages: React.Dispatch<React.SetStateAction<string[]>>;
     /** Uploads a local image, resolving to its public URL. Absent = URL-only mode. */
     onUploadImage?: (file: File) => Promise<string>;
     /** Uploads a local audio file, resolving to its public URL. Absent = URL-only mode. */
@@ -193,6 +201,8 @@ export function CreationForm({
     setAvoidGeneratedCaptions,
     generatedCaptions,
     setGeneratedCaptions,
+    generatedCaptionLanguages,
+    setGeneratedCaptionLanguages,
     onUploadImage,
     onUploadAudio,
     onSynthesizeSpeech,
@@ -297,8 +307,12 @@ export function CreationForm({
     });
     const isCostLowerBound = Boolean(estimatedCost && (estimatedCost.lowerBound || hasReferenceVideos));
     const showEstimatedCost = Boolean(estimatedCost && prompt.trim() && blockedReferences.length === 0);
-    const normalizedGeneratedCaptions = normalizeGeneratedCaptionTexts(generatedCaptions);
-    const hasGeneratedCaptions = normalizedGeneratedCaptions.length > 0;
+    const normalizedGeneratedCaptionLanguages = normalizeGeneratedCaptionLanguages(generatedCaptionLanguages);
+    const normalizedGeneratedCaptionItems = normalizeGeneratedCaptionItems(
+        generatedCaptions,
+        normalizedGeneratedCaptionLanguages
+    );
+    const hasGeneratedCaptions = normalizedGeneratedCaptionItems.length > 0;
 
     React.useEffect(() => {
         setReferenceVideoSecondsByUrl((current) => {
@@ -381,7 +395,12 @@ export function CreationForm({
             watermark,
             watermarkText: watermark ? watermarkText.trim().slice(0, 100) : undefined,
             avoid_generated_captions: hasGeneratedCaptions ? false : avoidGeneratedCaptions,
-            generated_captions: hasGeneratedCaptions ? normalizedGeneratedCaptions : undefined
+            generated_captions: hasGeneratedCaptions
+                ? normalizedGeneratedCaptionItems.map((caption) => caption.text)
+                : undefined,
+            generated_caption_languages: hasGeneratedCaptions
+                ? normalizedGeneratedCaptionItems.map((caption) => caption.language)
+                : undefined
         };
         if (isDraftMode) {
             formData.draft = true;
@@ -830,22 +849,75 @@ export function CreationForm({
                                         </Tooltip>
                                     </div>
                                     {Array.from({ length: MAX_GENERATED_CAPTIONS }, (_, index) => (
-                                        <Input
-                                            key={index}
-                                            type='text'
-                                            value={generatedCaptions[index] ?? ''}
-                                            onChange={(e) => {
-                                                const value = e.target.value;
-                                                setGeneratedCaptions((current) =>
-                                                    Array.from({ length: MAX_GENERATED_CAPTIONS }, (_, i) =>
-                                                        i === index ? value : (current[i] ?? '')
-                                                    )
-                                                );
-                                            }}
-                                            disabled={isLoading}
-                                            placeholder={index === 0 ? 'English subtitle' : 'Chinese subtitle'}
-                                            className='rounded-md border border-white/20 bg-black text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
-                                        />
+                                        <div key={index} className='grid gap-2 sm:grid-cols-[10rem_minmax(0,1fr)]'>
+                                            <Select
+                                                value={
+                                                    normalizedGeneratedCaptionLanguages[index] ??
+                                                    NO_GENERATED_CAPTION_LANGUAGE
+                                                }
+                                                onValueChange={(value) => {
+                                                    setGeneratedCaptionLanguages((current) =>
+                                                        Array.from({ length: MAX_GENERATED_CAPTIONS }, (_, i) =>
+                                                            i === index
+                                                                ? value
+                                                                : (current[i] ??
+                                                                  normalizedGeneratedCaptionLanguages[i] ??
+                                                                  NO_GENERATED_CAPTION_LANGUAGE)
+                                                        )
+                                                    );
+                                                }}
+                                                disabled={isLoading}>
+                                                <SelectTrigger className='rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'>
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent className='border-white/20 bg-black text-white'>
+                                                    <SelectItem
+                                                        value={NO_GENERATED_CAPTION_LANGUAGE}
+                                                        className='focus:bg-white/10 focus:text-white'>
+                                                        None
+                                                    </SelectItem>
+                                                    {GENERATED_CAPTION_LANGUAGES.map((language) => {
+                                                        const selectedElsewhere = normalizedGeneratedCaptionLanguages.some(
+                                                            (selected, selectedIndex) =>
+                                                                selectedIndex !== index && selected === language.id
+                                                        );
+                                                        return (
+                                                            <SelectItem
+                                                                key={language.id}
+                                                                value={language.id}
+                                                                disabled={selectedElsewhere}
+                                                                className='focus:bg-white/10 focus:text-white disabled:cursor-not-allowed disabled:opacity-50'>
+                                                                {language.label}
+                                                            </SelectItem>
+                                                        );
+                                                    })}
+                                                </SelectContent>
+                                            </Select>
+                                            <Input
+                                                type='text'
+                                                value={generatedCaptions[index] ?? ''}
+                                                onChange={(e) => {
+                                                    const value = e.target.value;
+                                                    setGeneratedCaptions((current) =>
+                                                        Array.from({ length: MAX_GENERATED_CAPTIONS }, (_, i) =>
+                                                            i === index ? value : (current[i] ?? '')
+                                                        )
+                                                    );
+                                                }}
+                                                disabled={
+                                                    isLoading ||
+                                                    normalizedGeneratedCaptionLanguages[index] ===
+                                                        NO_GENERATED_CAPTION_LANGUAGE
+                                                }
+                                                placeholder={
+                                                    normalizedGeneratedCaptionLanguages[index] ===
+                                                    NO_GENERATED_CAPTION_LANGUAGE
+                                                        ? 'Disabled'
+                                                        : 'Subtitle text'
+                                                }
+                                                className='rounded-md border border-white/20 bg-black text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50 disabled:opacity-50'
+                                            />
+                                        </div>
                                     ))}
                                 </div>
                                 <div className='flex items-center space-x-2'>

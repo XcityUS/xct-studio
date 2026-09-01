@@ -95,8 +95,10 @@ import {
 } from '@/lib/portrait';
 import { estimateVideoProgress } from '@/lib/progress';
 import {
+    DEFAULT_GENERATED_CAPTION_LANGUAGES,
     MAX_GENERATED_CAPTIONS,
-    normalizeGeneratedCaptionTexts,
+    normalizeGeneratedCaptionItems,
+    normalizeGeneratedCaptionLanguages,
     promptWithCaptionGuard,
     promptWithGeneratedCaptions
 } from '@/lib/prompt-guards';
@@ -279,14 +281,22 @@ function shareTitleFromItem(item: VideoMetadata): string {
 function shareParamsToForm(prompt: string, params: unknown): { params: CreationFormData; adjusted: string[] } {
     if (isVideoJobCreateParams(params)) {
         const reconciled = reconcilePreset({ ...params, prompt });
-        const generatedCaptions = normalizeGeneratedCaptionTexts(reconciled.generated_captions);
+        const generatedCaptionItems = normalizeGeneratedCaptionItems(
+            reconciled.generated_captions,
+            reconciled.generated_caption_languages
+        );
         return {
             params: {
                 ...reconciled,
-                avoid_generated_captions: generatedCaptions.length
+                avoid_generated_captions: generatedCaptionItems.length
                     ? false
                     : reconciled.avoid_generated_captions ?? true,
-                generated_captions: generatedCaptions.length ? generatedCaptions : undefined
+                generated_captions: generatedCaptionItems.length
+                    ? generatedCaptionItems.map((caption) => caption.text)
+                    : undefined,
+                generated_caption_languages: generatedCaptionItems.length
+                    ? generatedCaptionItems.map((caption) => caption.language)
+                    : undefined
             },
             adjusted: reconciled.adjusted
         };
@@ -311,9 +321,13 @@ function shareParamsToForm(prompt: string, params: unknown): { params: CreationF
               : DEFAULT_SECONDS;
     const seconds = clampSeconds(rawSeconds, model);
     const seed = typeof record.seed === 'number' && Number.isFinite(record.seed) ? Math.trunc(record.seed) : undefined;
-    const generatedCaptions = Array.isArray(record.generated_captions)
-        ? normalizeGeneratedCaptionTexts(record.generated_captions.filter((caption): caption is string => typeof caption === 'string'))
+    const rawGeneratedCaptions = Array.isArray(record.generated_captions)
+        ? record.generated_captions.filter((caption): caption is string => typeof caption === 'string')
         : [];
+    const rawGeneratedCaptionLanguages = Array.isArray(record.generated_caption_languages)
+        ? record.generated_caption_languages.filter((language): language is string => typeof language === 'string')
+        : [];
+    const generatedCaptionItems = normalizeGeneratedCaptionItems(rawGeneratedCaptions, rawGeneratedCaptionLanguages);
     const adjusted = [
         resolution !== requestedResolution ? `resolution → ${resolution}` : '',
         seconds !== rawSeconds ? `duration → ${seconds}s` : ''
@@ -335,12 +349,17 @@ function shareParamsToForm(prompt: string, params: unknown): { params: CreationF
                     ? normalizeWatermarkText(record.watermarkText)
                     : BRANDING_WATERMARK_TEXT,
             avoid_generated_captions:
-                generatedCaptions.length > 0
+                generatedCaptionItems.length > 0
                     ? false
                     : typeof record.avoid_generated_captions === 'boolean'
                       ? record.avoid_generated_captions
                       : true,
-            generated_captions: generatedCaptions.length ? generatedCaptions : undefined
+            generated_captions: generatedCaptionItems.length
+                ? generatedCaptionItems.map((caption) => caption.text)
+                : undefined,
+            generated_caption_languages: generatedCaptionItems.length
+                ? generatedCaptionItems.map((caption) => caption.language)
+                : undefined
         },
         adjusted
     };
@@ -531,6 +550,9 @@ export default function HomePage() {
     const [createAvoidGeneratedCaptions, setCreateAvoidGeneratedCaptions] = React.useState(true);
     const [createGeneratedCaptions, setCreateGeneratedCaptions] = React.useState<string[]>(
         Array.from({ length: MAX_GENERATED_CAPTIONS }, () => '')
+    );
+    const [createGeneratedCaptionLanguages, setCreateGeneratedCaptionLanguages] = React.useState<string[]>(
+        Array.from({ length: MAX_GENERATED_CAPTIONS }, (_, index) => DEFAULT_GENERATED_CAPTION_LANGUAGES[index] ?? 'none')
     );
     const [finalizeDialogItem, setFinalizeDialogItem] = React.useState<VideoMetadata | null>(null);
     const [isFinalizeSubmitting, setIsFinalizeSubmitting] = React.useState(false);
@@ -1918,18 +1940,26 @@ export default function HomePage() {
             rethrowOnError?: boolean;
         } = {}
     ): Promise<string | null> => {
-        const generatedCaptions = normalizeGeneratedCaptionTexts(rawFormData.generated_captions);
+        const generatedCaptionItems = normalizeGeneratedCaptionItems(
+            rawFormData.generated_captions,
+            rawFormData.generated_caption_languages
+        );
         const formData: CreationFormData =
-            generatedCaptions.length > 0
+            generatedCaptionItems.length > 0
                 ? {
                       ...rawFormData,
-                      prompt: promptWithGeneratedCaptions(rawFormData.prompt, generatedCaptions),
+                      prompt: promptWithGeneratedCaptions(
+                          rawFormData.prompt,
+                          generatedCaptionItems.map((caption) => caption.text),
+                          generatedCaptionItems.map((caption) => caption.language)
+                      ),
                       avoid_generated_captions: false,
-                      generated_captions: generatedCaptions
+                      generated_captions: generatedCaptionItems.map((caption) => caption.text),
+                      generated_caption_languages: generatedCaptionItems.map((caption) => caption.language)
                   }
                 : rawFormData.avoid_generated_captions
                   ? { ...rawFormData, prompt: promptWithCaptionGuard(rawFormData.prompt) }
-                  : { ...rawFormData, generated_captions: undefined };
+                  : { ...rawFormData, generated_captions: undefined, generated_caption_languages: undefined };
         setError(null);
         setShareNotice(null);
         const blockedReferences = blockedReferencesForParams(formData);
@@ -2260,15 +2290,23 @@ export default function HomePage() {
      */
     const buildParamsFromItem = React.useCallback((item: VideoMetadata): CreationFormData => {
         if (item.createParams) {
-            const generatedCaptions = normalizeGeneratedCaptionTexts(item.createParams.generated_captions);
+            const generatedCaptionItems = normalizeGeneratedCaptionItems(
+                item.createParams.generated_captions,
+                item.createParams.generated_caption_languages
+            );
             return {
                 ...item.createParams,
                 prompt: item.prompt,
                 watermarkText: normalizeWatermarkText(item.createParams.watermarkText ?? item.brandingWatermark?.text),
-                avoid_generated_captions: generatedCaptions.length
+                avoid_generated_captions: generatedCaptionItems.length
                     ? false
                     : item.createParams.avoid_generated_captions ?? true,
-                generated_captions: generatedCaptions.length ? generatedCaptions : undefined
+                generated_captions: generatedCaptionItems.length
+                    ? generatedCaptionItems.map((caption) => caption.text)
+                    : undefined,
+                generated_caption_languages: generatedCaptionItems.length
+                    ? generatedCaptionItems.map((caption) => caption.language)
+                    : undefined
             };
         }
         const parsed = parseSize(item.size);
@@ -2283,7 +2321,8 @@ export default function HomePage() {
             camera_fixed: false,
             watermark: false,
             avoid_generated_captions: true,
-            generated_captions: undefined
+            generated_captions: undefined,
+            generated_caption_languages: undefined
         };
     }, []);
 
@@ -2420,11 +2459,23 @@ export default function HomePage() {
         setCreateSeed(params.seed);
         setCreateWatermark(params.watermark ?? false);
         setCreateWatermarkText(normalizeWatermarkText(params.watermarkText));
-        const generatedCaptions = normalizeGeneratedCaptionTexts(params.generated_captions);
-        setCreateGeneratedCaptions(
-            Array.from({ length: MAX_GENERATED_CAPTIONS }, (_, index) => generatedCaptions[index] ?? '')
+        const generatedCaptionItems = normalizeGeneratedCaptionItems(
+            params.generated_captions,
+            params.generated_caption_languages
         );
-        setCreateAvoidGeneratedCaptions(generatedCaptions.length ? false : params.avoid_generated_captions ?? true);
+        setCreateGeneratedCaptions(
+            Array.from({ length: MAX_GENERATED_CAPTIONS }, (_, index) => generatedCaptionItems[index]?.text ?? '')
+        );
+        setCreateGeneratedCaptionLanguages(
+            normalizeGeneratedCaptionLanguages(
+                generatedCaptionItems.length
+                    ? generatedCaptionItems.map((caption) => caption.language)
+                    : params.generated_caption_languages
+            )
+        );
+        setCreateAvoidGeneratedCaptions(
+            generatedCaptionItems.length ? false : params.avoid_generated_captions ?? true
+        );
         setActiveTab('video');
         scrollToCreationForm();
     }, [scrollToCreationForm]);
@@ -3485,6 +3536,8 @@ export default function HomePage() {
                                 setAvoidGeneratedCaptions={setCreateAvoidGeneratedCaptions}
                                 generatedCaptions={createGeneratedCaptions}
                                 setGeneratedCaptions={setCreateGeneratedCaptions}
+                                generatedCaptionLanguages={createGeneratedCaptionLanguages}
+                                setGeneratedCaptionLanguages={setCreateGeneratedCaptionLanguages}
                                 onUploadImage={uploadEnabled ? handleUploadImage : undefined}
                                 onUploadAudio={uploadEnabled ? handleUploadAudio : undefined}
                                 onSynthesizeSpeech={uploadEnabled ? handleSynthesizeSpeech : undefined}

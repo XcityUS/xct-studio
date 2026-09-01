@@ -142,4 +142,6 @@ export type VideoJobCreate = {
     avoid_generated_captions?: boolean;
     /** Studio-only custom caption text directives, capped by the create form. */
     generated_captions?: string[];
+    /** Studio-only language ids aligned with generated_captions. */
+    generated_caption_languages?: string[];
 };
