@@ -94,7 +94,12 @@ import {
     type PortraitGroupQueryType
 } from '@/lib/portrait';
 import { estimateVideoProgress } from '@/lib/progress';
-import { promptWithCaptionGuard } from '@/lib/prompt-guards';
+import {
+    MAX_GENERATED_CAPTIONS,
+    normalizeGeneratedCaptionTexts,
+    promptWithCaptionGuard,
+    promptWithGeneratedCaptions
+} from '@/lib/prompt-guards';
 import { optimizePrompt } from '@/lib/prompt-optimizer';
 import {
     ASSET_LIBRARY_MODEL_BLOCK_REASON,
@@ -274,8 +279,15 @@ function shareTitleFromItem(item: VideoMetadata): string {
 function shareParamsToForm(prompt: string, params: unknown): { params: CreationFormData; adjusted: string[] } {
     if (isVideoJobCreateParams(params)) {
         const reconciled = reconcilePreset({ ...params, prompt });
+        const generatedCaptions = normalizeGeneratedCaptionTexts(reconciled.generated_captions);
         return {
-            params: { ...reconciled, avoid_generated_captions: reconciled.avoid_generated_captions ?? true },
+            params: {
+                ...reconciled,
+                avoid_generated_captions: generatedCaptions.length
+                    ? false
+                    : reconciled.avoid_generated_captions ?? true,
+                generated_captions: generatedCaptions.length ? generatedCaptions : undefined
+            },
             adjusted: reconciled.adjusted
         };
     }
@@ -299,6 +311,9 @@ function shareParamsToForm(prompt: string, params: unknown): { params: CreationF
               : DEFAULT_SECONDS;
     const seconds = clampSeconds(rawSeconds, model);
     const seed = typeof record.seed === 'number' && Number.isFinite(record.seed) ? Math.trunc(record.seed) : undefined;
+    const generatedCaptions = Array.isArray(record.generated_captions)
+        ? normalizeGeneratedCaptionTexts(record.generated_captions.filter((caption): caption is string => typeof caption === 'string'))
+        : [];
     const adjusted = [
         resolution !== requestedResolution ? `resolution → ${resolution}` : '',
         seconds !== rawSeconds ? `duration → ${seconds}s` : ''
@@ -320,7 +335,12 @@ function shareParamsToForm(prompt: string, params: unknown): { params: CreationF
                     ? normalizeWatermarkText(record.watermarkText)
                     : BRANDING_WATERMARK_TEXT,
             avoid_generated_captions:
-                typeof record.avoid_generated_captions === 'boolean' ? record.avoid_generated_captions : true
+                generatedCaptions.length > 0
+                    ? false
+                    : typeof record.avoid_generated_captions === 'boolean'
+                      ? record.avoid_generated_captions
+                      : true,
+            generated_captions: generatedCaptions.length ? generatedCaptions : undefined
         },
         adjusted
     };
@@ -509,6 +529,9 @@ export default function HomePage() {
     const [createWatermark, setCreateWatermark] = React.useState(false);
     const [createWatermarkText, setCreateWatermarkText] = React.useState(BRANDING_WATERMARK_TEXT);
     const [createAvoidGeneratedCaptions, setCreateAvoidGeneratedCaptions] = React.useState(true);
+    const [createGeneratedCaptions, setCreateGeneratedCaptions] = React.useState<string[]>(
+        Array.from({ length: MAX_GENERATED_CAPTIONS }, () => '')
+    );
     const [finalizeDialogItem, setFinalizeDialogItem] = React.useState<VideoMetadata | null>(null);
     const [isFinalizeSubmitting, setIsFinalizeSubmitting] = React.useState(false);
     const [imageAssets, setImageAssets] = React.useState<UserAsset[]>([]);
@@ -1895,9 +1918,18 @@ export default function HomePage() {
             rethrowOnError?: boolean;
         } = {}
     ): Promise<string | null> => {
-        const formData: CreationFormData = rawFormData.avoid_generated_captions
-            ? { ...rawFormData, prompt: promptWithCaptionGuard(rawFormData.prompt) }
-            : rawFormData;
+        const generatedCaptions = normalizeGeneratedCaptionTexts(rawFormData.generated_captions);
+        const formData: CreationFormData =
+            generatedCaptions.length > 0
+                ? {
+                      ...rawFormData,
+                      prompt: promptWithGeneratedCaptions(rawFormData.prompt, generatedCaptions),
+                      avoid_generated_captions: false,
+                      generated_captions: generatedCaptions
+                  }
+                : rawFormData.avoid_generated_captions
+                  ? { ...rawFormData, prompt: promptWithCaptionGuard(rawFormData.prompt) }
+                  : { ...rawFormData, generated_captions: undefined };
         setError(null);
         setShareNotice(null);
         const blockedReferences = blockedReferencesForParams(formData);
@@ -2228,11 +2260,15 @@ export default function HomePage() {
      */
     const buildParamsFromItem = React.useCallback((item: VideoMetadata): CreationFormData => {
         if (item.createParams) {
+            const generatedCaptions = normalizeGeneratedCaptionTexts(item.createParams.generated_captions);
             return {
                 ...item.createParams,
                 prompt: item.prompt,
                 watermarkText: normalizeWatermarkText(item.createParams.watermarkText ?? item.brandingWatermark?.text),
-                avoid_generated_captions: item.createParams.avoid_generated_captions ?? true
+                avoid_generated_captions: generatedCaptions.length
+                    ? false
+                    : item.createParams.avoid_generated_captions ?? true,
+                generated_captions: generatedCaptions.length ? generatedCaptions : undefined
             };
         }
         const parsed = parseSize(item.size);
@@ -2246,7 +2282,8 @@ export default function HomePage() {
             generate_audio: true,
             camera_fixed: false,
             watermark: false,
-            avoid_generated_captions: true
+            avoid_generated_captions: true,
+            generated_captions: undefined
         };
     }, []);
 
@@ -2383,7 +2420,11 @@ export default function HomePage() {
         setCreateSeed(params.seed);
         setCreateWatermark(params.watermark ?? false);
         setCreateWatermarkText(normalizeWatermarkText(params.watermarkText));
-        setCreateAvoidGeneratedCaptions(params.avoid_generated_captions ?? true);
+        const generatedCaptions = normalizeGeneratedCaptionTexts(params.generated_captions);
+        setCreateGeneratedCaptions(
+            Array.from({ length: MAX_GENERATED_CAPTIONS }, (_, index) => generatedCaptions[index] ?? '')
+        );
+        setCreateAvoidGeneratedCaptions(generatedCaptions.length ? false : params.avoid_generated_captions ?? true);
         setActiveTab('video');
         scrollToCreationForm();
     }, [scrollToCreationForm]);
@@ -3442,6 +3483,8 @@ export default function HomePage() {
                                 setWatermarkText={setCreateWatermarkText}
                                 avoidGeneratedCaptions={createAvoidGeneratedCaptions}
                                 setAvoidGeneratedCaptions={setCreateAvoidGeneratedCaptions}
+                                generatedCaptions={createGeneratedCaptions}
+                                setGeneratedCaptions={setCreateGeneratedCaptions}
                                 onUploadImage={uploadEnabled ? handleUploadImage : undefined}
                                 onUploadAudio={uploadEnabled ? handleUploadAudio : undefined}
                                 onSynthesizeSpeech={uploadEnabled ? handleSynthesizeSpeech : undefined}

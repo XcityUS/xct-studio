@@ -17,7 +17,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import type { VideoCharacter, VideoPortrait } from '@/hooks/use-video-history';
 import { XCITY_BILLING_URL, shouldShowBillingAction } from '@/lib/billing';
 import { calculateVideoCost } from '@/lib/cost-utils';
-import { promptWithCaptionGuard } from '@/lib/prompt-guards';
+import { MAX_GENERATED_CAPTIONS, normalizeGeneratedCaptionTexts } from '@/lib/prompt-guards';
 import { PROMPT_TEMPLATE_CATEGORIES, applyPromptTemplate } from '@/lib/prompt-templates';
 import {
     ASSET_LIBRARY_MODEL_BLOCK_REASON,
@@ -99,6 +99,8 @@ type CreationFormProps = {
     setWatermarkText: React.Dispatch<React.SetStateAction<string>>;
     avoidGeneratedCaptions: boolean;
     setAvoidGeneratedCaptions: React.Dispatch<React.SetStateAction<boolean>>;
+    generatedCaptions: string[];
+    setGeneratedCaptions: React.Dispatch<React.SetStateAction<string[]>>;
     /** Uploads a local image, resolving to its public URL. Absent = URL-only mode. */
     onUploadImage?: (file: File) => Promise<string>;
     /** Uploads a local audio file, resolving to its public URL. Absent = URL-only mode. */
@@ -189,6 +191,8 @@ export function CreationForm({
     setWatermarkText,
     avoidGeneratedCaptions,
     setAvoidGeneratedCaptions,
+    generatedCaptions,
+    setGeneratedCaptions,
     onUploadImage,
     onUploadAudio,
     onSynthesizeSpeech,
@@ -293,6 +297,8 @@ export function CreationForm({
     });
     const isCostLowerBound = Boolean(estimatedCost && (estimatedCost.lowerBound || hasReferenceVideos));
     const showEstimatedCost = Boolean(estimatedCost && prompt.trim() && blockedReferences.length === 0);
+    const normalizedGeneratedCaptions = normalizeGeneratedCaptionTexts(generatedCaptions);
+    const hasGeneratedCaptions = normalizedGeneratedCaptions.length > 0;
 
     React.useEffect(() => {
         setReferenceVideoSecondsByUrl((current) => {
@@ -363,10 +369,9 @@ export function CreationForm({
     const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
         if (blockedReferences.length > 0) return;
-        const submissionPrompt = avoidGeneratedCaptions ? promptWithCaptionGuard(prompt) : prompt;
         const formData: CreationFormData = {
             model,
-            prompt: submissionPrompt,
+            prompt,
             ratio,
             resolution: activeResolution,
             seconds,
@@ -375,7 +380,8 @@ export function CreationForm({
             seed,
             watermark,
             watermarkText: watermark ? watermarkText.trim().slice(0, 100) : undefined,
-            avoid_generated_captions: avoidGeneratedCaptions
+            avoid_generated_captions: hasGeneratedCaptions ? false : avoidGeneratedCaptions,
+            generated_captions: hasGeneratedCaptions ? normalizedGeneratedCaptions : undefined
         };
         if (isDraftMode) {
             formData.draft = true;
@@ -803,18 +809,60 @@ export function CreationForm({
                                         <div className='text-[10px] text-white/35'>{watermarkText.length}/100</div>
                                     </div>
                                 )}
+                                <div className='space-y-2'>
+                                    <div className='flex items-center gap-1.5'>
+                                        <Label className='text-white/80'>Generated captions</Label>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <button
+                                                    type='button'
+                                                    className='text-white/45 transition-colors hover:text-white/80'
+                                                    aria-label='Generated captions help'>
+                                                    <HelpCircle className='h-3.5 w-3.5' />
+                                                </button>
+                                            </TooltipTrigger>
+                                            <TooltipContent
+                                                side='top'
+                                                className='max-w-64 border border-white/20 bg-black text-white'>
+                                                Adds up to two custom caption lines to the Seedance prompt. Empty fields
+                                                are ignored.
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    </div>
+                                    {Array.from({ length: MAX_GENERATED_CAPTIONS }, (_, index) => (
+                                        <Input
+                                            key={index}
+                                            type='text'
+                                            value={generatedCaptions[index] ?? ''}
+                                            onChange={(e) => {
+                                                const value = e.target.value;
+                                                setGeneratedCaptions((current) =>
+                                                    Array.from({ length: MAX_GENERATED_CAPTIONS }, (_, i) =>
+                                                        i === index ? value : (current[i] ?? '')
+                                                    )
+                                                );
+                                            }}
+                                            disabled={isLoading}
+                                            placeholder={`Caption ${index + 1}`}
+                                            className='rounded-md border border-white/20 bg-black text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
+                                        />
+                                    ))}
+                                </div>
                                 <div className='flex items-center space-x-2'>
                                     <Checkbox
                                         id='avoid-generated-captions'
                                         checked={avoidGeneratedCaptions}
                                         onCheckedChange={(checked) => setAvoidGeneratedCaptions(checked === true)}
-                                        disabled={isLoading}
+                                        disabled={isLoading || hasGeneratedCaptions}
                                         className='border-white/40 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black'
                                     />
                                     <div className='flex items-center gap-1.5'>
                                         <Label
                                             htmlFor='avoid-generated-captions'
-                                            className='cursor-pointer text-white/80'>
+                                            className={cn(
+                                                'cursor-pointer text-white/80',
+                                                hasGeneratedCaptions && 'cursor-not-allowed text-white/35'
+                                            )}>
                                             Avoid generated captions
                                         </Label>
                                         <Tooltip>

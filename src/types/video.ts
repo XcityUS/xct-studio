@@ -140,4 +140,6 @@ export type VideoJobCreate = {
     watermarkText?: string;
     /** Studio-only prompt guard to discourage model-rendered subtitles or on-screen text. */
     avoid_generated_captions?: boolean;
+    /** Studio-only custom caption text directives, capped by the create form. */
+    generated_captions?: string[];
 };
