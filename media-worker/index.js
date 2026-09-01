@@ -1123,11 +1123,11 @@ function renderShareHtml(record, env) {
     * { box-sizing: border-box; }
     body { margin: 0; min-height: 100vh; background: #000; color: #fff; }
     .page { min-height: 100vh; display: flex; flex-direction: column; background: #000; }
-    .container { width: min(80rem, calc(100% - 32px)); margin: 0 auto; }
+    .container { width: 100%; max-width: 80rem; margin: 0 auto; padding-left: 16px; padding-right: 16px; }
     .site-header { width: 100%; border-bottom: 1px solid rgba(255,255,255,.10); background: #000; }
-    .site-header .container { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 16px; }
+    .site-header .container { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 12px; padding-bottom: 12px; }
     .logo { display: inline-flex; align-items: center; gap: 8px; color: #fff; text-decoration: none; }
-    .logo-mark { display: inline-flex; width: 26px; height: 27px; align-items: center; justify-content: center; border-radius: 6px; background: #fff; color: #000; font-weight: 750; line-height: 1; }
+    .logo img { display: block; width: 26px; height: 27px; object-fit: contain; }
     .logo-name { font-size: 16px; font-weight: 650; }
     .logo-slash { color: rgba(255,255,255,.40); font-size: 14px; }
     .logo-product { color: rgba(255,255,255,.70); font-size: 14px; }
@@ -1152,7 +1152,7 @@ function renderShareHtml(record, env) {
     .top .cta { margin-top: 0; }
     .meta { margin-top: 12px; color: rgba(255,255,255,.42); font-size: 12px; }
     .site-footer { width: 100%; margin-top: 48px; border-top: 1px solid rgba(255,255,255,.10); background: #000; }
-    .site-footer .container { padding: 40px 16px; }
+    .site-footer .container { padding-top: 40px; padding-bottom: 40px; }
     .footer-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px; }
     .site-footer h5 { margin: 0 0 12px; color: rgba(255,255,255,.50); font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: .08em; }
     .site-footer ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
@@ -1162,8 +1162,8 @@ function renderShareHtml(record, env) {
     .footer-bottom p { margin: 0; }
     .footer-bottom a { color: rgba(255,255,255,.60); }
     @media (max-width: 640px) {
-      .container { width: min(100% - 24px, 80rem); }
-      .site-header .container { align-items: flex-start; flex-direction: column; padding: 12px 0; }
+      .container { padding-left: 12px; padding-right: 12px; }
+      .site-header .container { align-items: flex-start; flex-direction: column; }
       .logo-product, .logo-slash, .nav a:not(.account) { display: none; }
       main { padding-top: 24px; }
       .top { align-items: flex-start; flex-direction: column; }
@@ -1177,7 +1177,7 @@ function renderShareHtml(record, env) {
   <header class="site-header">
     <div class="container">
       <a class="logo" href="https://xcity.ai">
-        <span class="logo-mark">X</span>
+        <img src="${escapeHtml(studioUrl)}/logo.png" alt="Xcity" width="26" height="27">
         <span class="logo-name">Xcity</span>
         <span class="logo-slash">/</span>
         <span class="logo-product">Video Studio</span>
