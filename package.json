@@ -9,7 +9,8 @@
     "lint": "next lint",
     "format": "prettier --write \"src/**/*.{ts,tsx}\"",
     "gallery:upload": "node scripts/upload-gallery.mjs",
-    "postinstall": "node scripts/copy-ffmpeg-core.mjs"
+    "postinstall": "node scripts/copy-ffmpeg-core.mjs",
+    "bench": "vitest bench --run"
   },
   "dependencies": {
     "@ffmpeg/ffmpeg": "0.12.15",
@@ -40,6 +41,7 @@
     "tailwind-merge": "^3.2.0"
   },
   "devDependencies": {
+    "@codspeed/vitest-plugin": "^5.7.1",
     "@eslint/eslintrc": "^3",
     "@ffmpeg/core": "0.12.10",
     "@tailwindcss/postcss": "^4",
@@ -56,7 +58,8 @@
     "prettier-plugin-tailwindcss": "^0.6.11",
     "tailwindcss": "^4.1.4",
     "tw-animate-css": "^1.2.8",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.11"
   },
   "engines": {
     "node": ">=20.0.0"
