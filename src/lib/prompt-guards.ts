@@ -36,7 +36,9 @@ export function promptWithGeneratedCaptions(prompt: string, captions: readonly s
     const directive = [
         GENERATED_CAPTIONS_PROMPT_HEADER,
         ...captionLines,
-        'Render only these captions. Keep them inside the lower safe area with clear spacing. If the text is long, wrap it or reduce the font size so caption lines never overlap.'
+        'Use natural American English for spoken dialogue by default.',
+        'Render bilingual subtitles only from the lines above: English on the upper subtitle line and Chinese directly below it.',
+        'Keep both subtitle lines inside the lower safe area with clear vertical spacing. If the text is long, wrap it or reduce the font size so the English and Chinese subtitle lines never overlap.'
     ].join('\n');
 
     return trimmed ? `${trimmed}\n${directive}` : directive;

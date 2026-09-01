@@ -811,7 +811,7 @@ export function CreationForm({
                                 )}
                                 <div className='space-y-2'>
                                     <div className='flex items-center gap-1.5'>
-                                        <Label className='text-white/80'>Generated captions</Label>
+                                        <Label className='text-white/80'>Bilingual captions</Label>
                                         <Tooltip>
                                             <TooltipTrigger asChild>
                                                 <button
@@ -824,8 +824,8 @@ export function CreationForm({
                                             <TooltipContent
                                                 side='top'
                                                 className='max-w-64 border border-white/20 bg-black text-white'>
-                                                Adds up to two custom caption lines to the Seedance prompt. Empty fields
-                                                are ignored.
+                                                Adds up to two custom subtitle lines to the Seedance prompt. Dialogue
+                                                defaults to American English, with English above Chinese.
                                             </TooltipContent>
                                         </Tooltip>
                                     </div>
@@ -843,7 +843,7 @@ export function CreationForm({
                                                 );
                                             }}
                                             disabled={isLoading}
-                                            placeholder={`Caption ${index + 1}`}
+                                            placeholder={index === 0 ? 'English subtitle' : 'Chinese subtitle'}
                                             className='rounded-md border border-white/20 bg-black text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
                                         />
                                     ))}
