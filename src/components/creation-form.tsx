@@ -35,6 +35,7 @@ import {
     type ReferenceOrigin
 } from '@/lib/reference-origin';
 import {
+    DEFAULT_MODEL,
     RATIOS,
     RESOLUTIONS,
     SEEDANCE_MODELS,
@@ -205,9 +206,10 @@ export function CreationForm({
     onOpenAssets,
     error
 }: CreationFormProps) {
-    const { min: minSeconds, max: maxSeconds } = secondsRange(model);
-    const modelDef = getSeedanceModel(model);
-    const refCap = maxReferenceImages(model);
+    const activeModel = getSeedanceModel(model) ? model : DEFAULT_MODEL;
+    const { min: minSeconds, max: maxSeconds } = secondsRange(activeModel);
+    const modelDef = getSeedanceModel(activeModel);
+    const refCap = maxReferenceImages(activeModel);
     // Ratio is provider-derived only in first-frame mode (exactly one image).
     const isFirstFrameMode = referenceUrls.length === 1;
     const supportsMultiReferenceMedia = refCap > 1;
@@ -246,13 +248,13 @@ export function CreationForm({
     const [isOptimizing, setIsOptimizing] = React.useState(false);
     const [isAdvancedOpen, setIsAdvancedOpen] = React.useState(false);
     const [optimizeError, setOptimizeError] = React.useState<string | null>(null);
-    const supportsCameraFixed = !model.includes('seedance-2-5');
+    const supportsCameraFixed = !activeModel.includes('seedance-2-5');
     // The prompt as it was before the last AI rewrite, so Undo can restore it.
     const [promptBeforeOptimize, setPromptBeforeOptimize] = React.useState<string | null>(null);
     const [referenceVideoSecondsByUrl, setReferenceVideoSecondsByUrl] = React.useState<Record<string, number>>({});
-    const supportsDraftMode = modelSupportsResolution(model, '480p');
+    const supportsDraftMode = modelSupportsResolution(activeModel, '480p');
     const [generationMode, setGenerationMode] = React.useState<GenerationMode>(() =>
-        modelSupportsResolution(model, '480p') ? 'draft' : 'final'
+        modelSupportsResolution(activeModel, '480p') ? 'draft' : 'final'
     );
     const referenceLabels = React.useMemo(() => {
         const labelsByUrl = new Map<string, string>([
@@ -269,6 +271,12 @@ export function CreationForm({
         () => portraits.filter((portrait) => portrait.groupType === 'AIGC'),
         [portraits]
     );
+
+    React.useEffect(() => {
+        if (model !== activeModel) {
+            setModel(activeModel);
+        }
+    }, [activeModel, model, setModel]);
 
     React.useEffect(() => {
         if (!supportsDraftMode) {
@@ -294,7 +302,7 @@ export function CreationForm({
     const selectedVoice = VOICE_LANGUAGE_OPTIONS.find((item) => item.id === normalizedVoiceLanguage);
     const selectedCaptionMode = CAPTION_MODE_OPTIONS.find((item) => item.id === normalizedCaptionMode);
     const estimatedCost = calculateVideoCost({
-        model,
+        model: activeModel,
         ratio,
         resolution: activeResolution,
         seconds,
@@ -374,7 +382,7 @@ export function CreationForm({
         event.preventDefault();
         if (blockedReferences.length > 0) return;
         const formData: CreationFormData = {
-            model,
+            model: activeModel,
             prompt,
             ratio,
             resolution: activeResolution,
@@ -550,18 +558,24 @@ export function CreationForm({
                             Model
                         </Label>
                         <Select
-                            value={model}
+                            value={activeModel}
                             onValueChange={(value) => {
                                 const newModel = value as VideoModel;
-                                setModel(newModel);
+                                setModel((current) => (current === newModel ? current : newModel));
                                 // Pull the current choices back into range instead
                                 // of submitting something the selected model rejects.
                                 if (!modelSupportsResolution(newModel, resolution)) {
                                     setResolution('720p');
                                 }
-                                setSeconds((prev) => clampSeconds(prev, newModel));
+                                setSeconds((prev) => {
+                                    const next = clampSeconds(prev, newModel);
+                                    return next === prev ? prev : next;
+                                });
                                 // 1.5 Pro takes a single first-frame image only.
-                                setReferenceUrls((prev) => prev.slice(0, maxReferenceImages(newModel)));
+                                setReferenceUrls((prev) => {
+                                    const maxImages = maxReferenceImages(newModel);
+                                    return prev.length > maxImages ? prev.slice(0, maxImages) : prev;
+                                });
                             }}
                             disabled={isLoading}>
                             <SelectTrigger
@@ -625,10 +639,10 @@ export function CreationForm({
                                         <SelectItem
                                             key={r}
                                             value={r}
-                                            disabled={!modelSupportsResolution(model, r)}
+                                            disabled={!modelSupportsResolution(activeModel, r)}
                                             className='focus:bg-white/10 focus:text-white disabled:cursor-not-allowed disabled:opacity-50'>
                                             {r}
-                                            {!modelSupportsResolution(model, r) && (
+                                            {!modelSupportsResolution(activeModel, r) && (
                                                 <span className='ml-2 text-xs text-white/40'>not supported</span>
                                             )}
                                         </SelectItem>
