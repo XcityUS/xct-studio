@@ -1122,9 +1122,22 @@ function renderShareHtml(record, env) {
     :root { color-scheme: dark; background: #000; color: #fff; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     * { box-sizing: border-box; }
     body { margin: 0; min-height: 100vh; background: #000; color: #fff; }
-    main { width: min(960px, calc(100% - 32px)); margin: 0 auto; padding: 40px 0 56px; }
-    .top { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
-    .brand { color: rgba(255,255,255,.48); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
+    .page { min-height: 100vh; display: flex; flex-direction: column; background: #000; }
+    .container { width: min(80rem, calc(100% - 32px)); margin: 0 auto; }
+    .site-header { width: 100%; border-bottom: 1px solid rgba(255,255,255,.10); background: #000; }
+    .site-header .container { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 16px; }
+    .logo { display: inline-flex; align-items: center; gap: 8px; color: #fff; text-decoration: none; }
+    .logo-mark { display: inline-flex; width: 26px; height: 27px; align-items: center; justify-content: center; border-radius: 6px; background: #fff; color: #000; font-weight: 750; line-height: 1; }
+    .logo-name { font-size: 16px; font-weight: 650; }
+    .logo-slash { color: rgba(255,255,255,.40); font-size: 14px; }
+    .logo-product { color: rgba(255,255,255,.70); font-size: 14px; }
+    .nav { display: flex; align-items: center; gap: 4px; }
+    .nav a { padding: 4px 8px; color: rgba(255,255,255,.70); font-size: 14px; text-decoration: none; transition: color .15s ease; }
+    .nav a:hover { color: #635bff; }
+    .nav .account { border-radius: 6px; background: #fff; color: #000; padding: 6px 12px; font-weight: 500; }
+    .nav .account:hover { color: #000; background: rgba(255,255,255,.9); }
+    main { flex: 1; padding: 40px 0 56px; }
+    .top { display: flex; align-items: center; justify-content: flex-end; gap: 16px; margin-bottom: 24px; }
     h1 { margin: 0 0 18px; font-size: clamp(28px, 5vw, 56px); line-height: 1; font-weight: 650; letter-spacing: 0; }
     video { display: block; width: 100%; max-height: 72vh; border: 1px solid rgba(255,255,255,.16); border-radius: 8px; background: #050505; }
     .panel { margin-top: 18px; border: 1px solid rgba(255,255,255,.12); border-radius: 8px; background: rgba(255,255,255,.04); padding: 16px; }
@@ -1136,14 +1149,50 @@ function renderShareHtml(record, env) {
     td { color: rgba(255,255,255,.86); }
     tr:last-child th, tr:last-child td { border-bottom: 0; }
     .cta { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; margin-top: 22px; border-radius: 6px; background: #fff; color: #000; padding: 0 18px; font-weight: 650; text-decoration: none; }
+    .top .cta { margin-top: 0; }
     .meta { margin-top: 12px; color: rgba(255,255,255,.42); font-size: 12px; }
-    @media (max-width: 640px) { main { width: min(100% - 24px, 960px); padding-top: 24px; } .top { align-items: flex-start; flex-direction: column; } }
+    .site-footer { width: 100%; margin-top: 48px; border-top: 1px solid rgba(255,255,255,.10); background: #000; }
+    .site-footer .container { padding: 40px 16px; }
+    .footer-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px; }
+    .site-footer h5 { margin: 0 0 12px; color: rgba(255,255,255,.50); font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: .08em; }
+    .site-footer ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+    .site-footer a { color: rgba(255,255,255,.70); font-size: 14px; text-decoration: none; transition: color .15s ease; }
+    .site-footer a:hover { color: #635bff; }
+    .footer-bottom { margin-top: 40px; padding-top: 24px; border-top: 1px solid rgba(255,255,255,.10); display: flex; align-items: center; justify-content: space-between; gap: 16px; color: rgba(255,255,255,.40); font-size: 14px; }
+    .footer-bottom p { margin: 0; }
+    .footer-bottom a { color: rgba(255,255,255,.60); }
+    @media (max-width: 640px) {
+      .container { width: min(100% - 24px, 80rem); }
+      .site-header .container { align-items: flex-start; flex-direction: column; padding: 12px 0; }
+      .logo-product, .logo-slash, .nav a:not(.account) { display: none; }
+      main { padding-top: 24px; }
+      .top { align-items: flex-start; flex-direction: column; }
+      .footer-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .footer-bottom { align-items: flex-start; flex-direction: column; }
+    }
   </style>
 </head>
 <body>
-  <main>
+  <div class="page">
+  <header class="site-header">
+    <div class="container">
+      <a class="logo" href="https://xcity.ai">
+        <span class="logo-mark">X</span>
+        <span class="logo-name">Xcity</span>
+        <span class="logo-slash">/</span>
+        <span class="logo-product">Video Studio</span>
+      </a>
+      <nav class="nav" aria-label="Primary">
+        <a href="https://xcity.ai/dashboard" rel="noopener">Dashboard</a>
+        <a href="https://xcity.ai/models" rel="noopener">Models</a>
+        <a href="https://chat.xcity.ai" rel="noopener">Chat</a>
+        <a href="https://xcity.ai/docs" rel="noopener">Docs</a>
+        <a class="account" href="https://xcity.ai/dashboard" rel="noopener">My Account</a>
+      </nav>
+    </div>
+  </header>
+  <main class="container">
     <div class="top">
-      <div class="brand">Xcity Studio</div>
       <a class="cta" href="${escapeHtml(recreateUrl)}">Recreate in Xcity Studio</a>
     </div>
     <h1>${escapeHtml(title)}</h1>
@@ -1160,6 +1209,44 @@ function renderShareHtml(record, env) {
     <a class="cta" href="${escapeHtml(recreateUrl)}">Recreate in Xcity Studio</a>
     <div class="meta">Shared ${escapeHtml(record.created_at || '')}</div>
   </main>
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div>
+          <h5>Platform</h5>
+          <ul>
+            <li><a href="https://xcity.ai/ai-platform" rel="noopener">AI Platform</a></li>
+            <li><a href="https://xcity.ai/models" rel="noopener">Models</a></li>
+            <li><a href="https://xcity.ai/agents" rel="noopener">Agents</a></li>
+            <li><a href="https://xcity.ai/pricing" rel="noopener">Pricing</a></li>
+          </ul>
+        </div>
+        <div>
+          <h5>Products</h5>
+          <ul>
+            <li><a href="https://studio.xcity.ai" rel="noopener">Video Studio</a></li>
+            <li><a href="https://chat.xcity.ai" rel="noopener">Xcity Chat</a></li>
+            <li><a href="https://xcity.ai/dashboard" rel="noopener">Dashboard</a></li>
+            <li><a href="https://xcity.ai/dashboard/keys" rel="noopener">API Keys</a></li>
+          </ul>
+        </div>
+        <div>
+          <h5>Legal</h5>
+          <ul>
+            <li><a href="https://xcity.ai/terms" rel="noopener">Terms</a></li>
+            <li><a href="https://xcity.ai/privacy" rel="noopener">Privacy</a></li>
+            <li><a href="https://xcity.ai/acceptable-use" rel="noopener">Acceptable Use</a></li>
+            <li><a href="https://xcity.ai/refund-policy" rel="noopener">Refund Policy</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <p>© ${new Date().getFullYear()} Xcity. All rights reserved.</p>
+        <p>Video generation powered by ByteDance Seedance via <a href="https://xcity.ai/models" rel="noopener">Xcity TokenHub</a>.</p>
+      </div>
+    </div>
+  </footer>
+  </div>
 </body>
 </html>`;
 }

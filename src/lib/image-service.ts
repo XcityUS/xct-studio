@@ -53,15 +53,50 @@ export async function generateImages(
     baseURL?: string
 ): Promise<GeneratedImage[]> {
     const client = createFrontendOpenAI(apiKey, baseURL);
+    const requestedCount = Math.max(1, Math.min(4, Math.trunc(params.n)));
 
-    let response;
-    try {
-        response = await client.images.generate({
+    async function requestImages(n: number): Promise<GeneratedImage[]> {
+        const response = await client.images.generate({
             model: params.model,
             prompt: params.prompt,
-            n: params.n,
+            n,
             size: params.size as never // gateway passes provider sizes through; the SDK's union is OpenAI-only
         });
+
+        const results: GeneratedImage[] = [];
+        for (const item of response.data ?? []) {
+            if (item.b64_json) {
+                const bytes = Uint8Array.from(atob(item.b64_json), (c) => c.charCodeAt(0));
+                results.push({ blob: new Blob([bytes], { type: 'image/png' }) });
+            } else if (item.url) {
+                // Try to pull the bytes so the image survives the provider link
+                // expiring; keep the URL as a fallback when CORS blocks us.
+                try {
+                    const res = await fetch(item.url);
+                    if (res.ok) {
+                        results.push({ blob: await res.blob(), url: item.url });
+                        continue;
+                    }
+                } catch {
+                    // CORS or network — fall through to URL-only.
+                }
+                results.push({ url: item.url });
+            }
+        }
+        return results;
+    }
+
+    try {
+        const results = await requestImages(requestedCount);
+        while (results.length < requestedCount) {
+            const [image] = await requestImages(1);
+            if (!image) break;
+            results.push(image);
+        }
+        if (results.length === 0) {
+            throw new Error('The gateway returned no images.');
+        }
+        return results.slice(0, requestedCount);
     } catch (error) {
         if (error && typeof error === 'object') {
             const status = (error as { status?: number }).status;
@@ -76,30 +111,4 @@ export async function generateImages(
         }
         throw error instanceof Error ? error : new Error('Image generation failed.');
     }
-
-    const results: GeneratedImage[] = [];
-    for (const item of response.data ?? []) {
-        if (item.b64_json) {
-            const bytes = Uint8Array.from(atob(item.b64_json), (c) => c.charCodeAt(0));
-            results.push({ blob: new Blob([bytes], { type: 'image/png' }) });
-        } else if (item.url) {
-            // Try to pull the bytes so the image survives the provider link
-            // expiring; keep the URL as a fallback when CORS blocks us.
-            try {
-                const res = await fetch(item.url);
-                if (res.ok) {
-                    results.push({ blob: await res.blob(), url: item.url });
-                    continue;
-                }
-            } catch {
-                // CORS or network — fall through to URL-only.
-            }
-            results.push({ url: item.url });
-        }
-    }
-
-    if (results.length === 0) {
-        throw new Error('The gateway returned no images.');
-    }
-    return results;
 }

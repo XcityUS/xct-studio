@@ -3702,7 +3702,7 @@ export default function HomePage() {
                 </DialogContent>
             </Dialog>
 
-            <div className='w-full max-w-[104rem] space-y-6'>
+            <div className='w-full max-w-7xl space-y-6'>
                 {imageGenerationEnabled || uploadEnabled || isPortraitEnabled ? (
                     <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as StudioTab)}>
                         <TabsList className='mb-4 border border-white/10 bg-white/5'>
