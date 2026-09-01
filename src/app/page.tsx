@@ -3530,13 +3530,24 @@ export default function HomePage() {
                         </div>
                     ) : shareDialogUrl ? (
                         <div className='space-y-3'>
-                            <Input
-                                readOnly
-                                value={shareDialogUrl}
-                                onFocus={(event) => event.currentTarget.select()}
-                                className='border-white/20 bg-black text-white'
-                                aria-label='Share URL'
-                            />
+                            <div className='relative'>
+                                <Input
+                                    readOnly
+                                    value={shareDialogUrl}
+                                    onFocus={(event) => event.currentTarget.select()}
+                                    className='border-white/20 bg-black pr-11 text-white'
+                                    aria-label='Share URL'
+                                />
+                                <Button
+                                    type='button'
+                                    variant='ghost'
+                                    size='icon'
+                                    onClick={handleCopyShareUrl}
+                                    className='absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 text-white/70 hover:bg-white/10 hover:text-white'
+                                    aria-label={shareUrlCopied ? 'Share link copied' : 'Copy share link'}>
+                                    {shareUrlCopied ? <Check className='h-4 w-4' /> : <Copy className='h-4 w-4' />}
+                                </Button>
+                            </div>
                             <p className='text-xs text-neutral-400'>
                                 Recreate links load prompt and generation settings only. Reference media are not shared.
                             </p>
