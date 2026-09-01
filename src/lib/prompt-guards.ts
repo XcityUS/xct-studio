@@ -2,6 +2,8 @@ export const AVOID_GENERATED_CAPTIONS_PROMPT =
     'No subtitles, no captions, no on-screen text, no burned-in text overlays.';
 const GENERATED_CAPTIONS_PROMPT_HEADER = 'Caption overlay instructions:';
 const LANGUAGE_PROMPT_HEADER = 'Language instructions:';
+const SUBTITLE_LAYOUT_PROMPT =
+    'Subtitle styling: use a compact small subtitle font, keep each subtitle line within the bottom safe area, and keep at least one line-height of vertical spacing between stacked lines. If text would exceed the safe area, reduce the font size first, then wrap to a maximum of two lines per language; subtitle lines must never overlap.';
 export const MAX_GENERATED_CAPTIONS = 2;
 export const NO_GENERATED_CAPTION_LANGUAGE = 'none';
 export const DEFAULT_GENERATED_CAPTION_LANGUAGES = ['en-US', 'zh-CN'] as const;
@@ -139,7 +141,7 @@ export function promptWithGeneratedCaptions(
         activeLanguageLabels.length > 1
             ? `Render subtitles only from the lines above, stacked in this order from top to bottom: ${activeLanguageLabels.join(', ')}.`
             : 'Render only the subtitle line above.',
-        'Keep subtitle lines inside the lower safe area with clear vertical spacing. If the text is long, wrap it or reduce the font size so subtitle lines never overlap.'
+        SUBTITLE_LAYOUT_PROMPT
     ].join('\n');
 
     return trimmed ? `${trimmed}\n${directive}` : directive;
@@ -168,15 +170,11 @@ export function promptWithLanguageControls(
         lines.push(
             'Subtitles: render bilingual subtitles from the dialogue, English on the upper subtitle line and Chinese directly below it.'
         );
-        lines.push(
-            'Keep both subtitle lines inside the lower safe area with clear vertical spacing. If the text is long, wrap it or reduce the font size so subtitle lines never overlap.'
-        );
+        lines.push(SUBTITLE_LAYOUT_PROMPT);
     } else {
         const captionLanguage = GENERATED_CAPTION_LANGUAGES.find((item) => item.id === captionMode);
         lines.push(`Subtitles: render ${captionLanguage?.promptLabel ?? 'subtitle'} subtitles from the dialogue.`);
-        lines.push(
-            'Keep subtitle text inside the lower safe area. If the text is long, wrap it or reduce the font size so it does not overlap.'
-        );
+        lines.push(SUBTITLE_LAYOUT_PROMPT);
     }
 
     const directive = lines.join('\n');
