@@ -235,6 +235,7 @@ export function CreationForm({
     const [isOptimizing, setIsOptimizing] = React.useState(false);
     const [isAdvancedOpen, setIsAdvancedOpen] = React.useState(false);
     const [optimizeError, setOptimizeError] = React.useState<string | null>(null);
+    const supportsCameraFixed = !model.includes('seedance-2-5');
     // The prompt as it was before the last AI rewrite, so Undo can restore it.
     const [promptBeforeOptimize, setPromptBeforeOptimize] = React.useState<string | null>(null);
     const [referenceVideoSecondsByUrl, setReferenceVideoSecondsByUrl] = React.useState<Record<string, number>>({});
@@ -263,6 +264,12 @@ export function CreationForm({
             setGenerationMode('final');
         }
     }, [supportsDraftMode]);
+
+    React.useEffect(() => {
+        if (!supportsCameraFixed && cameraFixed) {
+            setCameraFixed(false);
+        }
+    }, [cameraFixed, setCameraFixed, supportsCameraFixed]);
 
     const isDraftMode = supportsDraftMode && generationMode === 'draft';
     const activeResolution: VideoResolution = isDraftMode ? '480p' : resolution;
@@ -649,12 +656,35 @@ export function CreationForm({
                                 id='camera-fixed'
                                 checked={cameraFixed}
                                 onCheckedChange={(checked) => setCameraFixed(checked === true)}
-                                disabled={isLoading}
+                                disabled={isLoading || !supportsCameraFixed}
                                 className='border-white/40 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black'
                             />
-                            <Label htmlFor='camera-fixed' className='cursor-pointer text-white/80'>
+                            <Label
+                                htmlFor='camera-fixed'
+                                className={cn(
+                                    'cursor-pointer text-white/80',
+                                    !supportsCameraFixed && 'cursor-not-allowed text-white/35'
+                                )}>
                                 Fixed camera
                             </Label>
+                            {!supportsCameraFixed && (
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <button
+                                            type='button'
+                                            className='text-white/35 transition-colors hover:text-white/70'
+                                            aria-label='Fixed camera unavailable'>
+                                            <HelpCircle className='h-3.5 w-3.5' />
+                                        </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent
+                                        side='top'
+                                        className='max-w-64 border border-white/20 bg-black text-white'>
+                                        Seedance 2.5 rejects fixed camera, so Studio leaves this setting off for that
+                                        model.
+                                    </TooltipContent>
+                                </Tooltip>
+                            )}
                         </div>
                     </div>
 
