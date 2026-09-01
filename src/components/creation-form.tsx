@@ -656,8 +656,8 @@ export function CreationForm({
                         </p>
                     </div>
 
-                    <div className='flex flex-wrap items-end gap-x-6 gap-y-3'>
-                        <div className='min-w-52 space-y-2'>
+                    <div className='grid gap-4 sm:grid-cols-2'>
+                        <div className='space-y-2'>
                             <Label htmlFor='voice-language-select' className='text-white'>
                                 Voice
                             </Label>
@@ -682,40 +682,43 @@ export function CreationForm({
                                 </SelectContent>
                             </Select>
                         </div>
-                        <div className='flex items-center space-x-2'>
-                            <Checkbox
-                                id='camera-fixed'
-                                checked={cameraFixed}
-                                onCheckedChange={(checked) => setCameraFixed(checked === true)}
-                                disabled={isLoading || !supportsCameraFixed}
-                                className='border-white/40 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black'
-                            />
-                            <Label
-                                htmlFor='camera-fixed'
-                                className={cn(
-                                    'cursor-pointer text-white/80',
-                                    !supportsCameraFixed && 'cursor-not-allowed text-white/35'
-                                )}>
-                                Fixed camera
-                            </Label>
-                            {!supportsCameraFixed && (
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <button
-                                            type='button'
-                                            className='text-white/35 transition-colors hover:text-white/70'
-                                            aria-label='Fixed camera unavailable'>
-                                            <HelpCircle className='h-3.5 w-3.5' />
-                                        </button>
-                                    </TooltipTrigger>
-                                    <TooltipContent
-                                        side='top'
-                                        className='max-w-64 border border-white/20 bg-black text-white'>
-                                        Seedance 2.5 rejects fixed camera, so Studio leaves this setting off for that
-                                        model.
-                                    </TooltipContent>
-                                </Tooltip>
-                            )}
+                        <div className='space-y-2'>
+                            <Label className='text-white'>Camera</Label>
+                            <div className='flex h-10 items-center gap-2 rounded-md border border-white/10 bg-white/[0.02] px-3'>
+                                <Checkbox
+                                    id='camera-fixed'
+                                    checked={cameraFixed}
+                                    onCheckedChange={(checked) => setCameraFixed(checked === true)}
+                                    disabled={isLoading || !supportsCameraFixed}
+                                    className='border-white/40 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black'
+                                />
+                                <Label
+                                    htmlFor='camera-fixed'
+                                    className={cn(
+                                        'cursor-pointer text-white/80',
+                                        !supportsCameraFixed && 'cursor-not-allowed text-white/35'
+                                    )}>
+                                    Fixed camera
+                                </Label>
+                                {!supportsCameraFixed && (
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <button
+                                                type='button'
+                                                className='text-white/35 transition-colors hover:text-white/70'
+                                                aria-label='Fixed camera unavailable'>
+                                                <HelpCircle className='h-3.5 w-3.5' />
+                                            </button>
+                                        </TooltipTrigger>
+                                        <TooltipContent
+                                            side='top'
+                                            className='max-w-64 border border-white/20 bg-black text-white'>
+                                            Seedance 2.5 rejects fixed camera, so Studio leaves this setting off for that
+                                            model.
+                                        </TooltipContent>
+                                    </Tooltip>
+                                )}
+                            </div>
                         </div>
                     </div>
 
