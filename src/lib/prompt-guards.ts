@@ -1,9 +1,13 @@
 export const AVOID_GENERATED_CAPTIONS_PROMPT =
     'No subtitles, no captions, no on-screen text, no burned-in text overlays.';
 const GENERATED_CAPTIONS_PROMPT_HEADER = 'Caption overlay instructions:';
+const LANGUAGE_PROMPT_HEADER = 'Language instructions:';
 export const MAX_GENERATED_CAPTIONS = 2;
 export const NO_GENERATED_CAPTION_LANGUAGE = 'none';
 export const DEFAULT_GENERATED_CAPTION_LANGUAGES = ['en-US', 'zh-CN'] as const;
+export const SILENT_VOICE_LANGUAGE = 'silent';
+export const DEFAULT_VOICE_LANGUAGE = 'en-US';
+export const DEFAULT_CAPTION_MODE = 'bilingual-en-zh';
 
 export const GENERATED_CAPTION_LANGUAGES = [
     { id: 'en-US', label: 'English (US)', promptLabel: 'American English' },
@@ -19,13 +23,38 @@ export const GENERATED_CAPTION_LANGUAGES = [
 ] as const;
 
 export type GeneratedCaptionLanguage = (typeof GENERATED_CAPTION_LANGUAGES)[number]['id'];
+export type VoiceLanguage = GeneratedCaptionLanguage | typeof SILENT_VOICE_LANGUAGE;
+export type CaptionMode = 'none' | 'en-US' | 'zh-CN' | typeof DEFAULT_CAPTION_MODE;
 export type GeneratedCaptionItem = {
     text: string;
     language: GeneratedCaptionLanguage;
 };
 
+export const VOICE_LANGUAGE_OPTIONS = [
+    { id: SILENT_VOICE_LANGUAGE, label: 'Silent', promptLabel: 'no spoken dialogue or voiceover' },
+    ...GENERATED_CAPTION_LANGUAGES
+] as const;
+
+export const CAPTION_MODE_OPTIONS = [
+    { id: 'none', label: 'None' },
+    { id: 'en-US', label: 'English' },
+    { id: 'zh-CN', label: 'Chinese' },
+    { id: DEFAULT_CAPTION_MODE, label: 'English + Chinese' }
+] as const;
+
 export function isGeneratedCaptionLanguage(value: string): value is GeneratedCaptionLanguage {
     return GENERATED_CAPTION_LANGUAGES.some((language) => language.id === value);
+}
+
+export function normalizeVoiceLanguage(value: string | undefined): VoiceLanguage {
+    if (value === SILENT_VOICE_LANGUAGE) return value;
+    return value && isGeneratedCaptionLanguage(value) ? value : DEFAULT_VOICE_LANGUAGE;
+}
+
+export function normalizeCaptionMode(value: string | undefined): CaptionMode {
+    return value === 'none' || value === 'en-US' || value === 'zh-CN' || value === DEFAULT_CAPTION_MODE
+        ? value
+        : DEFAULT_CAPTION_MODE;
 }
 
 export function normalizeGeneratedCaptionLanguages(languages: readonly string[] | undefined): string[] {
@@ -69,8 +98,12 @@ export function normalizeGeneratedCaptionItems(
 function stripCaptionDirective(prompt: string): string {
     const marker = `\n${GENERATED_CAPTIONS_PROMPT_HEADER}`;
     const markerIndex = prompt.indexOf(marker);
-    if (markerIndex >= 0) return prompt.slice(0, markerIndex).trimEnd();
-    return prompt.startsWith(GENERATED_CAPTIONS_PROMPT_HEADER) ? '' : prompt.trimEnd();
+    const languageMarker = `\n${LANGUAGE_PROMPT_HEADER}`;
+    const languageMarkerIndex = prompt.indexOf(languageMarker);
+    const firstMarkerIndex = [markerIndex, languageMarkerIndex].filter((index) => index >= 0).sort((a, b) => a - b)[0];
+    if (firstMarkerIndex !== undefined) return prompt.slice(0, firstMarkerIndex).trimEnd();
+    if (prompt.startsWith(GENERATED_CAPTIONS_PROMPT_HEADER) || prompt.startsWith(LANGUAGE_PROMPT_HEADER)) return '';
+    return prompt.trimEnd();
 }
 
 export function promptWithCaptionGuard(prompt: string): string {
@@ -109,5 +142,43 @@ export function promptWithGeneratedCaptions(
         'Keep subtitle lines inside the lower safe area with clear vertical spacing. If the text is long, wrap it or reduce the font size so subtitle lines never overlap.'
     ].join('\n');
 
+    return trimmed ? `${trimmed}\n${directive}` : directive;
+}
+
+export function promptWithLanguageControls(
+    prompt: string,
+    options: { voiceLanguage?: string; captionMode?: string }
+): string {
+    const voiceLanguage = normalizeVoiceLanguage(options.voiceLanguage);
+    const captionMode = normalizeCaptionMode(options.captionMode);
+    const trimmed = stripCaptionDirective(prompt)
+        .replace(new RegExp(`\\n?${AVOID_GENERATED_CAPTIONS_PROMPT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i'), '')
+        .trimEnd();
+    const voice = VOICE_LANGUAGE_OPTIONS.find((item) => item.id === voiceLanguage);
+    const lines = [
+        LANGUAGE_PROMPT_HEADER,
+        voiceLanguage === SILENT_VOICE_LANGUAGE
+            ? 'Audio: no spoken dialogue, no voiceover, no generated speech.'
+            : `Audio: use natural ${voice?.promptLabel ?? 'American English'} for spoken dialogue by default.`
+    ];
+
+    if (captionMode === 'none') {
+        lines.push('Subtitles: no subtitles, no captions, no on-screen subtitle text.');
+    } else if (captionMode === DEFAULT_CAPTION_MODE) {
+        lines.push(
+            'Subtitles: render bilingual subtitles from the dialogue, English on the upper subtitle line and Chinese directly below it.'
+        );
+        lines.push(
+            'Keep both subtitle lines inside the lower safe area with clear vertical spacing. If the text is long, wrap it or reduce the font size so subtitle lines never overlap.'
+        );
+    } else {
+        const captionLanguage = GENERATED_CAPTION_LANGUAGES.find((item) => item.id === captionMode);
+        lines.push(`Subtitles: render ${captionLanguage?.promptLabel ?? 'subtitle'} subtitles from the dialogue.`);
+        lines.push(
+            'Keep subtitle text inside the lower safe area. If the text is long, wrap it or reduce the font size so it does not overlap.'
+        );
+    }
+
+    const directive = lines.join('\n');
     return trimmed ? `${trimmed}\n${directive}` : directive;
 }

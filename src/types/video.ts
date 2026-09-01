@@ -144,4 +144,8 @@ export type VideoJobCreate = {
     generated_captions?: string[];
     /** Studio-only language ids aligned with generated_captions. */
     generated_caption_languages?: string[];
+    /** Studio-only spoken dialogue language selector. */
+    voice_language?: string;
+    /** Studio-only subtitle language selector. */
+    caption_mode?: string;
 };

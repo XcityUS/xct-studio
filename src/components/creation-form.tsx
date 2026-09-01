@@ -18,11 +18,11 @@ import type { VideoCharacter, VideoPortrait } from '@/hooks/use-video-history';
 import { XCITY_BILLING_URL, shouldShowBillingAction } from '@/lib/billing';
 import { calculateVideoCost } from '@/lib/cost-utils';
 import {
-    GENERATED_CAPTION_LANGUAGES,
-    MAX_GENERATED_CAPTIONS,
-    NO_GENERATED_CAPTION_LANGUAGE,
-    normalizeGeneratedCaptionItems,
-    normalizeGeneratedCaptionLanguages,
+    CAPTION_MODE_OPTIONS,
+    SILENT_VOICE_LANGUAGE,
+    VOICE_LANGUAGE_OPTIONS,
+    normalizeCaptionMode,
+    normalizeVoiceLanguage
 } from '@/lib/prompt-guards';
 import { PROMPT_TEMPLATE_CATEGORIES, applyPromptTemplate } from '@/lib/prompt-templates';
 import {
@@ -80,8 +80,6 @@ type CreationFormProps = {
     setResolution: React.Dispatch<React.SetStateAction<VideoResolution>>;
     seconds: number;
     setSeconds: React.Dispatch<React.SetStateAction<number>>;
-    generateAudio: boolean;
-    setGenerateAudio: React.Dispatch<React.SetStateAction<boolean>>;
     cameraFixed: boolean;
     setCameraFixed: React.Dispatch<React.SetStateAction<boolean>>;
     referenceUrls: string[];
@@ -103,12 +101,10 @@ type CreationFormProps = {
     setWatermark: React.Dispatch<React.SetStateAction<boolean>>;
     watermarkText: string;
     setWatermarkText: React.Dispatch<React.SetStateAction<string>>;
-    avoidGeneratedCaptions: boolean;
-    setAvoidGeneratedCaptions: React.Dispatch<React.SetStateAction<boolean>>;
-    generatedCaptions: string[];
-    setGeneratedCaptions: React.Dispatch<React.SetStateAction<string[]>>;
-    generatedCaptionLanguages: string[];
-    setGeneratedCaptionLanguages: React.Dispatch<React.SetStateAction<string[]>>;
+    voiceLanguage: string;
+    setVoiceLanguage: React.Dispatch<React.SetStateAction<string>>;
+    captionMode: string;
+    setCaptionMode: React.Dispatch<React.SetStateAction<string>>;
     /** Uploads a local image, resolving to its public URL. Absent = URL-only mode. */
     onUploadImage?: (file: File) => Promise<string>;
     /** Uploads a local audio file, resolving to its public URL. Absent = URL-only mode. */
@@ -174,8 +170,6 @@ export function CreationForm({
     setResolution,
     seconds,
     setSeconds,
-    generateAudio,
-    setGenerateAudio,
     cameraFixed,
     setCameraFixed,
     referenceUrls,
@@ -197,12 +191,10 @@ export function CreationForm({
     setWatermark,
     watermarkText,
     setWatermarkText,
-    avoidGeneratedCaptions,
-    setAvoidGeneratedCaptions,
-    generatedCaptions,
-    setGeneratedCaptions,
-    generatedCaptionLanguages,
-    setGeneratedCaptionLanguages,
+    voiceLanguage,
+    setVoiceLanguage,
+    captionMode,
+    setCaptionMode,
     onUploadImage,
     onUploadAudio,
     onSynthesizeSpeech,
@@ -297,22 +289,20 @@ export function CreationForm({
         if (!hasReferenceVideos) return 0;
         return referenceVideoUrls.reduce((total, url) => total + (referenceVideoSecondsByUrl[url] ?? 0), 0);
     }, [hasReferenceVideos, referenceVideoSecondsByUrl, referenceVideoUrls]);
+    const normalizedVoiceLanguage = normalizeVoiceLanguage(voiceLanguage);
+    const normalizedCaptionMode = normalizeCaptionMode(captionMode);
+    const selectedVoice = VOICE_LANGUAGE_OPTIONS.find((item) => item.id === normalizedVoiceLanguage);
+    const selectedCaptionMode = CAPTION_MODE_OPTIONS.find((item) => item.id === normalizedCaptionMode);
     const estimatedCost = calculateVideoCost({
         model,
         ratio,
         resolution: activeResolution,
         seconds,
-        generateAudio,
+        generateAudio: normalizedVoiceLanguage !== SILENT_VOICE_LANGUAGE,
         inputVideoSeconds
     });
     const isCostLowerBound = Boolean(estimatedCost && (estimatedCost.lowerBound || hasReferenceVideos));
     const showEstimatedCost = Boolean(estimatedCost && prompt.trim() && blockedReferences.length === 0);
-    const normalizedGeneratedCaptionLanguages = normalizeGeneratedCaptionLanguages(generatedCaptionLanguages);
-    const normalizedGeneratedCaptionItems = normalizeGeneratedCaptionItems(
-        generatedCaptions,
-        normalizedGeneratedCaptionLanguages
-    );
-    const hasGeneratedCaptions = normalizedGeneratedCaptionItems.length > 0;
 
     React.useEffect(() => {
         setReferenceVideoSecondsByUrl((current) => {
@@ -389,18 +379,14 @@ export function CreationForm({
             ratio,
             resolution: activeResolution,
             seconds,
-            generate_audio: generateAudio,
+            generate_audio: normalizedVoiceLanguage !== SILENT_VOICE_LANGUAGE,
             camera_fixed: cameraFixed,
             seed,
             watermark,
             watermarkText: watermark ? watermarkText.trim().slice(0, 100) : undefined,
-            avoid_generated_captions: hasGeneratedCaptions ? false : avoidGeneratedCaptions,
-            generated_captions: hasGeneratedCaptions
-                ? normalizedGeneratedCaptionItems.map((caption) => caption.text)
-                : undefined,
-            generated_caption_languages: hasGeneratedCaptions
-                ? normalizedGeneratedCaptionItems.map((caption) => caption.language)
-                : undefined
+            avoid_generated_captions: normalizedCaptionMode === 'none',
+            voice_language: normalizedVoiceLanguage,
+            caption_mode: normalizedCaptionMode
         };
         if (isDraftMode) {
             formData.draft = true;
@@ -670,18 +656,31 @@ export function CreationForm({
                         </p>
                     </div>
 
-                    <div className='flex flex-wrap items-center gap-x-6 gap-y-2'>
-                        <div className='flex items-center space-x-2'>
-                            <Checkbox
-                                id='generate-audio'
-                                checked={generateAudio}
-                                onCheckedChange={(checked) => setGenerateAudio(checked === true)}
-                                disabled={isLoading}
-                                className='border-white/40 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black'
-                            />
-                            <Label htmlFor='generate-audio' className='cursor-pointer text-white/80'>
-                                Generate synchronized audio
+                    <div className='flex flex-wrap items-end gap-x-6 gap-y-3'>
+                        <div className='min-w-52 space-y-2'>
+                            <Label htmlFor='voice-language-select' className='text-white'>
+                                Voice
                             </Label>
+                            <Select
+                                value={normalizedVoiceLanguage}
+                                onValueChange={setVoiceLanguage}
+                                disabled={isLoading}>
+                                <SelectTrigger
+                                    id='voice-language-select'
+                                    className='rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'>
+                                    <SelectValue>{selectedVoice?.label}</SelectValue>
+                                </SelectTrigger>
+                                <SelectContent className='border-white/20 bg-black text-white'>
+                                    {VOICE_LANGUAGE_OPTIONS.map((voice) => (
+                                        <SelectItem
+                                            key={voice.id}
+                                            value={voice.id}
+                                            className='focus:bg-white/10 focus:text-white'>
+                                            {voice.label}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                         </div>
                         <div className='flex items-center space-x-2'>
                             <Checkbox
@@ -830,131 +829,43 @@ export function CreationForm({
                                 )}
                                 <div className='space-y-2'>
                                     <div className='flex items-center gap-1.5'>
-                                        <Label className='text-white/80'>Bilingual captions</Label>
-                                        <Tooltip>
-                                            <TooltipTrigger asChild>
-                                                <button
-                                                    type='button'
-                                                    className='text-white/45 transition-colors hover:text-white/80'
-                                                    aria-label='Generated captions help'>
-                                                    <HelpCircle className='h-3.5 w-3.5' />
-                                                </button>
-                                            </TooltipTrigger>
-                                            <TooltipContent
-                                                side='top'
-                                                className='max-w-64 border border-white/20 bg-black text-white'>
-                                                Adds up to two custom subtitle lines to the Seedance prompt. Dialogue
-                                                defaults to American English, with English above Chinese.
-                                            </TooltipContent>
-                                        </Tooltip>
-                                    </div>
-                                    {Array.from({ length: MAX_GENERATED_CAPTIONS }, (_, index) => (
-                                        <div key={index} className='grid gap-2 sm:grid-cols-[10rem_minmax(0,1fr)]'>
-                                            <Select
-                                                value={
-                                                    normalizedGeneratedCaptionLanguages[index] ??
-                                                    NO_GENERATED_CAPTION_LANGUAGE
-                                                }
-                                                onValueChange={(value) => {
-                                                    setGeneratedCaptionLanguages((current) =>
-                                                        Array.from({ length: MAX_GENERATED_CAPTIONS }, (_, i) =>
-                                                            i === index
-                                                                ? value
-                                                                : (current[i] ??
-                                                                  normalizedGeneratedCaptionLanguages[i] ??
-                                                                  NO_GENERATED_CAPTION_LANGUAGE)
-                                                        )
-                                                    );
-                                                }}
-                                                disabled={isLoading}>
-                                                <SelectTrigger className='rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'>
-                                                    <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent className='border-white/20 bg-black text-white'>
-                                                    <SelectItem
-                                                        value={NO_GENERATED_CAPTION_LANGUAGE}
-                                                        className='focus:bg-white/10 focus:text-white'>
-                                                        None
-                                                    </SelectItem>
-                                                    {GENERATED_CAPTION_LANGUAGES.map((language) => {
-                                                        const selectedElsewhere = normalizedGeneratedCaptionLanguages.some(
-                                                            (selected, selectedIndex) =>
-                                                                selectedIndex !== index && selected === language.id
-                                                        );
-                                                        return (
-                                                            <SelectItem
-                                                                key={language.id}
-                                                                value={language.id}
-                                                                disabled={selectedElsewhere}
-                                                                className='focus:bg-white/10 focus:text-white disabled:cursor-not-allowed disabled:opacity-50'>
-                                                                {language.label}
-                                                            </SelectItem>
-                                                        );
-                                                    })}
-                                                </SelectContent>
-                                            </Select>
-                                            <Input
-                                                type='text'
-                                                value={generatedCaptions[index] ?? ''}
-                                                onChange={(e) => {
-                                                    const value = e.target.value;
-                                                    setGeneratedCaptions((current) =>
-                                                        Array.from({ length: MAX_GENERATED_CAPTIONS }, (_, i) =>
-                                                            i === index ? value : (current[i] ?? '')
-                                                        )
-                                                    );
-                                                }}
-                                                disabled={
-                                                    isLoading ||
-                                                    normalizedGeneratedCaptionLanguages[index] ===
-                                                        NO_GENERATED_CAPTION_LANGUAGE
-                                                }
-                                                placeholder={
-                                                    normalizedGeneratedCaptionLanguages[index] ===
-                                                    NO_GENERATED_CAPTION_LANGUAGE
-                                                        ? 'Disabled'
-                                                        : 'Subtitle text'
-                                                }
-                                                className='rounded-md border border-white/20 bg-black text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50 disabled:opacity-50'
-                                            />
-                                        </div>
-                                    ))}
-                                </div>
-                                <div className='flex items-center space-x-2'>
-                                    <Checkbox
-                                        id='avoid-generated-captions'
-                                        checked={avoidGeneratedCaptions}
-                                        onCheckedChange={(checked) => setAvoidGeneratedCaptions(checked === true)}
-                                        disabled={isLoading || hasGeneratedCaptions}
-                                        className='border-white/40 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black'
-                                    />
-                                    <div className='flex items-center gap-1.5'>
-                                        <Label
-                                            htmlFor='avoid-generated-captions'
-                                            className={cn(
-                                                'cursor-pointer text-white/80',
-                                                hasGeneratedCaptions && 'cursor-not-allowed text-white/35'
-                                            )}>
-                                            Avoid generated captions
+                                        <Label htmlFor='caption-mode-select' className='text-white/80'>
+                                            Subtitles
                                         </Label>
                                         <Tooltip>
                                             <TooltipTrigger asChild>
                                                 <button
                                                     type='button'
                                                     className='text-white/45 transition-colors hover:text-white/80'
-                                                    aria-label='Avoid generated captions help'>
+                                                    aria-label='Subtitles help'>
                                                     <HelpCircle className='h-3.5 w-3.5' />
                                                 </button>
                                             </TooltipTrigger>
                                             <TooltipContent
                                                 side='top'
                                                 className='max-w-64 border border-white/20 bg-black text-white'>
-                                                Adds a prompt instruction that discourages Seedance from drawing
-                                                subtitles or other screen text into the video. Use post-production
-                                                captions for controlled layout.
+                                                Controls subtitle language through the Seedance prompt. Choose None for
+                                                no subtitles.
                                             </TooltipContent>
                                         </Tooltip>
                                     </div>
+                                    <Select value={normalizedCaptionMode} onValueChange={setCaptionMode} disabled={isLoading}>
+                                        <SelectTrigger
+                                            id='caption-mode-select'
+                                            className='rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'>
+                                            <SelectValue>{selectedCaptionMode?.label}</SelectValue>
+                                        </SelectTrigger>
+                                        <SelectContent className='border-white/20 bg-black text-white'>
+                                            {CAPTION_MODE_OPTIONS.map((mode) => (
+                                                <SelectItem
+                                                    key={mode.id}
+                                                    value={mode.id}
+                                                    className='focus:bg-white/10 focus:text-white'>
+                                                    {mode.label}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
                                 </div>
                             </div>
                         )}
