@@ -94,6 +94,7 @@ import {
     type PortraitGroupQueryType
 } from '@/lib/portrait';
 import { estimateVideoProgress } from '@/lib/progress';
+import { promptWithCaptionGuard } from '@/lib/prompt-guards';
 import { optimizePrompt } from '@/lib/prompt-optimizer';
 import {
     ASSET_LIBRARY_MODEL_BLOCK_REASON,
@@ -273,7 +274,10 @@ function shareTitleFromItem(item: VideoMetadata): string {
 function shareParamsToForm(prompt: string, params: unknown): { params: CreationFormData; adjusted: string[] } {
     if (isVideoJobCreateParams(params)) {
         const reconciled = reconcilePreset({ ...params, prompt });
-        return { params: reconciled, adjusted: reconciled.adjusted };
+        return {
+            params: { ...reconciled, avoid_generated_captions: reconciled.avoid_generated_captions ?? true },
+            adjusted: reconciled.adjusted
+        };
     }
 
     const record = isRecord(params) ? params : {};
@@ -314,7 +318,9 @@ function shareParamsToForm(prompt: string, params: unknown): { params: CreationF
             watermarkText:
                 typeof record.watermarkText === 'string'
                     ? normalizeWatermarkText(record.watermarkText)
-                    : BRANDING_WATERMARK_TEXT
+                    : BRANDING_WATERMARK_TEXT,
+            avoid_generated_captions:
+                typeof record.avoid_generated_captions === 'boolean' ? record.avoid_generated_captions : true
         },
         adjusted
     };
@@ -502,6 +508,7 @@ export default function HomePage() {
     const [createSeed, setCreateSeed] = React.useState<number | undefined>(undefined);
     const [createWatermark, setCreateWatermark] = React.useState(false);
     const [createWatermarkText, setCreateWatermarkText] = React.useState(BRANDING_WATERMARK_TEXT);
+    const [createAvoidGeneratedCaptions, setCreateAvoidGeneratedCaptions] = React.useState(true);
     const [finalizeDialogItem, setFinalizeDialogItem] = React.useState<VideoMetadata | null>(null);
     const [isFinalizeSubmitting, setIsFinalizeSubmitting] = React.useState(false);
     const [imageAssets, setImageAssets] = React.useState<UserAsset[]>([]);
@@ -1878,7 +1885,7 @@ export default function HomePage() {
     }, [isInitialLoad, apiKey, history, activeJobs, restoreJobs]);
 
     const handleCreateVideo = async (
-        formData: CreationFormData,
+        rawFormData: CreationFormData,
         options: {
             replacesItem?: VideoMetadata;
             title?: string;
@@ -1888,6 +1895,9 @@ export default function HomePage() {
             rethrowOnError?: boolean;
         } = {}
     ): Promise<string | null> => {
+        const formData: CreationFormData = rawFormData.avoid_generated_captions
+            ? { ...rawFormData, prompt: promptWithCaptionGuard(rawFormData.prompt) }
+            : rawFormData;
         setError(null);
         setShareNotice(null);
         const blockedReferences = blockedReferencesForParams(formData);
@@ -2221,7 +2231,8 @@ export default function HomePage() {
             return {
                 ...item.createParams,
                 prompt: item.prompt,
-                watermarkText: normalizeWatermarkText(item.createParams.watermarkText ?? item.brandingWatermark?.text)
+                watermarkText: normalizeWatermarkText(item.createParams.watermarkText ?? item.brandingWatermark?.text),
+                avoid_generated_captions: item.createParams.avoid_generated_captions ?? true
             };
         }
         const parsed = parseSize(item.size);
@@ -2234,7 +2245,8 @@ export default function HomePage() {
             seconds: clampSeconds(item.seconds, model),
             generate_audio: true,
             camera_fixed: false,
-            watermark: false
+            watermark: false,
+            avoid_generated_captions: true
         };
     }, []);
 
@@ -2371,6 +2383,7 @@ export default function HomePage() {
         setCreateSeed(params.seed);
         setCreateWatermark(params.watermark ?? false);
         setCreateWatermarkText(normalizeWatermarkText(params.watermarkText));
+        setCreateAvoidGeneratedCaptions(params.avoid_generated_captions ?? true);
         setActiveTab('video');
         scrollToCreationForm();
     }, [scrollToCreationForm]);
@@ -3427,6 +3440,8 @@ export default function HomePage() {
                                 setWatermark={setCreateWatermark}
                                 watermarkText={createWatermarkText}
                                 setWatermarkText={setCreateWatermarkText}
+                                avoidGeneratedCaptions={createAvoidGeneratedCaptions}
+                                setAvoidGeneratedCaptions={setCreateAvoidGeneratedCaptions}
                                 onUploadImage={uploadEnabled ? handleUploadImage : undefined}
                                 onUploadAudio={uploadEnabled ? handleUploadAudio : undefined}
                                 onSynthesizeSpeech={uploadEnabled ? handleSynthesizeSpeech : undefined}

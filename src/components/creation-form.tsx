@@ -17,6 +17,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import type { VideoCharacter, VideoPortrait } from '@/hooks/use-video-history';
 import { XCITY_BILLING_URL, shouldShowBillingAction } from '@/lib/billing';
 import { calculateVideoCost } from '@/lib/cost-utils';
+import { promptWithCaptionGuard } from '@/lib/prompt-guards';
 import { PROMPT_TEMPLATE_CATEGORIES, applyPromptTemplate } from '@/lib/prompt-templates';
 import {
     ASSET_LIBRARY_MODEL_BLOCK_REASON,
@@ -96,6 +97,8 @@ type CreationFormProps = {
     setWatermark: React.Dispatch<React.SetStateAction<boolean>>;
     watermarkText: string;
     setWatermarkText: React.Dispatch<React.SetStateAction<string>>;
+    avoidGeneratedCaptions: boolean;
+    setAvoidGeneratedCaptions: React.Dispatch<React.SetStateAction<boolean>>;
     /** Uploads a local image, resolving to its public URL. Absent = URL-only mode. */
     onUploadImage?: (file: File) => Promise<string>;
     /** Uploads a local audio file, resolving to its public URL. Absent = URL-only mode. */
@@ -184,6 +187,8 @@ export function CreationForm({
     setWatermark,
     watermarkText,
     setWatermarkText,
+    avoidGeneratedCaptions,
+    setAvoidGeneratedCaptions,
     onUploadImage,
     onUploadAudio,
     onSynthesizeSpeech,
@@ -358,9 +363,10 @@ export function CreationForm({
     const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
         if (blockedReferences.length > 0) return;
+        const submissionPrompt = avoidGeneratedCaptions ? promptWithCaptionGuard(prompt) : prompt;
         const formData: CreationFormData = {
             model,
-            prompt,
+            prompt: submissionPrompt,
             ratio,
             resolution: activeResolution,
             seconds,
@@ -368,7 +374,8 @@ export function CreationForm({
             camera_fixed: cameraFixed,
             seed,
             watermark,
-            watermarkText: watermark ? watermarkText.trim().slice(0, 100) : undefined
+            watermarkText: watermark ? watermarkText.trim().slice(0, 100) : undefined,
+            avoid_generated_captions: avoidGeneratedCaptions
         };
         if (isDraftMode) {
             formData.draft = true;
@@ -796,6 +803,39 @@ export function CreationForm({
                                         <div className='text-[10px] text-white/35'>{watermarkText.length}/100</div>
                                     </div>
                                 )}
+                                <div className='flex items-center space-x-2'>
+                                    <Checkbox
+                                        id='avoid-generated-captions'
+                                        checked={avoidGeneratedCaptions}
+                                        onCheckedChange={(checked) => setAvoidGeneratedCaptions(checked === true)}
+                                        disabled={isLoading}
+                                        className='border-white/40 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black'
+                                    />
+                                    <div className='flex items-center gap-1.5'>
+                                        <Label
+                                            htmlFor='avoid-generated-captions'
+                                            className='cursor-pointer text-white/80'>
+                                            Avoid generated captions
+                                        </Label>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <button
+                                                    type='button'
+                                                    className='text-white/45 transition-colors hover:text-white/80'
+                                                    aria-label='Avoid generated captions help'>
+                                                    <HelpCircle className='h-3.5 w-3.5' />
+                                                </button>
+                                            </TooltipTrigger>
+                                            <TooltipContent
+                                                side='top'
+                                                className='max-w-64 border border-white/20 bg-black text-white'>
+                                                Adds a prompt instruction that discourages Seedance from drawing
+                                                subtitles or other screen text into the video. Use post-production
+                                                captions for controlled layout.
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    </div>
+                                </div>
                             </div>
                         )}
                     </div>

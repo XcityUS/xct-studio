@@ -138,4 +138,6 @@ export type VideoJobCreate = {
     watermark?: boolean;
     /** Studio branding watermark text; handled after provider generation. */
     watermarkText?: string;
+    /** Studio-only prompt guard to discourage model-rendered subtitles or on-screen text. */
+    avoid_generated_captions?: boolean;
 };
