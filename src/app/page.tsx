@@ -80,8 +80,7 @@ import {
     type UserAsset,
     uploadReferenceAudio,
     uploadReferenceImage,
-    uploadReferenceVideo,
-    videoUrlToDataUri
+    uploadReferenceVideo
 } from '@/lib/media-archive';
 import { providerLinkLikelyDead } from '@/lib/media-state';
 import {
@@ -408,6 +407,15 @@ function summarizeWebUrl(url?: string | null): string | null {
         return `${parsed.origin}${parsed.pathname}`;
     } catch {
         return url;
+    }
+}
+
+function isWebReferenceUrl(url: string): boolean {
+    try {
+        const parsed = new URL(url);
+        return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch {
+        return false;
     }
 }
 
@@ -1936,7 +1944,6 @@ export default function HomePage() {
             replacesItem?: VideoMetadata;
             title?: string;
             referenceVideoFallbackUrls?: string[];
-            forceInlineReferenceVideos?: boolean;
             finalizeFlag?: 0 | 1 | 2;
             rethrowOnError?: boolean;
         } = {}
@@ -2088,30 +2095,16 @@ export default function HomePage() {
                 requestParams.reference_audio_url = dataUri;
             }
         }
-        if (
-            formData.reference_video_urls?.length &&
-            (formData.reference_image_urls?.length || options.forceInlineReferenceVideos)
-        ) {
-            const referenceVideoUrls: string[] = [];
-            for (let i = 0; i < formData.reference_video_urls.length; i++) {
-                const url = formData.reference_video_urls[i];
-                const isWorkerHosted = Boolean(workerBase && url.startsWith(workerBase));
-                const dataUri = url.startsWith('data:') ? url : await videoUrlToDataUri(url);
-                if (!dataUri) {
-                    if (isWorkerHosted) {
-                        setError(
-                            `Reference video ${i + 1} is no longer accessible — it may have been deleted from Assets. Remove it from the list and upload it again.`
-                        );
-                        setIsSubmitting(false);
-                        return null;
-                    }
-                    referenceVideoUrls.push(url);
-                    continue;
-                }
-                totalChars += dataUri.length;
-                referenceVideoUrls.push(dataUri);
+        if (formData.reference_video_urls?.length) {
+            const invalidIndex = formData.reference_video_urls.findIndex((url) => !isWebReferenceUrl(url));
+            if (invalidIndex !== -1) {
+                setError(
+                    `Reference video ${invalidIndex + 1} must be a public http(s) URL. Remove it and upload the video again.`
+                );
+                setIsSubmitting(false);
+                return null;
             }
-            requestParams.reference_video_urls = referenceVideoUrls;
+            requestParams.reference_video_urls = formData.reference_video_urls;
         }
         if (totalChars > 30_000_000) {
             setError('Reference media are too large to submit (over ~20 MB combined). Use fewer or smaller files.');
