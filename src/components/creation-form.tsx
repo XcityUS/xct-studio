@@ -137,6 +137,8 @@ type CreationFormProps = {
     onBreakdownScript?: (script: string) => Promise<ShotDraft[]>;
     /** Opens the Assets tab for portrait-library setup. */
     onOpenAssets?: (referenceKey?: string) => void;
+    /** Successful/neutral feedback from non-submit actions, rendered under the Create button. */
+    notice?: string | null;
     /** Message from the last submission — rendered under the Create button. */
     error?: string | null;
 };
@@ -153,8 +155,7 @@ const CAMERA_TEMPLATES = PROMPT_TEMPLATE_CATEGORIES.find((category) => category.
 type GenerationMode = 'draft' | 'final';
 const nativeSelectClass =
     'h-10 w-full appearance-none rounded-md border border-white/20 bg-black pl-3 pr-10 text-sm text-white outline-none focus:border-white/50 focus:ring-2 focus:ring-white/50 disabled:cursor-not-allowed disabled:opacity-50';
-const nativeRangeClass =
-    'h-6 w-full cursor-pointer accent-white disabled:cursor-not-allowed disabled:opacity-50';
+const nativeRangeClass = 'h-6 w-full cursor-pointer accent-white disabled:cursor-not-allowed disabled:opacity-50';
 const nativeCheckboxClass =
     'h-4 w-4 shrink-0 rounded border border-white/40 bg-black accent-white disabled:cursor-not-allowed disabled:opacity-40';
 
@@ -177,7 +178,7 @@ function NativeSelect({ className, children, disabled, ...props }: React.SelectH
             </select>
             <ChevronDown
                 className={cn(
-                    'pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50',
+                    'pointer-events-none absolute top-1/2 right-3 h-4 w-4 -translate-y-1/2 text-white/50',
                     disabled && 'text-white/25'
                 )}
             />
@@ -251,6 +252,7 @@ export function CreationForm({
     onOptimizePrompt,
     onBreakdownScript,
     onOpenAssets,
+    notice,
     error
 }: CreationFormProps) {
     const activeModel = getSeedanceModel(model) ? model : DEFAULT_MODEL;
@@ -285,10 +287,16 @@ export function CreationForm({
             ? ASSET_LIBRARY_MODEL_BLOCK_REASON
             : declarationBlockReason(declarations[refKey(firstBlockedReference)], approvedAuthorizationIds)
         : null;
-    const submitMessage = error ?? referenceBlockReason;
+    const submitMessage = error ?? notice ?? referenceBlockReason;
     const isBudgetError = Boolean(error && shouldShowBillingAction(error));
     const isInfoMessage = Boolean(
-        error && /^(Added as reference video|Extend loaded|Adjusted for|Adjusted shared settings|Loaded shared settings)/i.test(error)
+        (!error && Boolean(notice)) ||
+            Boolean(
+                error &&
+                    /^(Added as reference video|Extend loaded|Adjusted for|Adjusted shared settings|Loaded shared settings)/i.test(
+                        error
+                    )
+            )
     );
 
     const [isInspirationOpen, setIsInspirationOpen] = React.useState(false);
@@ -296,7 +304,7 @@ export function CreationForm({
     const [isOptimizing, setIsOptimizing] = React.useState(false);
     const [isAdvancedOpen, setIsAdvancedOpen] = React.useState(false);
     const [optimizeError, setOptimizeError] = React.useState<string | null>(null);
-    const supportsCameraFixed = !activeModel.includes('seedance-2-5');
+    const supportsCameraFixed = activeModel.includes('seedance-1-5');
     // The prompt as it was before the last AI rewrite, so Undo can restore it.
     const [promptBeforeOptimize, setPromptBeforeOptimize] = React.useState<string | null>(null);
     const [referenceVideoSecondsByUrl, setReferenceVideoSecondsByUrl] = React.useState<Record<string, number>>({});
@@ -561,7 +569,7 @@ export function CreationForm({
                             onChange={(e) => setPrompt(e.target.value)}
                             required
                             disabled={isLoading}
-                            className='h-56 min-h-36 resize-none overflow-y-auto rounded-md border border-white/20 bg-black text-white placeholder:text-white/40 [field-sizing:fixed] focus:border-white/50 focus:ring-white/50'
+                            className='[field-sizing:fixed] h-56 min-h-36 resize-none overflow-y-auto rounded-md border border-white/20 bg-black text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
                         />
                         {CAMERA_TEMPLATES.length > 0 && (
                             <div className='flex items-center gap-2 overflow-hidden'>
@@ -725,45 +733,24 @@ export function CreationForm({
                                 ))}
                             </NativeSelect>
                         </div>
-                        <div className='space-y-2'>
-                            <Label className='text-white'>Camera</Label>
-                            <div className='flex h-10 items-center gap-2 rounded-md border border-white/10 bg-white/[0.02] px-3'>
-                                <input
-                                    type='checkbox'
-                                    id='camera-fixed'
-                                    checked={cameraFixed}
-                                    onChange={(event) => setCameraFixed(event.target.checked)}
-                                    disabled={isLoading || !supportsCameraFixed}
-                                    className={nativeCheckboxClass}
-                                />
-                                <Label
-                                    htmlFor='camera-fixed'
-                                    className={cn(
-                                        'cursor-pointer text-white/80',
-                                        !supportsCameraFixed && 'cursor-not-allowed text-white/35'
-                                    )}>
-                                    Fixed camera
-                                </Label>
-                                {!supportsCameraFixed && (
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <button
-                                                type='button'
-                                                className='text-white/35 transition-colors hover:text-white/70'
-                                                aria-label='Fixed camera unavailable'>
-                                                <HelpCircle className='h-3.5 w-3.5' />
-                                            </button>
-                                        </TooltipTrigger>
-                                        <TooltipContent
-                                            side='top'
-                                            className='max-w-64 border border-white/20 bg-black text-white'>
-                                            Seedance 2.5 rejects fixed camera, so Studio leaves this setting off for that
-                                            model.
-                                        </TooltipContent>
-                                    </Tooltip>
-                                )}
+                        {supportsCameraFixed && (
+                            <div className='space-y-2'>
+                                <Label className='text-white'>Camera</Label>
+                                <div className='flex h-10 items-center gap-2 rounded-md border border-white/10 bg-white/[0.02] px-3'>
+                                    <input
+                                        type='checkbox'
+                                        id='camera-fixed'
+                                        checked={cameraFixed}
+                                        onChange={(event) => setCameraFixed(event.target.checked)}
+                                        disabled={isLoading}
+                                        className={nativeCheckboxClass}
+                                    />
+                                    <Label htmlFor='camera-fixed' className='cursor-pointer text-white/80'>
+                                        Fixed camera
+                                    </Label>
+                                </div>
                             </div>
-                        </div>
+                        )}
                     </div>
 
                     <div className='rounded-md border border-white/10 bg-white/[0.03]'>
@@ -918,7 +905,9 @@ export function CreationForm({
                                                 value={titleOverlayText}
                                                 maxLength={MAX_TITLE_OVERLAY_TEXT_LENGTH}
                                                 onChange={(event) =>
-                                                    setTitleOverlayText(event.target.value.slice(0, MAX_TITLE_OVERLAY_TEXT_LENGTH))
+                                                    setTitleOverlayText(
+                                                        event.target.value.slice(0, MAX_TITLE_OVERLAY_TEXT_LENGTH)
+                                                    )
                                                 }
                                                 disabled={isLoading}
                                                 placeholder='Opening title'
@@ -946,7 +935,9 @@ export function CreationForm({
                                                 </NativeSelect>
                                             </div>
                                             <div className='space-y-1'>
-                                                <Label htmlFor='title-overlay-language' className='text-xs text-white/60'>
+                                                <Label
+                                                    htmlFor='title-overlay-language'
+                                                    className='text-xs text-white/60'>
                                                     Language
                                                 </Label>
                                                 <NativeSelect
@@ -962,7 +953,9 @@ export function CreationForm({
                                                 </NativeSelect>
                                             </div>
                                             <div className='space-y-1'>
-                                                <Label htmlFor='title-overlay-duration' className='text-xs text-white/60'>
+                                                <Label
+                                                    htmlFor='title-overlay-duration'
+                                                    className='text-xs text-white/60'>
                                                     Timing
                                                 </Label>
                                                 <NativeSelect
@@ -1211,8 +1204,8 @@ export function CreationForm({
                     </Button>
                     {showEstimatedCost && estimatedCost && (
                         <p className='w-full truncate text-xs whitespace-nowrap text-white/60'>
-                            Next video estimate: {isCostLowerBound ? 'from ' : ''}$
-                            {estimatedCost.totalCost.toFixed(2)} · charged only after success
+                            Next video estimate: {isCostLowerBound ? 'from ' : ''}${estimatedCost.totalCost.toFixed(2)}{' '}
+                            · charged only after success
                         </p>
                     )}
                     {submitMessage && (

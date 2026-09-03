@@ -566,6 +566,7 @@ export default function HomePage() {
     const [selectedAuthorizationReferenceKey, setSelectedAuthorizationReferenceKey] = React.useState<string | null>(
         null
     );
+    const [createNotice, setCreateNotice] = React.useState<string | null>(null);
     const [shareNotice, setShareNotice] = React.useState<string | null>(null);
     const [isShareDialogOpen, setIsShareDialogOpen] = React.useState(false);
     const [shareDialogId, setShareDialogId] = React.useState('');
@@ -1291,12 +1292,15 @@ export default function HomePage() {
         (url: string) => {
             const refCap = maxReferenceImages(createModel);
             if (createReferenceUrls.includes(url)) {
+                setCreateNotice(null);
                 setError('Reference image is already attached.', 'create');
             } else if (createReferenceUrls.length >= refCap) {
+                setCreateNotice(null);
                 setError(`Reference image limit reached (${refCap}). Remove one before adding another.`, 'create');
             } else {
                 setCreateReferenceUrls((prev) => (prev.includes(url) ? prev : [...prev, url].slice(0, refCap)));
-                setError('Added as reference image.', 'create');
+                setError(null, 'create');
+                setCreateNotice('Added as reference image.');
             }
             setActiveTab('video');
             void scrollToCreationForm();
@@ -1309,8 +1313,10 @@ export default function HomePage() {
         (url: string) => {
             const switchesModel = maxReferenceImages(createModel) <= 1;
             if (createReferenceVideoUrls.includes(url)) {
+                setCreateNotice(null);
                 setError('Reference video is already attached.', 'create');
             } else if (createReferenceVideoUrls.length >= MAX_REFERENCE_VIDEOS) {
+                setCreateNotice(null);
                 setError(
                     `Reference video limit reached (${MAX_REFERENCE_VIDEOS}). Remove one before adding another.`,
                     'create'
@@ -1320,13 +1326,15 @@ export default function HomePage() {
                     setCreateModel(DEFAULT_VIDEO_REFERENCE_MODEL);
                 }
                 setCreateReferenceVideoUrls((prev) =>
-                    prev.includes(url) ? prev : [...prev, url].slice(0, MAX_REFERENCE_VIDEOS)
+                    prev.includes(url)
+                        ? prev
+                        : [...prev, url].slice(0, MAX_REFERENCE_VIDEOS)
                 );
-                setError(
+                setError(null, 'create');
+                setCreateNotice(
                     switchesModel
                         ? 'Added as reference video and switched to Seedance 2.5 because the previous model does not support video references.'
-                        : 'Added as reference video.',
-                    'create'
+                        : 'Added as reference video.'
                 );
             }
             setActiveTab('video');
@@ -2047,6 +2055,7 @@ export default function HomePage() {
             title_overlay_language: titleOverlayLanguage
         };
         setError(null);
+        setCreateNotice(null);
         setShareNotice(null);
         const blockedReferences = blockedReferencesForParams(formData);
         if (blockedReferences.length > 0) {
@@ -2092,6 +2101,19 @@ export default function HomePage() {
                 // Not a parsable URL — leave it for the gateway to reject.
             }
             return url;
+        };
+        const providerDownloadUrl = (url: string): string => {
+            if (!workerBase || isAssetReferenceUrl(url)) return url;
+            try {
+                const parsed = new URL(url);
+                const worker = new URL(workerBase);
+                if (parsed.origin !== worker.origin || !parsed.pathname.startsWith('/media/')) return url;
+                const key = decodeURIComponent(parsed.pathname.slice('/media/'.length));
+                const encodedKey = key.split('/').map(encodeURIComponent).join('/');
+                return `${workerBase}/download/${encodedKey}`;
+            } catch {
+                return url;
+            }
         };
         if (formData.input_reference_url) {
             formData.input_reference_url = rebase(formData.input_reference_url);
@@ -2191,7 +2213,7 @@ export default function HomePage() {
                 setIsSubmitting(false);
                 return null;
             }
-            requestParams.reference_video_urls = formData.reference_video_urls;
+            requestParams.reference_video_urls = formData.reference_video_urls.map(providerDownloadUrl);
         }
         if (totalChars > 30_000_000) {
             setError('Reference media are too large to submit (over ~20 MB combined). Use fewer or smaller files.');
@@ -3685,6 +3707,7 @@ export default function HomePage() {
                                           }
                                         : undefined
                                 }
+                                notice={createNotice}
                                 error={createError}
                             />
                         )}

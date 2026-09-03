@@ -42,21 +42,18 @@ function buildCreateBody(params: VideoJobCreate): Record<string, unknown> {
         (params.reference_image_urls && params.reference_image_urls.length > 0) ||
         (params.reference_video_urls && params.reference_video_urls.length > 0)
     ) {
-        // Multi-reference mode. Ratio stays valid here — only the first-frame
-        // mode derives it from the image.
+        // Multi-reference mode. BytePlus rejects mixing first/last-frame
+        // content with reference media, so first/last images are downgraded to
+        // ordinary reference images whenever video/audio/image refs are present.
         body.input_reference = [
-            ...(params.input_reference_url ? [referenceItem(params.input_reference_url, 'first_frame')] : []),
-            ...(params.input_reference_url && params.last_frame_url
-                ? [referenceItem(params.last_frame_url, 'last_frame')]
-                : []),
+            ...(params.input_reference_url ? [referenceItem(params.input_reference_url, 'reference_image')] : []),
+            ...(params.last_frame_url ? [referenceItem(params.last_frame_url, 'reference_image')] : []),
             ...(params.reference_image_urls ?? []).map((url) => referenceItem(url, 'reference_image')),
             ...(params.reference_video_urls ?? []).map((url) => referenceItem(url, 'reference_video')),
             ...(params.reference_audio_url ? [referenceItem(params.reference_audio_url, 'reference_audio')] : [])
         ];
         if (!params.omit_ratio) {
-            if (!params.input_reference_url) {
-                extraBody.ratio = params.omni_reference_ratio ?? params.ratio;
-            }
+            extraBody.ratio = params.omni_reference_ratio ?? params.ratio;
         }
     } else if (params.input_reference_url) {
         // BytePlus rejects `ratio` on first-frame (image-to-video) tasks with
@@ -68,7 +65,7 @@ function buildCreateBody(params: VideoJobCreate): Record<string, unknown> {
     } else {
         extraBody.ratio = params.ratio;
     }
-    if (params.camera_fixed === true && !params.model.includes('seedance-2-5')) {
+    if (params.camera_fixed === true && params.model.includes('seedance-1-5')) {
         extraBody.camera_fixed = params.camera_fixed;
     }
     if (params.seed !== undefined) {
