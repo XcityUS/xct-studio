@@ -129,6 +129,10 @@ export function getSeedanceModel(id: string): SeedanceModel | undefined {
     return SEEDANCE_MODELS.find((m) => m.id === id);
 }
 
+export function modelSupportsFinalize(modelId: string): boolean {
+    return modelId === DEFAULT_VIDEO_REFERENCE_MODEL;
+}
+
 export function modelSupportsResolution(modelId: string, resolution: VideoResolution): boolean {
     return getSeedanceModel(modelId)?.unitPrices[resolution] != null;
 }
