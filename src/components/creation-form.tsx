@@ -16,9 +16,17 @@ import { XCITY_BILLING_URL, shouldShowBillingAction } from '@/lib/billing';
 import { calculateVideoCost } from '@/lib/cost-utils';
 import {
     CAPTION_MODE_OPTIONS,
+    MAX_TITLE_OVERLAY_TEXT_LENGTH,
     SILENT_VOICE_LANGUAGE,
+    TITLE_OVERLAY_DURATIONS,
+    TITLE_OVERLAY_LANGUAGES,
+    TITLE_OVERLAY_STYLES,
     VOICE_LANGUAGE_OPTIONS,
     normalizeCaptionMode,
+    normalizeTitleOverlayDuration,
+    normalizeTitleOverlayLanguage,
+    normalizeTitleOverlayStyle,
+    normalizeTitleOverlayText,
     normalizeVoiceLanguage
 } from '@/lib/prompt-guards';
 import { PROMPT_TEMPLATE_CATEGORIES, applyPromptTemplate } from '@/lib/prompt-templates';
@@ -103,6 +111,16 @@ type CreationFormProps = {
     setVoiceLanguage: React.Dispatch<React.SetStateAction<string>>;
     captionMode: string;
     setCaptionMode: React.Dispatch<React.SetStateAction<string>>;
+    titleOverlayEnabled: boolean;
+    setTitleOverlayEnabled: React.Dispatch<React.SetStateAction<boolean>>;
+    titleOverlayText: string;
+    setTitleOverlayText: React.Dispatch<React.SetStateAction<string>>;
+    titleOverlayStyle: string;
+    setTitleOverlayStyle: React.Dispatch<React.SetStateAction<string>>;
+    titleOverlayDuration: string;
+    setTitleOverlayDuration: React.Dispatch<React.SetStateAction<string>>;
+    titleOverlayLanguage: string;
+    setTitleOverlayLanguage: React.Dispatch<React.SetStateAction<string>>;
     /** Uploads a local image, resolving to its public URL. Absent = URL-only mode. */
     onUploadImage?: (file: File) => Promise<string>;
     /** Uploads a local audio file, resolving to its public URL. Absent = URL-only mode. */
@@ -215,6 +233,16 @@ export function CreationForm({
     setVoiceLanguage,
     captionMode,
     setCaptionMode,
+    titleOverlayEnabled,
+    setTitleOverlayEnabled,
+    titleOverlayText,
+    setTitleOverlayText,
+    titleOverlayStyle,
+    setTitleOverlayStyle,
+    titleOverlayDuration,
+    setTitleOverlayDuration,
+    titleOverlayLanguage,
+    setTitleOverlayLanguage,
     onUploadImage,
     onUploadAudio,
     onSynthesizeSpeech,
@@ -325,6 +353,10 @@ export function CreationForm({
     }, [hasReferenceVideos, referenceVideoSecondsByUrl, referenceVideoUrls]);
     const normalizedVoiceLanguage = normalizeVoiceLanguage(voiceLanguage);
     const normalizedCaptionMode = normalizeCaptionMode(captionMode);
+    const normalizedTitleOverlayText = normalizeTitleOverlayText(titleOverlayText);
+    const normalizedTitleOverlayStyle = normalizeTitleOverlayStyle(titleOverlayStyle);
+    const normalizedTitleOverlayDuration = normalizeTitleOverlayDuration(titleOverlayDuration);
+    const normalizedTitleOverlayLanguage = normalizeTitleOverlayLanguage(titleOverlayLanguage);
     const estimatedCost = calculateVideoCost({
         model: activeModel,
         ratio,
@@ -418,7 +450,12 @@ export function CreationForm({
             watermarkText: watermark ? watermarkText.trim().slice(0, 100) : undefined,
             avoid_generated_captions: normalizedCaptionMode === 'none',
             voice_language: normalizedVoiceLanguage,
-            caption_mode: normalizedCaptionMode
+            caption_mode: normalizedCaptionMode,
+            title_overlay_enabled: titleOverlayEnabled && Boolean(normalizedTitleOverlayText),
+            title_overlay_text: titleOverlayEnabled ? normalizedTitleOverlayText : undefined,
+            title_overlay_style: titleOverlayEnabled ? normalizedTitleOverlayStyle : undefined,
+            title_overlay_duration: titleOverlayEnabled ? normalizedTitleOverlayDuration : undefined,
+            title_overlay_language: titleOverlayEnabled ? normalizedTitleOverlayLanguage : undefined
         };
         if (isDraftMode) {
             formData.draft = true;
@@ -836,6 +873,111 @@ export function CreationForm({
                                             className='rounded-md border border-white/20 bg-black text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
                                         />
                                         <div className='text-[10px] text-white/35'>{watermarkText.length}/100</div>
+                                    </div>
+                                )}
+                                <div className='flex items-center space-x-2'>
+                                    <input
+                                        type='checkbox'
+                                        id='title-overlay'
+                                        checked={titleOverlayEnabled}
+                                        onChange={(event) => setTitleOverlayEnabled(event.target.checked)}
+                                        disabled={isLoading}
+                                        className={nativeCheckboxClass}
+                                    />
+                                    <div className='flex items-center gap-1.5'>
+                                        <Label htmlFor='title-overlay' className='cursor-pointer text-white/80'>
+                                            Title overlay
+                                        </Label>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <button
+                                                    type='button'
+                                                    className='text-white/45 transition-colors hover:text-white/80'
+                                                    aria-label='Title overlay help'>
+                                                    <HelpCircle className='h-3.5 w-3.5' />
+                                                </button>
+                                            </TooltipTrigger>
+                                            <TooltipContent
+                                                side='top'
+                                                className='max-w-64 border border-white/20 bg-black text-white'>
+                                                Adds a large centered title at the start of the video, then removes it
+                                                so it does not compete with subtitles.
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    </div>
+                                </div>
+                                {titleOverlayEnabled && (
+                                    <div className='space-y-3 rounded-md border border-white/10 bg-black/40 p-3'>
+                                        <div className='space-y-1'>
+                                            <Label htmlFor='title-overlay-text' className='text-xs text-white/60'>
+                                                Title text
+                                            </Label>
+                                            <Input
+                                                id='title-overlay-text'
+                                                type='text'
+                                                value={titleOverlayText}
+                                                maxLength={MAX_TITLE_OVERLAY_TEXT_LENGTH}
+                                                onChange={(event) =>
+                                                    setTitleOverlayText(event.target.value.slice(0, MAX_TITLE_OVERLAY_TEXT_LENGTH))
+                                                }
+                                                disabled={isLoading}
+                                                placeholder='Opening title'
+                                                className='rounded-md border border-white/20 bg-black text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
+                                            />
+                                            <div className='text-[10px] text-white/35'>
+                                                {normalizedTitleOverlayText.length}/{MAX_TITLE_OVERLAY_TEXT_LENGTH}
+                                            </div>
+                                        </div>
+                                        <div className='grid gap-3 sm:grid-cols-3'>
+                                            <div className='space-y-1'>
+                                                <Label htmlFor='title-overlay-style' className='text-xs text-white/60'>
+                                                    Style
+                                                </Label>
+                                                <NativeSelect
+                                                    id='title-overlay-style'
+                                                    value={normalizedTitleOverlayStyle}
+                                                    onChange={(event) => setTitleOverlayStyle(event.target.value)}
+                                                    disabled={isLoading}>
+                                                    {TITLE_OVERLAY_STYLES.map((style) => (
+                                                        <option key={style.id} value={style.id}>
+                                                            {style.label}
+                                                        </option>
+                                                    ))}
+                                                </NativeSelect>
+                                            </div>
+                                            <div className='space-y-1'>
+                                                <Label htmlFor='title-overlay-language' className='text-xs text-white/60'>
+                                                    Language
+                                                </Label>
+                                                <NativeSelect
+                                                    id='title-overlay-language'
+                                                    value={normalizedTitleOverlayLanguage}
+                                                    onChange={(event) => setTitleOverlayLanguage(event.target.value)}
+                                                    disabled={isLoading}>
+                                                    {TITLE_OVERLAY_LANGUAGES.map((language) => (
+                                                        <option key={language.id} value={language.id}>
+                                                            {language.label}
+                                                        </option>
+                                                    ))}
+                                                </NativeSelect>
+                                            </div>
+                                            <div className='space-y-1'>
+                                                <Label htmlFor='title-overlay-duration' className='text-xs text-white/60'>
+                                                    Timing
+                                                </Label>
+                                                <NativeSelect
+                                                    id='title-overlay-duration'
+                                                    value={normalizedTitleOverlayDuration}
+                                                    onChange={(event) => setTitleOverlayDuration(event.target.value)}
+                                                    disabled={isLoading}>
+                                                    {TITLE_OVERLAY_DURATIONS.map((duration) => (
+                                                        <option key={duration.id} value={duration.id}>
+                                                            {duration.label}
+                                                        </option>
+                                                    ))}
+                                                </NativeSelect>
+                                            </div>
+                                        </div>
                                     </div>
                                 )}
                                 <div className='space-y-2'>

@@ -2,6 +2,7 @@ export const AVOID_GENERATED_CAPTIONS_PROMPT =
     'No subtitles, no captions, no on-screen text, no burned-in text overlays.';
 const GENERATED_CAPTIONS_PROMPT_HEADER = 'Caption overlay instructions:';
 const LANGUAGE_PROMPT_HEADER = 'Language instructions:';
+const TITLE_OVERLAY_PROMPT_HEADER = 'Title overlay instructions:';
 const SUBTITLE_LAYOUT_PROMPT =
     'Subtitle pacing and styling: do not display the full transcript at once. Split long dialogue into short timed subtitle segments and show only the current segment. For bilingual subtitles, show at most one short English segment above its matching Chinese segment at any moment. Use a compact small subtitle font, keep subtitles within the bottom safe area, and keep at least one line-height of vertical spacing between stacked lines. If a segment would exceed the safe area, reduce the font size first, then wrap; subtitle lines must never overlap.';
 export const MAX_GENERATED_CAPTIONS = 2;
@@ -10,6 +11,10 @@ export const DEFAULT_GENERATED_CAPTION_LANGUAGES = ['en-US', 'zh-CN'] as const;
 export const SILENT_VOICE_LANGUAGE = 'silent';
 export const DEFAULT_VOICE_LANGUAGE = 'en-US';
 export const DEFAULT_CAPTION_MODE = 'bilingual-en-zh';
+export const MAX_TITLE_OVERLAY_TEXT_LENGTH = 80;
+export const DEFAULT_TITLE_OVERLAY_STYLE = 'cinematic';
+export const DEFAULT_TITLE_OVERLAY_DURATION = 'opening-1s';
+export const DEFAULT_TITLE_OVERLAY_LANGUAGE = 'auto';
 
 export const GENERATED_CAPTION_LANGUAGES = [
     { id: 'en-US', label: 'English (US)', promptLabel: 'American English' },
@@ -31,6 +36,29 @@ export type GeneratedCaptionItem = {
     text: string;
     language: GeneratedCaptionLanguage;
 };
+
+export const TITLE_OVERLAY_STYLES = [
+    { id: 'cinematic', label: 'Cinematic', promptLabel: 'cinematic title card typography' },
+    { id: 'clean', label: 'Clean', promptLabel: 'clean modern sans-serif typography' },
+    { id: 'bold', label: 'Bold', promptLabel: 'bold high-impact display typography' },
+    { id: 'elegant', label: 'Elegant', promptLabel: 'elegant refined serif typography' }
+] as const;
+
+export const TITLE_OVERLAY_DURATIONS = [
+    { id: 'first-frame', label: 'First frame', promptLabel: 'only on the opening frame' },
+    { id: 'opening-1s', label: 'First 1s', promptLabel: 'only during the opening 1 second' },
+    { id: 'opening-2s', label: 'First 2s', promptLabel: 'only during the opening 2 seconds' }
+] as const;
+
+export const TITLE_OVERLAY_LANGUAGES = [
+    { id: 'auto', label: 'Auto', promptLabel: 'keep the title exactly in the language and wording provided by the user' },
+    { id: 'en-US', label: 'English', promptLabel: 'render the title in English using the exact user-provided title text' },
+    { id: 'zh-CN', label: 'Chinese', promptLabel: 'render the title in Chinese using the exact user-provided title text' }
+] as const;
+
+export type TitleOverlayStyle = (typeof TITLE_OVERLAY_STYLES)[number]['id'];
+export type TitleOverlayDuration = (typeof TITLE_OVERLAY_DURATIONS)[number]['id'];
+export type TitleOverlayLanguage = (typeof TITLE_OVERLAY_LANGUAGES)[number]['id'];
 
 export const VOICE_LANGUAGE_OPTIONS = [
     { id: SILENT_VOICE_LANGUAGE, label: 'Silent', promptLabel: 'no spoken dialogue or voiceover' },
@@ -57,6 +85,28 @@ export function normalizeCaptionMode(value: string | undefined): CaptionMode {
     return value === 'none' || value === 'en-US' || value === 'zh-CN' || value === DEFAULT_CAPTION_MODE
         ? value
         : DEFAULT_CAPTION_MODE;
+}
+
+export function normalizeTitleOverlayText(value: string | undefined): string {
+    return (value ?? '').trim().replace(/\s+/g, ' ').slice(0, MAX_TITLE_OVERLAY_TEXT_LENGTH);
+}
+
+export function normalizeTitleOverlayStyle(value: string | undefined): TitleOverlayStyle {
+    return TITLE_OVERLAY_STYLES.some((style) => style.id === value)
+        ? (value as TitleOverlayStyle)
+        : DEFAULT_TITLE_OVERLAY_STYLE;
+}
+
+export function normalizeTitleOverlayDuration(value: string | undefined): TitleOverlayDuration {
+    return TITLE_OVERLAY_DURATIONS.some((duration) => duration.id === value)
+        ? (value as TitleOverlayDuration)
+        : DEFAULT_TITLE_OVERLAY_DURATION;
+}
+
+export function normalizeTitleOverlayLanguage(value: string | undefined): TitleOverlayLanguage {
+    return TITLE_OVERLAY_LANGUAGES.some((language) => language.id === value)
+        ? (value as TitleOverlayLanguage)
+        : DEFAULT_TITLE_OVERLAY_LANGUAGE;
 }
 
 export function normalizeGeneratedCaptionLanguages(languages: readonly string[] | undefined): string[] {
@@ -98,13 +148,20 @@ export function normalizeGeneratedCaptionItems(
 }
 
 function stripCaptionDirective(prompt: string): string {
-    const marker = `\n${GENERATED_CAPTIONS_PROMPT_HEADER}`;
-    const markerIndex = prompt.indexOf(marker);
-    const languageMarker = `\n${LANGUAGE_PROMPT_HEADER}`;
-    const languageMarkerIndex = prompt.indexOf(languageMarker);
-    const firstMarkerIndex = [markerIndex, languageMarkerIndex].filter((index) => index >= 0).sort((a, b) => a - b)[0];
+    const markerIndex = [
+        GENERATED_CAPTIONS_PROMPT_HEADER,
+        LANGUAGE_PROMPT_HEADER,
+        TITLE_OVERLAY_PROMPT_HEADER
+    ]
+        .map((marker) => prompt.indexOf(`\n${marker}`))
+        .filter((index) => index >= 0)
+        .sort((a, b) => a - b)[0];
+    const firstLineMarker = [GENERATED_CAPTIONS_PROMPT_HEADER, LANGUAGE_PROMPT_HEADER, TITLE_OVERLAY_PROMPT_HEADER].some(
+        (marker) => prompt.startsWith(marker)
+    );
+    const firstMarkerIndex = markerIndex;
     if (firstMarkerIndex !== undefined) return prompt.slice(0, firstMarkerIndex).trimEnd();
-    if (prompt.startsWith(GENERATED_CAPTIONS_PROMPT_HEADER) || prompt.startsWith(LANGUAGE_PROMPT_HEADER)) return '';
+    if (firstLineMarker) return '';
     return prompt.trimEnd();
 }
 
@@ -149,10 +206,18 @@ export function promptWithGeneratedCaptions(
 
 export function promptWithLanguageControls(
     prompt: string,
-    options: { voiceLanguage?: string; captionMode?: string }
+    options: {
+        voiceLanguage?: string;
+        captionMode?: string;
+        titleOverlay?: { enabled?: boolean; text?: string; style?: string; duration?: string; language?: string };
+    }
 ): string {
     const voiceLanguage = normalizeVoiceLanguage(options.voiceLanguage);
     const captionMode = normalizeCaptionMode(options.captionMode);
+    const titleText = options.titleOverlay?.enabled ? normalizeTitleOverlayText(options.titleOverlay.text) : '';
+    const titleStyle = normalizeTitleOverlayStyle(options.titleOverlay?.style);
+    const titleDuration = normalizeTitleOverlayDuration(options.titleOverlay?.duration);
+    const titleLanguage = normalizeTitleOverlayLanguage(options.titleOverlay?.language);
     const trimmed = stripCaptionDirective(prompt)
         .replace(new RegExp(`\\n?${AVOID_GENERATED_CAPTIONS_PROMPT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i'), '')
         .trimEnd();
@@ -175,6 +240,21 @@ export function promptWithLanguageControls(
         const captionLanguage = GENERATED_CAPTION_LANGUAGES.find((item) => item.id === captionMode);
         lines.push(`Subtitles: render ${captionLanguage?.promptLabel ?? 'subtitle'} subtitles from the dialogue.`);
         lines.push(SUBTITLE_LAYOUT_PROMPT);
+    }
+
+    if (titleText) {
+        const style = TITLE_OVERLAY_STYLES.find((item) => item.id === titleStyle);
+        const duration = TITLE_OVERLAY_DURATIONS.find((item) => item.id === titleDuration);
+        const language = TITLE_OVERLAY_LANGUAGES.find((item) => item.id === titleLanguage);
+        lines.push(
+            TITLE_OVERLAY_PROMPT_HEADER,
+            `Opening title: "${titleText.replace(/"/g, "'")}".`,
+            `Title language: ${language?.promptLabel ?? 'keep the title exactly in the language and wording provided by the user'}. Do not translate it unless the user-provided title text is already in that language.`,
+            `Title style: ${style?.promptLabel ?? 'cinematic title card typography'}.`,
+            `Title timing: show the title ${duration?.promptLabel ?? 'only during the opening 2 seconds'}, then remove it completely.`,
+            'Title layout: place it centered in the frame, large and readable, with automatic font-size reduction if the text is too long.',
+            'Do not overlap the title with subtitles; keep subtitles in the bottom safe area.'
+        );
     }
 
     const directive = lines.join('\n');

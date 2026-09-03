@@ -42,6 +42,7 @@ type FinalizeDialogProps = {
     item: VideoMetadata | null;
     open: boolean;
     isSubmitting: boolean;
+    submittingLabel?: string;
     defaultWatermarkText: string;
     declarations: Record<string, ReferenceDeclaration>;
     approvedAuthorizationIds: ReadonlySet<string>;
@@ -87,6 +88,7 @@ export function FinalizeDialog({
     item,
     open,
     isSubmitting,
+    submittingLabel,
     defaultWatermarkText,
     declarations,
     approvedAuthorizationIds,
@@ -272,6 +274,11 @@ export function FinalizeDialog({
                 </div>
 
                 <DialogFooter className='border-t border-white/10 bg-neutral-950 px-6 py-4'>
+                    {isSubmitting && submittingLabel && (
+                        <div className='mr-auto min-w-0 self-center truncate text-sm text-white/55'>
+                            {submittingLabel}
+                        </div>
+                    )}
                     <Button
                         type='button'
                         variant='outline'
