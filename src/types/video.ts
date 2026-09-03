@@ -148,4 +148,12 @@ export type VideoJobCreate = {
     voice_language?: string;
     /** Studio-only subtitle language selector. */
     caption_mode?: string;
+    /** Studio-only opening title overlay toggle. */
+    title_overlay_enabled?: boolean;
+    /** Studio-only opening title text. */
+    title_overlay_text?: string;
+    /** Studio-only opening title visual style. */
+    title_overlay_style?: string;
+    /** Studio-only opening title display duration. */
+    title_overlay_duration?: string;
 };

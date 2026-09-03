@@ -96,9 +96,14 @@ import {
 import { estimateVideoProgress } from '@/lib/progress';
 import {
     DEFAULT_CAPTION_MODE,
+    DEFAULT_TITLE_OVERLAY_DURATION,
+    DEFAULT_TITLE_OVERLAY_STYLE,
     DEFAULT_VOICE_LANGUAGE,
     SILENT_VOICE_LANGUAGE,
     normalizeCaptionMode,
+    normalizeTitleOverlayDuration,
+    normalizeTitleOverlayStyle,
+    normalizeTitleOverlayText,
     normalizeVoiceLanguage,
     promptWithLanguageControls
 } from '@/lib/prompt-guards';
@@ -292,6 +297,8 @@ function shareParamsToForm(prompt: string, params: unknown): { params: CreationF
         const captionMode = normalizeCaptionMode(
             reconciled.caption_mode ?? captionModeFromLanguages(reconciled.generated_caption_languages)
         );
+        const titleOverlayText = normalizeTitleOverlayText(reconciled.title_overlay_text);
+        const titleOverlayEnabled = reconciled.title_overlay_enabled === true && Boolean(titleOverlayText);
         return {
             params: {
                 ...reconciled,
@@ -301,7 +308,11 @@ function shareParamsToForm(prompt: string, params: unknown): { params: CreationF
                 caption_mode: captionMode,
                 avoid_generated_captions: captionMode === 'none',
                 generated_captions: undefined,
-                generated_caption_languages: undefined
+                generated_caption_languages: undefined,
+                title_overlay_enabled: titleOverlayEnabled,
+                title_overlay_text: titleOverlayEnabled ? titleOverlayText : undefined,
+                title_overlay_style: normalizeTitleOverlayStyle(reconciled.title_overlay_style),
+                title_overlay_duration: normalizeTitleOverlayDuration(reconciled.title_overlay_duration)
             },
             adjusted: reconciled.adjusted
         };
@@ -332,6 +343,10 @@ function shareParamsToForm(prompt: string, params: unknown): { params: CreationF
     const captionMode = normalizeCaptionMode(
         typeof record.caption_mode === 'string' ? record.caption_mode : captionModeFromLanguages(rawGeneratedCaptionLanguages)
     );
+    const titleOverlayText = normalizeTitleOverlayText(
+        typeof record.title_overlay_text === 'string' ? record.title_overlay_text : undefined
+    );
+    const titleOverlayEnabled = record.title_overlay_enabled === true && Boolean(titleOverlayText);
     const generateAudio = typeof record.generate_audio === 'boolean' ? record.generate_audio : true;
     const adjusted = [
         resolution !== requestedResolution ? `resolution → ${resolution}` : '',
@@ -363,7 +378,15 @@ function shareParamsToForm(prompt: string, params: unknown): { params: CreationF
                       ? DEFAULT_VOICE_LANGUAGE
                       : SILENT_VOICE_LANGUAGE
             ),
-            caption_mode: captionMode
+            caption_mode: captionMode,
+            title_overlay_enabled: titleOverlayEnabled,
+            title_overlay_text: titleOverlayEnabled ? titleOverlayText : undefined,
+            title_overlay_style: normalizeTitleOverlayStyle(
+                typeof record.title_overlay_style === 'string' ? record.title_overlay_style : undefined
+            ),
+            title_overlay_duration: normalizeTitleOverlayDuration(
+                typeof record.title_overlay_duration === 'string' ? record.title_overlay_duration : undefined
+            )
         },
         adjusted
     };
@@ -553,6 +576,10 @@ export default function HomePage() {
     const [createSeconds, setCreateSeconds] = React.useState<number>(DEFAULT_SECONDS);
     const [createVoiceLanguage, setCreateVoiceLanguage] = React.useState(DEFAULT_VOICE_LANGUAGE);
     const [createCaptionMode, setCreateCaptionMode] = React.useState(DEFAULT_CAPTION_MODE);
+    const [createTitleOverlayEnabled, setCreateTitleOverlayEnabled] = React.useState(false);
+    const [createTitleOverlayText, setCreateTitleOverlayText] = React.useState('');
+    const [createTitleOverlayStyle, setCreateTitleOverlayStyle] = React.useState(DEFAULT_TITLE_OVERLAY_STYLE);
+    const [createTitleOverlayDuration, setCreateTitleOverlayDuration] = React.useState(DEFAULT_TITLE_OVERLAY_DURATION);
     const [createCameraFixed, setCreateCameraFixed] = React.useState(false);
     const [createReferenceUrls, setCreateReferenceUrls] = React.useState<string[]>([]);
     const [createLastFrameUrl, setCreateLastFrameUrl] = React.useState('');
@@ -688,6 +715,10 @@ export default function HomePage() {
             setCreateSeconds(p.seconds);
             setCreateVoiceLanguage(normalizeVoiceLanguage(p.voice_language ?? (p.generate_audio ? DEFAULT_VOICE_LANGUAGE : SILENT_VOICE_LANGUAGE)));
             setCreateCaptionMode(normalizeCaptionMode(p.caption_mode));
+            setCreateTitleOverlayEnabled(p.title_overlay_enabled === true && Boolean(normalizeTitleOverlayText(p.title_overlay_text)));
+            setCreateTitleOverlayText(normalizeTitleOverlayText(p.title_overlay_text));
+            setCreateTitleOverlayStyle(normalizeTitleOverlayStyle(p.title_overlay_style));
+            setCreateTitleOverlayDuration(normalizeTitleOverlayDuration(p.title_overlay_duration));
             setCreateCameraFixed(p.camera_fixed ?? false);
             setCreateReferenceUrls(refs);
             setCreateLastFrameUrl(p.input_reference_url ? (p.last_frame_url ?? '') : '');
@@ -719,6 +750,10 @@ export default function HomePage() {
                 setCreateSeconds(params.seconds);
                 setCreateVoiceLanguage(normalizeVoiceLanguage(params.voice_language));
                 setCreateCaptionMode(normalizeCaptionMode(params.caption_mode));
+                setCreateTitleOverlayEnabled(params.title_overlay_enabled === true && Boolean(params.title_overlay_text));
+                setCreateTitleOverlayText(normalizeTitleOverlayText(params.title_overlay_text));
+                setCreateTitleOverlayStyle(normalizeTitleOverlayStyle(params.title_overlay_style));
+                setCreateTitleOverlayDuration(normalizeTitleOverlayDuration(params.title_overlay_duration));
                 setCreateCameraFixed(params.camera_fixed ?? false);
                 setCreateReferenceUrls([]);
                 setCreateLastFrameUrl('');
@@ -1953,15 +1988,32 @@ export default function HomePage() {
                 (rawFormData.generate_audio ? DEFAULT_VOICE_LANGUAGE : SILENT_VOICE_LANGUAGE)
         );
         const captionMode = normalizeCaptionMode(rawFormData.caption_mode);
+        const titleOverlayText = normalizeTitleOverlayText(rawFormData.title_overlay_text);
+        const titleOverlayEnabled = rawFormData.title_overlay_enabled === true && Boolean(titleOverlayText);
+        const titleOverlayStyle = normalizeTitleOverlayStyle(rawFormData.title_overlay_style);
+        const titleOverlayDuration = normalizeTitleOverlayDuration(rawFormData.title_overlay_duration);
         const formData: CreationFormData = {
             ...rawFormData,
-            prompt: promptWithLanguageControls(rawFormData.prompt, { voiceLanguage, captionMode }),
+            prompt: promptWithLanguageControls(rawFormData.prompt, {
+                voiceLanguage,
+                captionMode,
+                titleOverlay: {
+                    enabled: titleOverlayEnabled,
+                    text: titleOverlayText,
+                    style: titleOverlayStyle,
+                    duration: titleOverlayDuration
+                }
+            }),
             generate_audio: voiceLanguage !== SILENT_VOICE_LANGUAGE,
             avoid_generated_captions: captionMode === 'none',
             generated_captions: undefined,
             generated_caption_languages: undefined,
             voice_language: voiceLanguage,
-            caption_mode: captionMode
+            caption_mode: captionMode,
+            title_overlay_enabled: titleOverlayEnabled,
+            title_overlay_text: titleOverlayEnabled ? titleOverlayText : undefined,
+            title_overlay_style: titleOverlayStyle,
+            title_overlay_duration: titleOverlayDuration
         };
         setError(null);
         setShareNotice(null);
@@ -2295,6 +2347,8 @@ export default function HomePage() {
                 item.createParams.voice_language ??
                     (item.createParams.generate_audio ? DEFAULT_VOICE_LANGUAGE : SILENT_VOICE_LANGUAGE)
             );
+            const titleOverlayText = normalizeTitleOverlayText(item.createParams.title_overlay_text);
+            const titleOverlayEnabled = item.createParams.title_overlay_enabled === true && Boolean(titleOverlayText);
             return {
                 ...item.createParams,
                 prompt: item.prompt,
@@ -2304,7 +2358,11 @@ export default function HomePage() {
                 generated_captions: undefined,
                 generated_caption_languages: undefined,
                 voice_language: voiceLanguage,
-                caption_mode: captionMode
+                caption_mode: captionMode,
+                title_overlay_enabled: titleOverlayEnabled,
+                title_overlay_text: titleOverlayEnabled ? titleOverlayText : undefined,
+                title_overlay_style: normalizeTitleOverlayStyle(item.createParams.title_overlay_style),
+                title_overlay_duration: normalizeTitleOverlayDuration(item.createParams.title_overlay_duration)
             };
         }
         const parsed = parseSize(item.size);
@@ -2322,7 +2380,11 @@ export default function HomePage() {
             generated_captions: undefined,
             generated_caption_languages: undefined,
             voice_language: DEFAULT_VOICE_LANGUAGE,
-            caption_mode: DEFAULT_CAPTION_MODE
+            caption_mode: DEFAULT_CAPTION_MODE,
+            title_overlay_enabled: false,
+            title_overlay_text: undefined,
+            title_overlay_style: DEFAULT_TITLE_OVERLAY_STYLE,
+            title_overlay_duration: DEFAULT_TITLE_OVERLAY_DURATION
         };
     }, []);
 
@@ -2451,6 +2513,10 @@ export default function HomePage() {
         setCreateSeconds(params.seconds);
         setCreateVoiceLanguage(normalizeVoiceLanguage(params.voice_language));
         setCreateCaptionMode(normalizeCaptionMode(params.caption_mode));
+        setCreateTitleOverlayEnabled(params.title_overlay_enabled === true && Boolean(params.title_overlay_text));
+        setCreateTitleOverlayText(normalizeTitleOverlayText(params.title_overlay_text));
+        setCreateTitleOverlayStyle(normalizeTitleOverlayStyle(params.title_overlay_style));
+        setCreateTitleOverlayDuration(normalizeTitleOverlayDuration(params.title_overlay_duration));
         setCreateCameraFixed(params.camera_fixed ?? false);
         const refs = params.reference_image_urls ?? (params.input_reference_url ? [params.input_reference_url] : []);
         setCreateReferenceUrls(refs);
@@ -2917,6 +2983,10 @@ export default function HomePage() {
                 setCreateSeconds(params.seconds);
                 setCreateVoiceLanguage(normalizeVoiceLanguage(params.voice_language));
                 setCreateCaptionMode(normalizeCaptionMode(params.caption_mode));
+                setCreateTitleOverlayEnabled(params.title_overlay_enabled === true && Boolean(params.title_overlay_text));
+                setCreateTitleOverlayText(normalizeTitleOverlayText(params.title_overlay_text));
+                setCreateTitleOverlayStyle(normalizeTitleOverlayStyle(params.title_overlay_style));
+                setCreateTitleOverlayDuration(normalizeTitleOverlayDuration(params.title_overlay_duration));
                 setCreateCameraFixed(params.camera_fixed ?? false);
                 setCreateReferenceUrls([frameUrl]);
                 setCreateLastFrameUrl('');
@@ -3498,6 +3568,14 @@ export default function HomePage() {
                                 setVoiceLanguage={setCreateVoiceLanguage}
                                 captionMode={createCaptionMode}
                                 setCaptionMode={setCreateCaptionMode}
+                                titleOverlayEnabled={createTitleOverlayEnabled}
+                                setTitleOverlayEnabled={setCreateTitleOverlayEnabled}
+                                titleOverlayText={createTitleOverlayText}
+                                setTitleOverlayText={setCreateTitleOverlayText}
+                                titleOverlayStyle={createTitleOverlayStyle}
+                                setTitleOverlayStyle={setCreateTitleOverlayStyle}
+                                titleOverlayDuration={createTitleOverlayDuration}
+                                setTitleOverlayDuration={setCreateTitleOverlayDuration}
                                 cameraFixed={createCameraFixed}
                                 setCameraFixed={setCreateCameraFixed}
                                 referenceUrls={createReferenceUrls}
