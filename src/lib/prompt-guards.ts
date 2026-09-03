@@ -13,7 +13,7 @@ export const DEFAULT_VOICE_LANGUAGE = 'en-US';
 export const DEFAULT_CAPTION_MODE = 'bilingual-en-zh';
 export const MAX_TITLE_OVERLAY_TEXT_LENGTH = 80;
 export const DEFAULT_TITLE_OVERLAY_STYLE = 'cinematic';
-export const DEFAULT_TITLE_OVERLAY_DURATION = 'opening-2s';
+export const DEFAULT_TITLE_OVERLAY_DURATION = 'opening-1s';
 export const DEFAULT_TITLE_OVERLAY_LANGUAGE = 'auto';
 
 export const GENERATED_CAPTION_LANGUAGES = [
@@ -46,8 +46,8 @@ export const TITLE_OVERLAY_STYLES = [
 
 export const TITLE_OVERLAY_DURATIONS = [
     { id: 'first-frame', label: 'First frame', promptLabel: 'only on the opening frame' },
-    { id: 'opening-2s', label: 'First 2s', promptLabel: 'only during the opening 2 seconds' },
-    { id: 'opening-3s', label: 'First 3s', promptLabel: 'only during the opening 3 seconds' }
+    { id: 'opening-1s', label: 'First 1s', promptLabel: 'only during the opening 1 second' },
+    { id: 'opening-2s', label: 'First 2s', promptLabel: 'only during the opening 2 seconds' }
 ] as const;
 
 export const TITLE_OVERLAY_LANGUAGES = [
