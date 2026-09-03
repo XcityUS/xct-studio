@@ -47,6 +47,12 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000). With no SSO configured you'll be prompted for a TokenHub API key (stored only in the browser).
 
+## 📋 Launch planning
+
+- [Studio launch plan](docs/LAUNCH_PLAN.md) — XCT-814 release timeline, feature checklist, cross-project dependencies, and first demo milestone.
+- [Roadmap](docs/ROADMAP.md) — strategic product evolution beyond the launch.
+- [Release notes](docs/RELEASE_NOTES.md) — user-facing release announcement draft.
+
 ### Benchmarks
 
 Pure studio logic (cloud-sync merge, cost math, SRT/FCP7 export, media-state resolution, reference keys) is benchmarked with `vitest bench` and tracked on CodSpeed:
