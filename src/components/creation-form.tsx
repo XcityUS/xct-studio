@@ -7,16 +7,20 @@ import { ReferenceVideosInput } from '@/components/reference-videos-input';
 import { ShotBuilderDialog, type ShotDraft } from '@/components/shot-builder';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Slider } from '@/components/ui/slider';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { VideoCharacter, VideoPortrait } from '@/hooks/use-video-history';
 import { XCITY_BILLING_URL, shouldShowBillingAction } from '@/lib/billing';
 import { calculateVideoCost } from '@/lib/cost-utils';
+import {
+    CAPTION_MODE_OPTIONS,
+    SILENT_VOICE_LANGUAGE,
+    VOICE_LANGUAGE_OPTIONS,
+    normalizeCaptionMode,
+    normalizeVoiceLanguage
+} from '@/lib/prompt-guards';
 import { PROMPT_TEMPLATE_CATEGORIES, applyPromptTemplate } from '@/lib/prompt-templates';
 import {
     ASSET_LIBRARY_MODEL_BLOCK_REASON,
@@ -28,6 +32,7 @@ import {
     type ReferenceOrigin
 } from '@/lib/reference-origin';
 import {
+    DEFAULT_MODEL,
     RATIOS,
     RESOLUTIONS,
     SEEDANCE_MODELS,
@@ -73,8 +78,6 @@ type CreationFormProps = {
     setResolution: React.Dispatch<React.SetStateAction<VideoResolution>>;
     seconds: number;
     setSeconds: React.Dispatch<React.SetStateAction<number>>;
-    generateAudio: boolean;
-    setGenerateAudio: React.Dispatch<React.SetStateAction<boolean>>;
     cameraFixed: boolean;
     setCameraFixed: React.Dispatch<React.SetStateAction<boolean>>;
     referenceUrls: string[];
@@ -96,6 +99,10 @@ type CreationFormProps = {
     setWatermark: React.Dispatch<React.SetStateAction<boolean>>;
     watermarkText: string;
     setWatermarkText: React.Dispatch<React.SetStateAction<string>>;
+    voiceLanguage: string;
+    setVoiceLanguage: React.Dispatch<React.SetStateAction<string>>;
+    captionMode: string;
+    setCaptionMode: React.Dispatch<React.SetStateAction<string>>;
     /** Uploads a local image, resolving to its public URL. Absent = URL-only mode. */
     onUploadImage?: (file: File) => Promise<string>;
     /** Uploads a local audio file, resolving to its public URL. Absent = URL-only mode. */
@@ -126,6 +133,12 @@ const RATIO_LABELS: Record<VideoRatio, string> = {
 
 const CAMERA_TEMPLATES = PROMPT_TEMPLATE_CATEGORIES.find((category) => category.id === 'camera')?.templates ?? [];
 type GenerationMode = 'draft' | 'final';
+const nativeSelectClass =
+    'h-10 w-full appearance-none rounded-md border border-white/20 bg-black pl-3 pr-10 text-sm text-white outline-none focus:border-white/50 focus:ring-2 focus:ring-white/50 disabled:cursor-not-allowed disabled:opacity-50';
+const nativeRangeClass =
+    'h-6 w-full cursor-pointer accent-white disabled:cursor-not-allowed disabled:opacity-50';
+const nativeCheckboxClass =
+    'h-4 w-4 shrink-0 rounded border border-white/40 bg-black accent-white disabled:cursor-not-allowed disabled:opacity-40';
 
 function InlineError({ children }: { children: React.ReactNode }) {
     return (
@@ -134,6 +147,22 @@ function InlineError({ children }: { children: React.ReactNode }) {
             className='flex w-full items-start gap-2 rounded-md border border-red-400/25 bg-red-500/[0.08] px-3 py-2 text-xs leading-5 text-red-200'>
             <AlertCircle className='mt-0.5 h-4 w-4 shrink-0 text-red-300' />
             <span className='min-w-0 break-words'>{children}</span>
+        </div>
+    );
+}
+
+function NativeSelect({ className, children, disabled, ...props }: React.SelectHTMLAttributes<HTMLSelectElement>) {
+    return (
+        <div className='relative'>
+            <select {...props} disabled={disabled} className={cn(nativeSelectClass, className)}>
+                {children}
+            </select>
+            <ChevronDown
+                className={cn(
+                    'pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50',
+                    disabled && 'text-white/25'
+                )}
+            />
         </div>
     );
 }
@@ -161,8 +190,6 @@ export function CreationForm({
     setResolution,
     seconds,
     setSeconds,
-    generateAudio,
-    setGenerateAudio,
     cameraFixed,
     setCameraFixed,
     referenceUrls,
@@ -184,6 +211,10 @@ export function CreationForm({
     setWatermark,
     watermarkText,
     setWatermarkText,
+    voiceLanguage,
+    setVoiceLanguage,
+    captionMode,
+    setCaptionMode,
     onUploadImage,
     onUploadAudio,
     onSynthesizeSpeech,
@@ -194,9 +225,11 @@ export function CreationForm({
     onOpenAssets,
     error
 }: CreationFormProps) {
-    const { min: minSeconds, max: maxSeconds } = secondsRange(model);
-    const modelDef = getSeedanceModel(model);
-    const refCap = maxReferenceImages(model);
+    const activeModel = getSeedanceModel(model) ? model : DEFAULT_MODEL;
+    const { min: minSeconds, max: maxSeconds } = secondsRange(activeModel);
+    const activeSeconds = clampSeconds(seconds, activeModel);
+    const modelDef = getSeedanceModel(activeModel);
+    const refCap = maxReferenceImages(activeModel);
     // Ratio is provider-derived only in first-frame mode (exactly one image).
     const isFirstFrameMode = referenceUrls.length === 1;
     const supportsMultiReferenceMedia = refCap > 1;
@@ -235,13 +268,13 @@ export function CreationForm({
     const [isOptimizing, setIsOptimizing] = React.useState(false);
     const [isAdvancedOpen, setIsAdvancedOpen] = React.useState(false);
     const [optimizeError, setOptimizeError] = React.useState<string | null>(null);
-    const supportsCameraFixed = !model.includes('seedance-2-5');
+    const supportsCameraFixed = !activeModel.includes('seedance-2-5');
     // The prompt as it was before the last AI rewrite, so Undo can restore it.
     const [promptBeforeOptimize, setPromptBeforeOptimize] = React.useState<string | null>(null);
     const [referenceVideoSecondsByUrl, setReferenceVideoSecondsByUrl] = React.useState<Record<string, number>>({});
-    const supportsDraftMode = modelSupportsResolution(model, '480p');
+    const supportsDraftMode = modelSupportsResolution(activeModel, '480p');
     const [generationMode, setGenerationMode] = React.useState<GenerationMode>(() =>
-        modelSupportsResolution(model, '480p') ? 'draft' : 'final'
+        modelSupportsResolution(activeModel, '480p') ? 'draft' : 'final'
     );
     const referenceLabels = React.useMemo(() => {
         const labelsByUrl = new Map<string, string>([
@@ -260,10 +293,22 @@ export function CreationForm({
     );
 
     React.useEffect(() => {
+        if (model !== activeModel) {
+            setModel(activeModel);
+        }
+    }, [activeModel, model, setModel]);
+
+    React.useEffect(() => {
         if (!supportsDraftMode) {
             setGenerationMode('final');
         }
     }, [supportsDraftMode]);
+
+    React.useEffect(() => {
+        if (seconds !== activeSeconds) {
+            setSeconds(activeSeconds);
+        }
+    }, [activeSeconds, seconds, setSeconds]);
 
     React.useEffect(() => {
         if (!supportsCameraFixed && cameraFixed) {
@@ -278,12 +323,14 @@ export function CreationForm({
         if (!hasReferenceVideos) return 0;
         return referenceVideoUrls.reduce((total, url) => total + (referenceVideoSecondsByUrl[url] ?? 0), 0);
     }, [hasReferenceVideos, referenceVideoSecondsByUrl, referenceVideoUrls]);
+    const normalizedVoiceLanguage = normalizeVoiceLanguage(voiceLanguage);
+    const normalizedCaptionMode = normalizeCaptionMode(captionMode);
     const estimatedCost = calculateVideoCost({
-        model,
+        model: activeModel,
         ratio,
         resolution: activeResolution,
-        seconds,
-        generateAudio,
+        seconds: activeSeconds,
+        generateAudio: normalizedVoiceLanguage !== SILENT_VOICE_LANGUAGE,
         inputVideoSeconds
     });
     const isCostLowerBound = Boolean(estimatedCost && (estimatedCost.lowerBound || hasReferenceVideos));
@@ -359,16 +406,19 @@ export function CreationForm({
         event.preventDefault();
         if (blockedReferences.length > 0) return;
         const formData: CreationFormData = {
-            model,
+            model: activeModel,
             prompt,
             ratio,
             resolution: activeResolution,
-            seconds,
-            generate_audio: generateAudio,
+            seconds: activeSeconds,
+            generate_audio: normalizedVoiceLanguage !== SILENT_VOICE_LANGUAGE,
             camera_fixed: cameraFixed,
             seed,
             watermark,
-            watermarkText: watermark ? watermarkText.trim().slice(0, 100) : undefined
+            watermarkText: watermark ? watermarkText.trim().slice(0, 100) : undefined,
+            avoid_generated_captions: normalizedCaptionMode === 'none',
+            voice_language: normalizedVoiceLanguage,
+            caption_mode: normalizedCaptionMode
         };
         if (isDraftMode) {
             formData.draft = true;
@@ -531,35 +581,34 @@ export function CreationForm({
                         <Label htmlFor='model-select' className='text-white'>
                             Model
                         </Label>
-                        <Select
-                            value={model}
-                            onValueChange={(value) => {
-                                const newModel = value as VideoModel;
-                                setModel(newModel);
+                        <NativeSelect
+                            id='model-select'
+                            value={activeModel}
+                            onChange={(event) => {
+                                const newModel = event.target.value as VideoModel;
+                                setModel((current) => (current === newModel ? current : newModel));
                                 // Pull the current choices back into range instead
                                 // of submitting something the selected model rejects.
                                 if (!modelSupportsResolution(newModel, resolution)) {
                                     setResolution('720p');
                                 }
-                                setSeconds((prev) => clampSeconds(prev, newModel));
+                                setSeconds((prev) => {
+                                    const next = clampSeconds(prev, newModel);
+                                    return next === prev ? prev : next;
+                                });
                                 // 1.5 Pro takes a single first-frame image only.
-                                setReferenceUrls((prev) => prev.slice(0, maxReferenceImages(newModel)));
+                                setReferenceUrls((prev) => {
+                                    const maxImages = maxReferenceImages(newModel);
+                                    return prev.length > maxImages ? prev.slice(0, maxImages) : prev;
+                                });
                             }}
                             disabled={isLoading}>
-                            <SelectTrigger
-                                id='model-select'
-                                className='rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'>
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent className='border-white/20 bg-black text-white'>
-                                {SEEDANCE_MODELS.map((m) => (
-                                    <SelectItem key={m.id} value={m.id} className='focus:bg-white/10 focus:text-white'>
-                                        {m.label}
-                                        <span className='ml-2 text-xs text-white/40'>{m.description}</span>
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
+                            {SEEDANCE_MODELS.map((m) => (
+                                <option key={m.id} value={m.id}>
+                                    {m.label} · {m.description}
+                                </option>
+                            ))}
+                        </NativeSelect>
                     </div>
 
                     <div className='grid grid-cols-2 gap-4'>
@@ -569,23 +618,17 @@ export function CreationForm({
                             </Label>
                             {/* With a reference image the provider derives the ratio
                                 from the image and rejects an explicit one. */}
-                            <Select
+                            <NativeSelect
+                                id='ratio-select'
                                 value={ratio}
-                                onValueChange={(value) => setRatio(value as VideoRatio)}
+                                onChange={(event) => setRatio(event.target.value as VideoRatio)}
                                 disabled={isLoading || isFirstFrameMode}>
-                                <SelectTrigger
-                                    id='ratio-select'
-                                    className='rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50 disabled:opacity-50'>
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent className='border-white/20 bg-black text-white'>
-                                    {RATIOS.map((r) => (
-                                        <SelectItem key={r} value={r} className='focus:bg-white/10 focus:text-white'>
-                                            {RATIO_LABELS[r]}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                                {RATIOS.map((r) => (
+                                    <option key={r} value={r}>
+                                        {RATIO_LABELS[r]}
+                                    </option>
+                                ))}
+                            </NativeSelect>
                             {isFirstFrameMode && <p className='text-xs text-white/40'>Follows the reference image</p>}
                         </div>
 
@@ -593,98 +636,96 @@ export function CreationForm({
                             <Label htmlFor='resolution-select' className='text-white'>
                                 Resolution
                             </Label>
-                            <Select
+                            <NativeSelect
+                                id='resolution-select'
                                 value={resolution}
-                                onValueChange={(value) => setResolution(value as VideoResolution)}
+                                onChange={(event) => setResolution(event.target.value as VideoResolution)}
                                 disabled={isLoading}>
-                                <SelectTrigger
-                                    id='resolution-select'
-                                    className='rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'>
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent className='border-white/20 bg-black text-white'>
-                                    {RESOLUTIONS.map((r) => (
-                                        <SelectItem
-                                            key={r}
-                                            value={r}
-                                            disabled={!modelSupportsResolution(model, r)}
-                                            className='focus:bg-white/10 focus:text-white disabled:cursor-not-allowed disabled:opacity-50'>
-                                            {r}
-                                            {!modelSupportsResolution(model, r) && (
-                                                <span className='ml-2 text-xs text-white/40'>not supported</span>
-                                            )}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                                {RESOLUTIONS.map((r) => (
+                                    <option key={r} value={r} disabled={!modelSupportsResolution(activeModel, r)}>
+                                        {r}
+                                        {!modelSupportsResolution(activeModel, r) ? ' · not supported' : ''}
+                                    </option>
+                                ))}
+                            </NativeSelect>
                         </div>
                     </div>
 
                     <div className='space-y-2'>
                         <div className='flex items-center justify-between'>
                             <Label className='text-white'>Duration</Label>
-                            <span className='text-sm text-white/60'>{seconds} seconds</span>
+                            <span className='text-sm text-white/60'>{activeSeconds} seconds</span>
                         </div>
-                        <Slider
-                            value={[seconds]}
+                        <input
+                            type='range'
                             min={minSeconds}
                             max={maxSeconds}
                             step={1}
-                            onValueChange={(value) => setSeconds(value[0] ?? seconds)}
+                            value={activeSeconds}
+                            onChange={(event) => setSeconds(clampSeconds(Number(event.target.value), activeModel))}
                             disabled={isLoading}
+                            className={nativeRangeClass}
                         />
                         <p className='text-xs text-white/40'>
                             {modelDef?.label ?? 'Seedance'} clips run {minSeconds}–{maxSeconds} seconds.
                         </p>
                     </div>
 
-                    <div className='flex flex-wrap items-center gap-x-6 gap-y-2'>
-                        <div className='flex items-center space-x-2'>
-                            <Checkbox
-                                id='generate-audio'
-                                checked={generateAudio}
-                                onCheckedChange={(checked) => setGenerateAudio(checked === true)}
-                                disabled={isLoading}
-                                className='border-white/40 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black'
-                            />
-                            <Label htmlFor='generate-audio' className='cursor-pointer text-white/80'>
-                                Generate synchronized audio
+                    <div className='grid gap-4 sm:grid-cols-2'>
+                        <div className='space-y-2'>
+                            <Label htmlFor='voice-language-select' className='text-white'>
+                                Voice
                             </Label>
+                            <NativeSelect
+                                id='voice-language-select'
+                                value={normalizedVoiceLanguage}
+                                onChange={(event) => setVoiceLanguage(event.target.value)}
+                                disabled={isLoading}>
+                                {VOICE_LANGUAGE_OPTIONS.map((voice) => (
+                                    <option key={voice.id} value={voice.id}>
+                                        {voice.label}
+                                    </option>
+                                ))}
+                            </NativeSelect>
                         </div>
-                        <div className='flex items-center space-x-2'>
-                            <Checkbox
-                                id='camera-fixed'
-                                checked={cameraFixed}
-                                onCheckedChange={(checked) => setCameraFixed(checked === true)}
-                                disabled={isLoading || !supportsCameraFixed}
-                                className='border-white/40 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black'
-                            />
-                            <Label
-                                htmlFor='camera-fixed'
-                                className={cn(
-                                    'cursor-pointer text-white/80',
-                                    !supportsCameraFixed && 'cursor-not-allowed text-white/35'
-                                )}>
-                                Fixed camera
-                            </Label>
-                            {!supportsCameraFixed && (
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <button
-                                            type='button'
-                                            className='text-white/35 transition-colors hover:text-white/70'
-                                            aria-label='Fixed camera unavailable'>
-                                            <HelpCircle className='h-3.5 w-3.5' />
-                                        </button>
-                                    </TooltipTrigger>
-                                    <TooltipContent
-                                        side='top'
-                                        className='max-w-64 border border-white/20 bg-black text-white'>
-                                        Seedance 2.5 rejects fixed camera, so Studio leaves this setting off for that
-                                        model.
-                                    </TooltipContent>
-                                </Tooltip>
-                            )}
+                        <div className='space-y-2'>
+                            <Label className='text-white'>Camera</Label>
+                            <div className='flex h-10 items-center gap-2 rounded-md border border-white/10 bg-white/[0.02] px-3'>
+                                <input
+                                    type='checkbox'
+                                    id='camera-fixed'
+                                    checked={cameraFixed}
+                                    onChange={(event) => setCameraFixed(event.target.checked)}
+                                    disabled={isLoading || !supportsCameraFixed}
+                                    className={nativeCheckboxClass}
+                                />
+                                <Label
+                                    htmlFor='camera-fixed'
+                                    className={cn(
+                                        'cursor-pointer text-white/80',
+                                        !supportsCameraFixed && 'cursor-not-allowed text-white/35'
+                                    )}>
+                                    Fixed camera
+                                </Label>
+                                {!supportsCameraFixed && (
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <button
+                                                type='button'
+                                                className='text-white/35 transition-colors hover:text-white/70'
+                                                aria-label='Fixed camera unavailable'>
+                                                <HelpCircle className='h-3.5 w-3.5' />
+                                            </button>
+                                        </TooltipTrigger>
+                                        <TooltipContent
+                                            side='top'
+                                            className='max-w-64 border border-white/20 bg-black text-white'>
+                                            Seedance 2.5 rejects fixed camera, so Studio leaves this setting off for that
+                                            model.
+                                        </TooltipContent>
+                                    </Tooltip>
+                                )}
+                            </div>
                         </div>
                     </div>
 
@@ -749,12 +790,13 @@ export function CreationForm({
                                     />
                                 </div>
                                 <div className='flex items-center space-x-2'>
-                                    <Checkbox
+                                    <input
+                                        type='checkbox'
                                         id='watermark'
                                         checked={watermark}
-                                        onCheckedChange={(checked) => setWatermark(checked === true)}
+                                        onChange={(event) => setWatermark(event.target.checked)}
                                         disabled={isLoading}
-                                        className='border-white/40 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-black'
+                                        className={nativeCheckboxClass}
                                     />
                                     <div className='flex items-center gap-1.5'>
                                         <Label htmlFor='watermark' className='cursor-pointer text-white/80'>
@@ -796,6 +838,40 @@ export function CreationForm({
                                         <div className='text-[10px] text-white/35'>{watermarkText.length}/100</div>
                                     </div>
                                 )}
+                                <div className='space-y-2'>
+                                    <div className='flex items-center gap-1.5'>
+                                        <Label htmlFor='caption-mode-select' className='text-white/80'>
+                                            Subtitles
+                                        </Label>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <button
+                                                    type='button'
+                                                    className='text-white/45 transition-colors hover:text-white/80'
+                                                    aria-label='Subtitles help'>
+                                                    <HelpCircle className='h-3.5 w-3.5' />
+                                                </button>
+                                            </TooltipTrigger>
+                                            <TooltipContent
+                                                side='top'
+                                                className='max-w-64 border border-white/20 bg-black text-white'>
+                                                Controls subtitle language through the Seedance prompt. Choose None for
+                                                no subtitles.
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    </div>
+                                    <NativeSelect
+                                        id='caption-mode-select'
+                                        value={normalizedCaptionMode}
+                                        onChange={(event) => setCaptionMode(event.target.value)}
+                                        disabled={isLoading}>
+                                        {CAPTION_MODE_OPTIONS.map((mode) => (
+                                            <option key={mode.id} value={mode.id}>
+                                                {mode.label}
+                                            </option>
+                                        ))}
+                                    </NativeSelect>
+                                </div>
                             </div>
                         )}
                     </div>

@@ -7,34 +7,15 @@ interface ApiKeyGateProps {
     isBlocked: boolean;
     onConfigure: () => void;
     children: React.ReactNode;
-}
-
-interface ApiKeyGateProps {
-    isBlocked: boolean;
-    onConfigure: () => void;
-    children: React.ReactNode;
     className?: string;
 }
 
 export function ApiKeyGate({ isBlocked, onConfigure, children, className }: ApiKeyGateProps) {
-    const contentRef = React.useRef<HTMLDivElement>(null);
-
-    React.useEffect(() => {
-        if (!contentRef.current) {
-            return;
-        }
-        if (isBlocked) {
-            contentRef.current.setAttribute('inert', '');
-        } else {
-            contentRef.current.removeAttribute('inert');
-        }
-    }, [isBlocked]);
-
     return (
         <div className={`relative flex h-full w-full ${className ?? ''}`}>
             <div
-                ref={contentRef}
                 aria-hidden={isBlocked || undefined}
+                inert={isBlocked || undefined}
                 className={isBlocked ? 'pointer-events-none flex h-full w-full flex-1' : 'flex h-full w-full flex-1'}>
                 {children}
             </div>

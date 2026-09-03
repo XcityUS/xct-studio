@@ -44,6 +44,7 @@ import { calculateVideoCost } from '@/lib/cost-utils';
 import { db, type ImageRecord } from '@/lib/db';
 import { InvalidApiKeyError, RealPersonImageError } from '@/lib/errors';
 import type { GalleryItem } from '@/lib/gallery';
+import { BudgetExceededError, RateLimitError } from '@/lib/openai-client';
 import { reconcilePreset } from '@/lib/gallery-preset';
 import {
     generateImages,
@@ -79,8 +80,7 @@ import {
     type UserAsset,
     uploadReferenceAudio,
     uploadReferenceImage,
-    uploadReferenceVideo,
-    videoUrlToDataUri
+    uploadReferenceVideo
 } from '@/lib/media-archive';
 import { providerLinkLikelyDead } from '@/lib/media-state';
 import {
@@ -94,6 +94,14 @@ import {
     type PortraitGroupQueryType
 } from '@/lib/portrait';
 import { estimateVideoProgress } from '@/lib/progress';
+import {
+    DEFAULT_CAPTION_MODE,
+    DEFAULT_VOICE_LANGUAGE,
+    SILENT_VOICE_LANGUAGE,
+    normalizeCaptionMode,
+    normalizeVoiceLanguage,
+    promptWithLanguageControls
+} from '@/lib/prompt-guards';
 import { optimizePrompt } from '@/lib/prompt-optimizer';
 import {
     ASSET_LIBRARY_MODEL_BLOCK_REASON,
@@ -270,10 +278,33 @@ function shareTitleFromItem(item: VideoMetadata): string {
     return title ? (title.length > 120 ? `${title.slice(0, 117)}...` : title) : shareTitleFromPrompt(item.prompt);
 }
 
+function captionModeFromLanguages(languages: readonly string[] | undefined): string | undefined {
+    const active = new Set((languages ?? []).filter((language) => language === 'en-US' || language === 'zh-CN'));
+    if (active.has('en-US') && active.has('zh-CN')) return DEFAULT_CAPTION_MODE;
+    if (active.has('en-US')) return 'en-US';
+    if (active.has('zh-CN')) return 'zh-CN';
+    return undefined;
+}
+
 function shareParamsToForm(prompt: string, params: unknown): { params: CreationFormData; adjusted: string[] } {
     if (isVideoJobCreateParams(params)) {
         const reconciled = reconcilePreset({ ...params, prompt });
-        return { params: reconciled, adjusted: reconciled.adjusted };
+        const captionMode = normalizeCaptionMode(
+            reconciled.caption_mode ?? captionModeFromLanguages(reconciled.generated_caption_languages)
+        );
+        return {
+            params: {
+                ...reconciled,
+                voice_language: normalizeVoiceLanguage(
+                    reconciled.voice_language ?? (reconciled.generate_audio ? DEFAULT_VOICE_LANGUAGE : SILENT_VOICE_LANGUAGE)
+                ),
+                caption_mode: captionMode,
+                avoid_generated_captions: captionMode === 'none',
+                generated_captions: undefined,
+                generated_caption_languages: undefined
+            },
+            adjusted: reconciled.adjusted
+        };
     }
 
     const record = isRecord(params) ? params : {};
@@ -295,6 +326,13 @@ function shareParamsToForm(prompt: string, params: unknown): { params: CreationF
               : DEFAULT_SECONDS;
     const seconds = clampSeconds(rawSeconds, model);
     const seed = typeof record.seed === 'number' && Number.isFinite(record.seed) ? Math.trunc(record.seed) : undefined;
+    const rawGeneratedCaptionLanguages = Array.isArray(record.generated_caption_languages)
+        ? record.generated_caption_languages.filter((language): language is string => typeof language === 'string')
+        : [];
+    const captionMode = normalizeCaptionMode(
+        typeof record.caption_mode === 'string' ? record.caption_mode : captionModeFromLanguages(rawGeneratedCaptionLanguages)
+    );
+    const generateAudio = typeof record.generate_audio === 'boolean' ? record.generate_audio : true;
     const adjusted = [
         resolution !== requestedResolution ? `resolution → ${resolution}` : '',
         seconds !== rawSeconds ? `duration → ${seconds}s` : ''
@@ -307,14 +345,25 @@ function shareParamsToForm(prompt: string, params: unknown): { params: CreationF
             ratio,
             resolution,
             seconds,
-            generate_audio: typeof record.generate_audio === 'boolean' ? record.generate_audio : true,
+            generate_audio: generateAudio,
             camera_fixed: typeof record.camera_fixed === 'boolean' ? record.camera_fixed : false,
             seed,
             watermark: typeof record.watermark === 'boolean' ? record.watermark : false,
             watermarkText:
                 typeof record.watermarkText === 'string'
                     ? normalizeWatermarkText(record.watermarkText)
-                    : BRANDING_WATERMARK_TEXT
+                    : BRANDING_WATERMARK_TEXT,
+            avoid_generated_captions: captionMode === 'none',
+            generated_captions: undefined,
+            generated_caption_languages: undefined,
+            voice_language: normalizeVoiceLanguage(
+                typeof record.voice_language === 'string'
+                    ? record.voice_language
+                    : generateAudio
+                      ? DEFAULT_VOICE_LANGUAGE
+                      : SILENT_VOICE_LANGUAGE
+            ),
+            caption_mode: captionMode
         },
         adjusted
     };
@@ -358,6 +407,15 @@ function summarizeWebUrl(url?: string | null): string | null {
         return `${parsed.origin}${parsed.pathname}`;
     } catch {
         return url;
+    }
+}
+
+function isWebReferenceUrl(url: string): boolean {
+    try {
+        const parsed = new URL(url);
+        return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch {
+        return false;
     }
 }
 
@@ -493,7 +551,8 @@ export default function HomePage() {
     const [createRatio, setCreateRatio] = React.useState<VideoRatio>(DEFAULT_RATIO);
     const [createResolution, setCreateResolution] = React.useState<VideoResolution>(DEFAULT_RESOLUTION);
     const [createSeconds, setCreateSeconds] = React.useState<number>(DEFAULT_SECONDS);
-    const [createAudio, setCreateAudio] = React.useState(true);
+    const [createVoiceLanguage, setCreateVoiceLanguage] = React.useState(DEFAULT_VOICE_LANGUAGE);
+    const [createCaptionMode, setCreateCaptionMode] = React.useState(DEFAULT_CAPTION_MODE);
     const [createCameraFixed, setCreateCameraFixed] = React.useState(false);
     const [createReferenceUrls, setCreateReferenceUrls] = React.useState<string[]>([]);
     const [createLastFrameUrl, setCreateLastFrameUrl] = React.useState('');
@@ -627,7 +686,8 @@ export default function HomePage() {
             setCreateRatio(p.ratio);
             setCreateResolution(p.resolution);
             setCreateSeconds(p.seconds);
-            setCreateAudio(p.generate_audio);
+            setCreateVoiceLanguage(normalizeVoiceLanguage(p.voice_language ?? (p.generate_audio ? DEFAULT_VOICE_LANGUAGE : SILENT_VOICE_LANGUAGE)));
+            setCreateCaptionMode(normalizeCaptionMode(p.caption_mode));
             setCreateCameraFixed(p.camera_fixed ?? false);
             setCreateReferenceUrls(refs);
             setCreateLastFrameUrl(p.input_reference_url ? (p.last_frame_url ?? '') : '');
@@ -657,7 +717,8 @@ export default function HomePage() {
                 setCreateRatio(params.ratio);
                 setCreateResolution(params.resolution);
                 setCreateSeconds(params.seconds);
-                setCreateAudio(params.generate_audio);
+                setCreateVoiceLanguage(normalizeVoiceLanguage(params.voice_language));
+                setCreateCaptionMode(normalizeCaptionMode(params.caption_mode));
                 setCreateCameraFixed(params.camera_fixed ?? false);
                 setCreateReferenceUrls([]);
                 setCreateLastFrameUrl('');
@@ -1878,16 +1939,30 @@ export default function HomePage() {
     }, [isInitialLoad, apiKey, history, activeJobs, restoreJobs]);
 
     const handleCreateVideo = async (
-        formData: CreationFormData,
+        rawFormData: CreationFormData,
         options: {
             replacesItem?: VideoMetadata;
             title?: string;
             referenceVideoFallbackUrls?: string[];
-            forceInlineReferenceVideos?: boolean;
             finalizeFlag?: 0 | 1 | 2;
             rethrowOnError?: boolean;
         } = {}
     ): Promise<string | null> => {
+        const voiceLanguage = normalizeVoiceLanguage(
+            rawFormData.voice_language ??
+                (rawFormData.generate_audio ? DEFAULT_VOICE_LANGUAGE : SILENT_VOICE_LANGUAGE)
+        );
+        const captionMode = normalizeCaptionMode(rawFormData.caption_mode);
+        const formData: CreationFormData = {
+            ...rawFormData,
+            prompt: promptWithLanguageControls(rawFormData.prompt, { voiceLanguage, captionMode }),
+            generate_audio: voiceLanguage !== SILENT_VOICE_LANGUAGE,
+            avoid_generated_captions: captionMode === 'none',
+            generated_captions: undefined,
+            generated_caption_languages: undefined,
+            voice_language: voiceLanguage,
+            caption_mode: captionMode
+        };
         setError(null);
         setShareNotice(null);
         const blockedReferences = blockedReferencesForParams(formData);
@@ -2020,30 +2095,16 @@ export default function HomePage() {
                 requestParams.reference_audio_url = dataUri;
             }
         }
-        if (
-            formData.reference_video_urls?.length &&
-            (formData.reference_image_urls?.length || options.forceInlineReferenceVideos)
-        ) {
-            const referenceVideoUrls: string[] = [];
-            for (let i = 0; i < formData.reference_video_urls.length; i++) {
-                const url = formData.reference_video_urls[i];
-                const isWorkerHosted = Boolean(workerBase && url.startsWith(workerBase));
-                const dataUri = url.startsWith('data:') ? url : await videoUrlToDataUri(url);
-                if (!dataUri) {
-                    if (isWorkerHosted) {
-                        setError(
-                            `Reference video ${i + 1} is no longer accessible — it may have been deleted from Assets. Remove it from the list and upload it again.`
-                        );
-                        setIsSubmitting(false);
-                        return null;
-                    }
-                    referenceVideoUrls.push(url);
-                    continue;
-                }
-                totalChars += dataUri.length;
-                referenceVideoUrls.push(dataUri);
+        if (formData.reference_video_urls?.length) {
+            const invalidIndex = formData.reference_video_urls.findIndex((url) => !isWebReferenceUrl(url));
+            if (invalidIndex !== -1) {
+                setError(
+                    `Reference video ${invalidIndex + 1} must be a public http(s) URL. Remove it and upload the video again.`
+                );
+                setIsSubmitting(false);
+                return null;
             }
-            requestParams.reference_video_urls = referenceVideoUrls;
+            requestParams.reference_video_urls = formData.reference_video_urls;
         }
         if (totalChars > 30_000_000) {
             setError('Reference media are too large to submit (over ~20 MB combined). Use fewer or smaller files.');
@@ -2188,7 +2249,16 @@ export default function HomePage() {
             }
             return job.id;
         } catch (err: unknown) {
-            console.error('Error creating video:', err);
+            const isExpectedCreateError =
+                err instanceof InvalidApiKeyError ||
+                err instanceof RealPersonImageError ||
+                err instanceof BudgetExceededError ||
+                err instanceof RateLimitError;
+            if (isExpectedCreateError) {
+                console.warn('Video creation failed:', err.message);
+            } else {
+                console.error('Error creating video:', err);
+            }
             if (err instanceof InvalidApiKeyError) {
                 handleInvalidApiKey(err.message);
             } else if (err instanceof RealPersonImageError) {
@@ -2218,10 +2288,23 @@ export default function HomePage() {
      */
     const buildParamsFromItem = React.useCallback((item: VideoMetadata): CreationFormData => {
         if (item.createParams) {
+            const captionMode = normalizeCaptionMode(
+                item.createParams.caption_mode ?? captionModeFromLanguages(item.createParams.generated_caption_languages)
+            );
+            const voiceLanguage = normalizeVoiceLanguage(
+                item.createParams.voice_language ??
+                    (item.createParams.generate_audio ? DEFAULT_VOICE_LANGUAGE : SILENT_VOICE_LANGUAGE)
+            );
             return {
                 ...item.createParams,
                 prompt: item.prompt,
-                watermarkText: normalizeWatermarkText(item.createParams.watermarkText ?? item.brandingWatermark?.text)
+                watermarkText: normalizeWatermarkText(item.createParams.watermarkText ?? item.brandingWatermark?.text),
+                generate_audio: voiceLanguage !== SILENT_VOICE_LANGUAGE,
+                avoid_generated_captions: captionMode === 'none',
+                generated_captions: undefined,
+                generated_caption_languages: undefined,
+                voice_language: voiceLanguage,
+                caption_mode: captionMode
             };
         }
         const parsed = parseSize(item.size);
@@ -2234,7 +2317,12 @@ export default function HomePage() {
             seconds: clampSeconds(item.seconds, model),
             generate_audio: true,
             camera_fixed: false,
-            watermark: false
+            watermark: false,
+            avoid_generated_captions: true,
+            generated_captions: undefined,
+            generated_caption_languages: undefined,
+            voice_language: DEFAULT_VOICE_LANGUAGE,
+            caption_mode: DEFAULT_CAPTION_MODE
         };
     }, []);
 
@@ -2361,7 +2449,8 @@ export default function HomePage() {
             params.draft ? finalResolutionForDraft(params.model, params.final_resolution) : params.resolution
         );
         setCreateSeconds(params.seconds);
-        setCreateAudio(params.generate_audio);
+        setCreateVoiceLanguage(normalizeVoiceLanguage(params.voice_language));
+        setCreateCaptionMode(normalizeCaptionMode(params.caption_mode));
         setCreateCameraFixed(params.camera_fixed ?? false);
         const refs = params.reference_image_urls ?? (params.input_reference_url ? [params.input_reference_url] : []);
         setCreateReferenceUrls(refs);
@@ -2826,7 +2915,8 @@ export default function HomePage() {
                 setCreateRatio(params.ratio);
                 setCreateResolution(params.resolution);
                 setCreateSeconds(params.seconds);
-                setCreateAudio(params.generate_audio);
+                setCreateVoiceLanguage(normalizeVoiceLanguage(params.voice_language));
+                setCreateCaptionMode(normalizeCaptionMode(params.caption_mode));
                 setCreateCameraFixed(params.camera_fixed ?? false);
                 setCreateReferenceUrls([frameUrl]);
                 setCreateLastFrameUrl('');
@@ -3404,8 +3494,10 @@ export default function HomePage() {
                                 setResolution={setCreateResolution}
                                 seconds={createSeconds}
                                 setSeconds={setCreateSeconds}
-                                generateAudio={createAudio}
-                                setGenerateAudio={setCreateAudio}
+                                voiceLanguage={createVoiceLanguage}
+                                setVoiceLanguage={setCreateVoiceLanguage}
+                                captionMode={createCaptionMode}
+                                setCaptionMode={setCreateCaptionMode}
                                 cameraFixed={createCameraFixed}
                                 setCameraFixed={setCreateCameraFixed}
                                 referenceUrls={createReferenceUrls}
@@ -3509,7 +3601,7 @@ export default function HomePage() {
     );
 
     return (
-        <main className='flex flex-col items-center bg-black p-4 text-white md:p-8 lg:p-12'>
+        <main className='bg-black py-4 text-white md:py-8 lg:py-12'>
             <ApiKeyDialog isOpen={isApiKeyDialogOpen} onOpenChange={setIsApiKeyDialogOpen} onSave={handleSaveApiKey} />
             <Dialog open={isShareDialogOpen} onOpenChange={handleShareDialogOpenChange}>
                 <DialogContent className='border-neutral-700 bg-neutral-900 text-white sm:max-w-[460px]'>
@@ -3530,13 +3622,24 @@ export default function HomePage() {
                         </div>
                     ) : shareDialogUrl ? (
                         <div className='space-y-3'>
-                            <Input
-                                readOnly
-                                value={shareDialogUrl}
-                                onFocus={(event) => event.currentTarget.select()}
-                                className='border-white/20 bg-black text-white'
-                                aria-label='Share URL'
-                            />
+                            <div className='relative'>
+                                <Input
+                                    readOnly
+                                    value={shareDialogUrl}
+                                    onFocus={(event) => event.currentTarget.select()}
+                                    className='border-white/20 bg-black pr-11 text-white'
+                                    aria-label='Share URL'
+                                />
+                                <Button
+                                    type='button'
+                                    variant='ghost'
+                                    size='icon'
+                                    onClick={handleCopyShareUrl}
+                                    className='absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 text-white/70 hover:bg-white/10 hover:text-white'
+                                    aria-label={shareUrlCopied ? 'Share link copied' : 'Copy share link'}>
+                                    {shareUrlCopied ? <Check className='h-4 w-4' /> : <Copy className='h-4 w-4' />}
+                                </Button>
+                            </div>
                             <p className='text-xs text-neutral-400'>
                                 Recreate links load prompt and generation settings only. Reference media are not shared.
                             </p>
@@ -3582,27 +3685,17 @@ export default function HomePage() {
                     ) : null}
                     <DialogFooter>
                         {shareDialogUrl && (
-                            <>
-                                <Button
-                                    type='button'
-                                    variant='secondary'
-                                    onClick={handleCopyShareUrl}
-                                    className='bg-white/10 text-white hover:bg-white/20'>
-                                    {shareUrlCopied ? <Check className='h-4 w-4' /> : <Copy className='h-4 w-4' />}
-                                    {shareUrlCopied ? 'Copied' : 'Copy'}
-                                </Button>
-                                <Button asChild className='bg-white text-black hover:bg-white/90'>
-                                    <a href={shareDialogUrl} target='_blank' rel='noreferrer'>
-                                        Open
-                                    </a>
-                                </Button>
-                            </>
+                            <Button asChild className='bg-white text-black hover:bg-white/90'>
+                                <a href={shareDialogUrl} target='_blank' rel='noreferrer'>
+                                    Open
+                                </a>
+                            </Button>
                         )}
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
 
-            <div className='w-full max-w-[104rem] space-y-6'>
+            <div className='mx-auto w-full max-w-7xl space-y-6 px-4 md:px-6'>
                 {imageGenerationEnabled || uploadEnabled || isPortraitEnabled ? (
                     <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as StudioTab)}>
                         <TabsList className='mb-4 border border-white/10 bg-white/5'>

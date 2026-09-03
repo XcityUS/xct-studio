@@ -200,6 +200,18 @@ function normalizeJob(raw: unknown): VideoJob {
     };
 }
 
+function budgetExceededMessage(message?: string): string {
+    if (!message) return 'The API key budget has been exceeded.';
+
+    const currentCost = message.match(/current cost:\s*([0-9.]+)/i)?.[1];
+    const maxBudget = message.match(/max budget:\s*([0-9.]+)/i)?.[1];
+    if (currentCost && maxBudget) {
+        return `The API key budget has been exceeded. Current cost: ${currentCost}, max budget: ${maxBudget}.`;
+    }
+
+    return 'The API key budget has been exceeded.';
+}
+
 export class VideoService {
     private getApiKey: () => string | null;
     private baseURL?: string;
@@ -234,6 +246,14 @@ export class VideoService {
             const errorType = err.error?.type ?? err.type;
             const gatewayCode = (err as { code?: string; error?: { code?: string } }).error?.code ?? code;
 
+            if (
+                errorType === 'budget_exceeded' ||
+                gatewayCode === 'budget_exceeded' ||
+                (typeof gatewayMessage === 'string' && /budget has been exceeded/i.test(gatewayMessage))
+            ) {
+                throw new BudgetExceededError(budgetExceededMessage(gatewayMessage));
+            }
+
             if (status === 429) {
                 const headers = (error as { headers?: Headers | Record<string, string> }).headers;
                 const retryAt =
@@ -244,14 +264,6 @@ export class VideoService {
                     gatewayMessage || 'The gateway is rate-limiting this API key right now.',
                     retryAt
                 );
-            }
-
-            if (
-                errorType === 'budget_exceeded' ||
-                gatewayCode === 'budget_exceeded' ||
-                (typeof gatewayMessage === 'string' && /budget has been exceeded/i.test(gatewayMessage))
-            ) {
-                throw new BudgetExceededError(gatewayMessage || 'The API key budget has been exceeded.');
             }
 
             if (typeof status === 'number' && (status === 401 || status === 403)) {
