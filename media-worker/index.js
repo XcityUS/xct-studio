@@ -12,7 +12,8 @@
  *   POST /upload         <raw image/audio/video bytes> -> { url, key, bytes, cached }
  *   GET  /assets                                    -> { assets: [{key, url, bytes, uploaded, kind, name}] }
  *   POST /assets/delete  { key }                    -> { ok }
- *   GET  /media/<key>                               -> the file (public, immutable)
+ *   GET  /media/<key>                               -> the file (public, immutable, range-enabled)
+ *   GET  /download/<key>                            -> full-file 200 OK download for provider fetchers
  *
  * Uploads are authenticated with the caller's TokenHub virtual key, verified
  * against the gateway — this is not open storage. Objects are namespaced per
@@ -69,6 +70,26 @@ function providerVideoHeaders() {
         Accept: 'video/mp4,video/*;q=0.9,*/*;q=0.8',
         Range: 'bytes=0-'
     };
+}
+
+function mediaBuckets(env) {
+    return [env.XCITY_MEDIA, env.LEGACY_XCITY_MEDIA].filter(Boolean);
+}
+
+async function headMedia(env, key) {
+    for (const bucket of mediaBuckets(env)) {
+        const object = await bucket.head(key);
+        if (object) return object;
+    }
+    return null;
+}
+
+async function getMedia(env, key, options) {
+    for (const bucket of mediaBuckets(env)) {
+        const object = await bucket.get(key, options);
+        if (object) return object;
+    }
+    return null;
 }
 
 /**
@@ -291,7 +312,7 @@ async function handleUpload(request, env, cors) {
     const key = `${owner}/${prefix}/${hash}.${ext}`;
     const publicUrl = `${new URL(request.url).origin}/media/${key}`;
 
-    const existing = await env.XCITY_MEDIA.head(key);
+    const existing = await headMedia(env, key);
     if (existing) {
         return json({ url: publicUrl, key, bytes: existing.size, cached: true }, 200, cors);
     }
@@ -333,40 +354,43 @@ async function handleAssetsList(request, env, cors) {
     if (error) return error;
 
     const origin = new URL(request.url).origin;
-    const assets = [];
-    let cursor;
+    const assetsByKey = new Map();
     // Cap the walk at ~2000 objects — far above any real user's asset count,
     // low enough to keep the request bounded.
-    for (let page = 0; page < 2; page++) {
-        const listed = await env.XCITY_MEDIA.list({
-            prefix: `${owner}/`,
-            limit: 1000,
-            cursor,
-            include: ['customMetadata']
-        });
-        for (const obj of listed.objects) {
-            if (obj.key.startsWith(`${owner}/state/`)) {
-                continue;
-            }
-            const kind = obj.key.startsWith(`${owner}/refs/`)
-                ? 'image'
-                : obj.key.startsWith(`${owner}/audio/`)
-                  ? 'audio'
-                  : 'video';
-            assets.push({
-                key: obj.key,
-                url: `${origin}/media/${obj.key}`,
-                bytes: obj.size,
-                uploaded: obj.uploaded ? new Date(obj.uploaded).toISOString() : null,
-                kind,
-                name: obj.customMetadata?.name ?? null
+    for (const bucket of mediaBuckets(env)) {
+        let cursor;
+        for (let page = 0; page < 2; page++) {
+            const listed = await bucket.list({
+                prefix: `${owner}/`,
+                limit: 1000,
+                cursor,
+                include: ['customMetadata']
             });
+            for (const obj of listed.objects) {
+                if (obj.key.startsWith(`${owner}/state/`) || assetsByKey.has(obj.key)) {
+                    continue;
+                }
+                const kind = obj.key.startsWith(`${owner}/refs/`)
+                    ? 'image'
+                    : obj.key.startsWith(`${owner}/audio/`)
+                      ? 'audio'
+                      : 'video';
+                assetsByKey.set(obj.key, {
+                    key: obj.key,
+                    url: `${origin}/media/${obj.key}`,
+                    bytes: obj.size,
+                    uploaded: obj.uploaded ? new Date(obj.uploaded).toISOString() : null,
+                    kind,
+                    name: obj.customMetadata?.name ?? null
+                });
+            }
+            if (!listed.truncated) break;
+            cursor = listed.cursor;
         }
-        if (!listed.truncated) break;
-        cursor = listed.cursor;
     }
 
     // Newest first — the panel shows recent work at the top.
+    const assets = Array.from(assetsByKey.values());
     assets.sort((a, b) => (b.uploaded || '').localeCompare(a.uploaded || ''));
     return json({ assets }, 200, cors);
 }
@@ -388,7 +412,7 @@ async function handleAssetsDelete(request, env, cors) {
         return json({ error: 'key is missing or outside your namespace' }, 403, cors);
     }
 
-    await env.XCITY_MEDIA.delete(key);
+    await Promise.all(mediaBuckets(env).map((bucket) => bucket.delete(key)));
     return json({ ok: true, key }, 200, cors);
 }
 
@@ -440,7 +464,7 @@ async function handleShareCreate(request, env, cors) {
     let id = '';
     for (let attempt = 0; attempt < 5; attempt++) {
         const candidate = randomShareId();
-        const existing = await env.XCITY_MEDIA.head(shareKey(candidate));
+        const existing = await headMedia(env, shareKey(candidate));
         if (!existing) {
             id = candidate;
             break;
@@ -474,7 +498,7 @@ async function readShareRecord(env, id) {
     const safeId = safeShareId(id);
     if (!safeId) return null;
 
-    const object = await env.XCITY_MEDIA.get(shareKey(safeId));
+    const object = await getMedia(env, shareKey(safeId));
     if (!object) return null;
 
     const record = await object.json().catch(() => null);
@@ -534,7 +558,7 @@ function normalizeAuthzIndex(value) {
 }
 
 async function readAuthzIndex(env) {
-    const object = await env.XCITY_MEDIA.get(AUTHZ_INDEX_KEY);
+    const object = await getMedia(env, AUTHZ_INDEX_KEY);
     if (!object) {
         return { entries: [], etag: null };
     }
@@ -580,7 +604,7 @@ async function readAuthzRecord(env, id) {
     const safeId = safeShareId(id);
     if (!safeId) return null;
 
-    const object = await env.XCITY_MEDIA.get(authzKey(safeId));
+    const object = await getMedia(env, authzKey(safeId));
     if (!object) return null;
 
     const record = await object.json().catch(() => null);
@@ -639,7 +663,7 @@ async function handleAuthzCreate(request, env, cors) {
     let id = '';
     for (let attempt = 0; attempt < 5; attempt++) {
         const candidate = randomShareId();
-        const existing = await env.XCITY_MEDIA.head(authzKey(candidate));
+        const existing = await headMedia(env, authzKey(candidate));
         if (!existing) {
             id = candidate;
             break;
@@ -886,7 +910,7 @@ async function handleAuthzDocGet(request, env, cors, rawId) {
         return json({ error: 'document not found' }, 404, cors);
     }
 
-    const object = await env.XCITY_MEDIA.get(record.doc_key);
+    const object = await getMedia(env, record.doc_key);
     if (!object) {
         return json({ error: 'document not found' }, 404, cors);
     }
@@ -916,7 +940,7 @@ function normalizeCommunityIndex(value) {
 }
 
 async function readCommunityIndex(env) {
-    const object = await env.XCITY_MEDIA.get(COMMUNITY_INDEX_KEY);
+    const object = await getMedia(env, COMMUNITY_INDEX_KEY);
     if (!object) {
         return { entries: [], etag: null };
     }
@@ -1267,7 +1291,7 @@ async function handleShareJson(env, id, cors) {
     if (!safeId) {
         return json({ error: 'not found' }, 404, cors);
     }
-    const object = await env.XCITY_MEDIA.get(shareKey(safeId));
+    const object = await getMedia(env, shareKey(safeId));
     if (!object) {
         return json({ error: 'not found' }, 404, cors);
     }
@@ -1388,7 +1412,7 @@ function mergeStateDocs(local, remote) {
 
 async function putMergedState(env, key, incomingDoc) {
     for (let attempt = 0; attempt < 3; attempt += 1) {
-        const current = await env.XCITY_MEDIA.get(key);
+        const current = await getMedia(env, key);
         if (!current) {
             const stored = await env.XCITY_MEDIA.put(key, JSON.stringify(normalizeStateDoc(incomingDoc)), {
                 onlyIf: { etagDoesNotExist: true },
@@ -1423,7 +1447,7 @@ async function handleStateGet(request, env, cors) {
     const { owner, error } = await authOwner(request, env, cors);
     if (error) return error;
 
-    const object = await env.XCITY_MEDIA.get(stateKey(owner));
+    const object = await getMedia(env, stateKey(owner));
     if (!object) {
         return json({ error: 'no state' }, 404, cors);
     }
@@ -1518,7 +1542,7 @@ async function handleArchive(request, env, cors) {
 
     const key = archivedVideoKey(owner, videoId);
 
-    const existing = await env.XCITY_MEDIA.head(key);
+    const existing = await headMedia(env, key);
     if (existing) {
         return json(archivedVideoPayload(request, key, existing, true), 200, cors);
     }
@@ -1557,7 +1581,7 @@ async function handleArchiveLookup(request, env, cors, rawVideoId) {
 
     for (const ext of ['mp4', 'webm', 'mov']) {
         const key = archivedVideoKey(owner, videoId, ext);
-        const existing = await env.XCITY_MEDIA.head(key);
+        const existing = await headMedia(env, key);
         if (existing) {
             return json(archivedVideoPayload(request, key, existing, true), 200, cors);
         }
@@ -1599,7 +1623,7 @@ async function handleArchiveUpload(request, env, cors, rawVideoId) {
     }
 
     const key = archivedVideoKey(owner, videoId, ext);
-    const existing = await env.XCITY_MEDIA.head(key);
+    const existing = await headMedia(env, key);
     if (existing) {
         return json(archivedVideoPayload(request, key, existing, true), 200, cors);
     }
@@ -1616,45 +1640,56 @@ async function handleArchiveUpload(request, env, cors, rawVideoId) {
     return json(archivedVideoPayload(request, key, { size: stored?.size ?? body.byteLength }, false), 200, cors);
 }
 
-async function handleMedia(request, env, key, cors) {
+function isPrivateMediaKey(key) {
+    return (
+        key.startsWith('share/') ||
+        key.startsWith('community/') ||
+        key.startsWith('authz/') ||
+        /^(u|k)\/[^/]+\/state\//.test(key)
+    );
+}
+
+async function mediaObjectResponse(request, env, key, cors, rangeEnabled) {
     const notFoundHeaders = { ...cors, 'Cache-Control': 'no-store' };
     if (!key) return new Response('Not Found', { status: 404, headers: notFoundHeaders });
-    if (key.startsWith('share/')) {
-        return new Response('Not Found', { status: 404, headers: notFoundHeaders });
-    }
-    if (key.startsWith('community/')) {
-        return new Response('Not Found', { status: 404, headers: notFoundHeaders });
-    }
-    if (key.startsWith('authz/')) {
-        return new Response('Not Found', { status: 404, headers: notFoundHeaders });
-    }
-    if (/^(u|k)\/[^/]+\/state\//.test(key)) {
-        return new Response('Not Found', { status: 404, headers: notFoundHeaders });
-    }
+    if (isPrivateMediaKey(key)) return new Response('Not Found', { status: 404, headers: notFoundHeaders });
 
-    // Range support so the <video> element can seek without pulling the file.
     const range = request.headers.get('range');
-    const object = await env.XCITY_MEDIA.get(key, range ? { range: request.headers } : undefined);
+    const object = await getMedia(env, key, rangeEnabled && range ? { range: request.headers } : undefined);
     if (!object) return new Response('Not Found', { status: 404, headers: notFoundHeaders });
 
     const headers = new Headers(cors);
     object.writeHttpMetadata(headers);
     headers.set('etag', object.httpEtag);
-    headers.set('Accept-Ranges', 'bytes');
+    if (rangeEnabled) {
+        headers.set('Accept-Ranges', 'bytes');
+    }
     headers.set('Cache-Control', 'public, max-age=31536000, immutable');
     // Playback is cross-origin; without this only same-origin pages could read it.
     if (!headers.has('Access-Control-Allow-Origin')) {
         headers.set('Access-Control-Allow-Origin', '*');
     }
 
-    if (object.range && object.size != null) {
+    if (rangeEnabled && object.range && object.size != null) {
         const start = object.range.offset ?? 0;
         const length = object.range.length ?? object.size - start;
         headers.set('Content-Range', `bytes ${start}-${start + length - 1}/${object.size}`);
+        headers.set('Content-Length', String(length));
         return new Response(object.body, { status: 206, headers });
     }
 
+    if (object.size != null) {
+        headers.set('Content-Length', String(object.size));
+    }
     return new Response(object.body, { headers });
+}
+
+async function handleMedia(request, env, key, cors) {
+    return mediaObjectResponse(request, env, key, cors, true);
+}
+
+async function handleDownload(request, env, key, cors) {
+    return mediaObjectResponse(request, env, key, cors, false);
 }
 
 const worker = {
@@ -1764,6 +1799,13 @@ const worker = {
                 return new Response('Method Not Allowed', { status: 405, headers: cors });
             }
             return handleMedia(request, env, decodeURIComponent(url.pathname.slice('/media/'.length)), cors);
+        }
+
+        if (url.pathname.startsWith('/download/')) {
+            if (request.method !== 'GET' && request.method !== 'HEAD') {
+                return new Response('Method Not Allowed', { status: 405, headers: cors });
+            }
+            return handleDownload(request, env, decodeURIComponent(url.pathname.slice('/download/'.length)), cors);
         }
 
         if (url.pathname === '/health') {

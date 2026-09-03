@@ -16,6 +16,10 @@ routes = [
 # 24h, so anything the studio should still play tomorrow gets copied in.
 [[r2_buckets]]
 binding = "XCITY_MEDIA"
+bucket_name = "xcity-studio-r2"
+
+[[r2_buckets]]
+binding = "LEGACY_XCITY_MEDIA"
 bucket_name = "xcity-media"
 
 [vars]

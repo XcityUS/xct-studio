@@ -478,6 +478,22 @@ export function mediaKeyFromUrl(url: string): string | null {
     }
 }
 
+/** Converts a worker playback URL into the full-file endpoint used by provider fetchers. */
+export async function downloadUrlForMediaUrl(url: string): Promise<string> {
+    const workerUrl = await loadWorkerUrl();
+    if (!workerUrl) return url;
+    const key = mediaKeyFromUrl(url);
+    if (!key) return url;
+    try {
+        const parsed = new URL(url);
+        const worker = new URL(workerUrl);
+        if (parsed.origin !== worker.origin) return url;
+        return `${workerUrl}/download/${encodeURIComponent(key)}`;
+    } catch {
+        return url;
+    }
+}
+
 export async function fetchCloudState(apiKey: string): Promise<{ doc: unknown; etag: string } | null> {
     const workerUrl = await loadWorkerUrl();
     if (!workerUrl) return null;
