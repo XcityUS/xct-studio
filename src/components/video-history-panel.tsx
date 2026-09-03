@@ -3,7 +3,6 @@
 import { AssemblyEditor } from '@/components/assembly-editor';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import {
     Dialog,
     DialogContent,
@@ -14,11 +13,13 @@ import {
     DialogFooter,
     DialogClose
 } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import type { CaptionSegment } from '@/lib/captions';
 import { db } from '@/lib/db';
 import type { UserAsset } from '@/lib/media-archive';
 import { resolveMediaState } from '@/lib/media-state';
 import { estimateVideoProgress } from '@/lib/progress';
+import { modelSupportsFinalize } from '@/lib/seedance';
 import { cn } from '@/lib/utils';
 import type { VideoMetadata, VideoJob } from '@/types/video';
 import {
@@ -680,6 +681,9 @@ export function VideoHistoryPanel({
                                     const canSelectForAssembly = canAssembleItem(item, job);
                                     const needsCloudArchive = isCompleted && !item.storedUrl && !isExpired;
                                     const isDraft = item.draft === true || item.createParams?.draft === true;
+                                    const finalizeDisabledReason = modelSupportsFinalize(item.model)
+                                        ? null
+                                        : 'Finalize is only available for Seedance 2.5 drafts';
                                     const selectionOrder = selectedClipIds.indexOf(item.id) + 1;
                                     const isSelectedForAssembly = selectionOrder > 0;
                                     const isSharePending = sharePendingId === item.id;
@@ -1093,7 +1097,7 @@ export function VideoHistoryPanel({
                                                                                 : 'Queued for watermark processing'
                                                                             : watermarkSlotsFull
                                                                               ? 'Two watermarks are already being processed'
-                                                                            : 'Add Xcity branding watermark'
+                                                                              : 'Add Xcity branding watermark'
                                                                     }
                                                                     className={cn(
                                                                         'flex flex-1 items-center justify-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[10px] whitespace-nowrap text-white/70 transition-colors hover:bg-white/20 hover:text-white',
@@ -1173,15 +1177,29 @@ export function VideoHistoryPanel({
                                                                     ) : (
                                                                         <StepForward size={11} />
                                                                     )}
-                                                                    {extendPendingIds?.has(item.id) ? 'Preparing' : 'Extend'}
+                                                                    {extendPendingIds?.has(item.id)
+                                                                        ? 'Preparing'
+                                                                        : 'Extend'}
                                                                 </button>
                                                             )}
                                                             {onFinalizeItem && isCompleted && isDraft && (
                                                                 <button
                                                                     type='button'
-                                                                    onClick={() => onFinalizeItem(item)}
-                                                                    title='Review settings and generate a paid final version'
-                                                                    className='flex flex-1 items-center justify-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white'>
+                                                                    onClick={() => {
+                                                                        if (!finalizeDisabledReason) {
+                                                                            onFinalizeItem(item);
+                                                                        }
+                                                                    }}
+                                                                    disabled={Boolean(finalizeDisabledReason)}
+                                                                    title={
+                                                                        finalizeDisabledReason ??
+                                                                        'Review settings and generate a paid final version'
+                                                                    }
+                                                                    className={cn(
+                                                                        'flex flex-1 items-center justify-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white',
+                                                                        finalizeDisabledReason &&
+                                                                            'cursor-not-allowed opacity-40 hover:bg-white/10 hover:text-white/70'
+                                                                    )}>
                                                                     <Rocket size={11} />
                                                                     Finalize
                                                                 </button>

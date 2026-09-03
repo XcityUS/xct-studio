@@ -134,6 +134,7 @@ import {
     formatSize,
     getSeedanceModel,
     maxReferenceImages,
+    modelSupportsFinalize,
     modelSupportsResolution,
     parseSize,
     type VideoModel,
@@ -463,6 +464,8 @@ function referenceVideoDownloadErrorMessage(): string {
         'Reopen the completed draft after it finishes archiving, or regenerate the draft and try Finalize again.'
     ].join(' ');
 }
+
+const FINALIZE_UNSUPPORTED_MODEL_MESSAGE = 'Finalize is only available for Seedance 2.5 drafts.';
 
 function ensureFinalizeEditPrompt(prompt: string): string {
     const trimmed = prompt.trim();
@@ -2616,6 +2619,10 @@ export default function HomePage() {
     /** Finalize — open a review step before starting a paid draft-to-final generation. */
     const handleFinalizeItem = (item: VideoMetadata) => {
         setError(null, 'output');
+        if (!modelSupportsFinalize(item.model)) {
+            setError(FINALIZE_UNSUPPORTED_MODEL_MESSAGE, 'output');
+            return;
+        }
         setFinalizeSubmitLabel('');
         setFinalizeDialogItem(item);
     };
@@ -3490,6 +3497,10 @@ export default function HomePage() {
     const currentHistoryItem = currentJobId ? history.find((item) => item.id === currentJobId) : undefined;
     const currentHistoryItemIsDraft =
         currentHistoryItem?.draft === true || currentHistoryItem?.createParams?.draft === true;
+    const currentFinalizeDisabledReason =
+        currentHistoryItemIsDraft && currentHistoryItem && !modelSupportsFinalize(currentHistoryItem.model)
+            ? FINALIZE_UNSUPPORTED_MODEL_MESSAGE
+            : undefined;
     const currentMediaExpired = Boolean(
         currentHistoryItem?.status === 'completed' &&
             !currentHistoryItem.storedUrl &&
@@ -3692,6 +3703,7 @@ export default function HomePage() {
                         onExtend={handleExtendCurrentVideo}
                         isExtendPending={Boolean(currentJobId && extendPendingIds.has(currentJobId))}
                         onFinalize={currentHistoryItemIsDraft ? handleFinalizeCurrentVideo : undefined}
+                        finalizeDisabledReason={currentFinalizeDisabledReason}
                         onShare={handleShareItem}
                         shareItem={currentHistoryItem}
                         isSharePending={Boolean(currentHistoryItem && sharingVideoId === currentHistoryItem.id)}
