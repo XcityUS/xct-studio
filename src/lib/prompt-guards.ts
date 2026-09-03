@@ -14,6 +14,7 @@ export const DEFAULT_CAPTION_MODE = 'bilingual-en-zh';
 export const MAX_TITLE_OVERLAY_TEXT_LENGTH = 80;
 export const DEFAULT_TITLE_OVERLAY_STYLE = 'cinematic';
 export const DEFAULT_TITLE_OVERLAY_DURATION = 'opening-2s';
+export const DEFAULT_TITLE_OVERLAY_LANGUAGE = 'auto';
 
 export const GENERATED_CAPTION_LANGUAGES = [
     { id: 'en-US', label: 'English (US)', promptLabel: 'American English' },
@@ -49,8 +50,15 @@ export const TITLE_OVERLAY_DURATIONS = [
     { id: 'opening-3s', label: 'First 3s', promptLabel: 'only during the opening 3 seconds' }
 ] as const;
 
+export const TITLE_OVERLAY_LANGUAGES = [
+    { id: 'auto', label: 'Auto', promptLabel: 'keep the title exactly in the language and wording provided by the user' },
+    { id: 'en-US', label: 'English', promptLabel: 'render the title in English using the exact user-provided title text' },
+    { id: 'zh-CN', label: 'Chinese', promptLabel: 'render the title in Chinese using the exact user-provided title text' }
+] as const;
+
 export type TitleOverlayStyle = (typeof TITLE_OVERLAY_STYLES)[number]['id'];
 export type TitleOverlayDuration = (typeof TITLE_OVERLAY_DURATIONS)[number]['id'];
+export type TitleOverlayLanguage = (typeof TITLE_OVERLAY_LANGUAGES)[number]['id'];
 
 export const VOICE_LANGUAGE_OPTIONS = [
     { id: SILENT_VOICE_LANGUAGE, label: 'Silent', promptLabel: 'no spoken dialogue or voiceover' },
@@ -93,6 +101,12 @@ export function normalizeTitleOverlayDuration(value: string | undefined): TitleO
     return TITLE_OVERLAY_DURATIONS.some((duration) => duration.id === value)
         ? (value as TitleOverlayDuration)
         : DEFAULT_TITLE_OVERLAY_DURATION;
+}
+
+export function normalizeTitleOverlayLanguage(value: string | undefined): TitleOverlayLanguage {
+    return TITLE_OVERLAY_LANGUAGES.some((language) => language.id === value)
+        ? (value as TitleOverlayLanguage)
+        : DEFAULT_TITLE_OVERLAY_LANGUAGE;
 }
 
 export function normalizeGeneratedCaptionLanguages(languages: readonly string[] | undefined): string[] {
@@ -195,7 +209,7 @@ export function promptWithLanguageControls(
     options: {
         voiceLanguage?: string;
         captionMode?: string;
-        titleOverlay?: { enabled?: boolean; text?: string; style?: string; duration?: string };
+        titleOverlay?: { enabled?: boolean; text?: string; style?: string; duration?: string; language?: string };
     }
 ): string {
     const voiceLanguage = normalizeVoiceLanguage(options.voiceLanguage);
@@ -203,6 +217,7 @@ export function promptWithLanguageControls(
     const titleText = options.titleOverlay?.enabled ? normalizeTitleOverlayText(options.titleOverlay.text) : '';
     const titleStyle = normalizeTitleOverlayStyle(options.titleOverlay?.style);
     const titleDuration = normalizeTitleOverlayDuration(options.titleOverlay?.duration);
+    const titleLanguage = normalizeTitleOverlayLanguage(options.titleOverlay?.language);
     const trimmed = stripCaptionDirective(prompt)
         .replace(new RegExp(`\\n?${AVOID_GENERATED_CAPTIONS_PROMPT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i'), '')
         .trimEnd();
@@ -230,9 +245,11 @@ export function promptWithLanguageControls(
     if (titleText) {
         const style = TITLE_OVERLAY_STYLES.find((item) => item.id === titleStyle);
         const duration = TITLE_OVERLAY_DURATIONS.find((item) => item.id === titleDuration);
+        const language = TITLE_OVERLAY_LANGUAGES.find((item) => item.id === titleLanguage);
         lines.push(
             TITLE_OVERLAY_PROMPT_HEADER,
             `Opening title: "${titleText.replace(/"/g, "'")}".`,
+            `Title language: ${language?.promptLabel ?? 'keep the title exactly in the language and wording provided by the user'}. Do not translate it unless the user-provided title text is already in that language.`,
             `Title style: ${style?.promptLabel ?? 'cinematic title card typography'}.`,
             `Title timing: show the title ${duration?.promptLabel ?? 'only during the opening 2 seconds'}, then remove it completely.`,
             'Title layout: place it centered in the frame, large and readable, with automatic font-size reduction if the text is too long.',

@@ -19,10 +19,12 @@ import {
     MAX_TITLE_OVERLAY_TEXT_LENGTH,
     SILENT_VOICE_LANGUAGE,
     TITLE_OVERLAY_DURATIONS,
+    TITLE_OVERLAY_LANGUAGES,
     TITLE_OVERLAY_STYLES,
     VOICE_LANGUAGE_OPTIONS,
     normalizeCaptionMode,
     normalizeTitleOverlayDuration,
+    normalizeTitleOverlayLanguage,
     normalizeTitleOverlayStyle,
     normalizeTitleOverlayText,
     normalizeVoiceLanguage
@@ -117,6 +119,8 @@ type CreationFormProps = {
     setTitleOverlayStyle: React.Dispatch<React.SetStateAction<string>>;
     titleOverlayDuration: string;
     setTitleOverlayDuration: React.Dispatch<React.SetStateAction<string>>;
+    titleOverlayLanguage: string;
+    setTitleOverlayLanguage: React.Dispatch<React.SetStateAction<string>>;
     /** Uploads a local image, resolving to its public URL. Absent = URL-only mode. */
     onUploadImage?: (file: File) => Promise<string>;
     /** Uploads a local audio file, resolving to its public URL. Absent = URL-only mode. */
@@ -237,6 +241,8 @@ export function CreationForm({
     setTitleOverlayStyle,
     titleOverlayDuration,
     setTitleOverlayDuration,
+    titleOverlayLanguage,
+    setTitleOverlayLanguage,
     onUploadImage,
     onUploadAudio,
     onSynthesizeSpeech,
@@ -350,6 +356,7 @@ export function CreationForm({
     const normalizedTitleOverlayText = normalizeTitleOverlayText(titleOverlayText);
     const normalizedTitleOverlayStyle = normalizeTitleOverlayStyle(titleOverlayStyle);
     const normalizedTitleOverlayDuration = normalizeTitleOverlayDuration(titleOverlayDuration);
+    const normalizedTitleOverlayLanguage = normalizeTitleOverlayLanguage(titleOverlayLanguage);
     const estimatedCost = calculateVideoCost({
         model: activeModel,
         ratio,
@@ -447,7 +454,8 @@ export function CreationForm({
             title_overlay_enabled: titleOverlayEnabled && Boolean(normalizedTitleOverlayText),
             title_overlay_text: titleOverlayEnabled ? normalizedTitleOverlayText : undefined,
             title_overlay_style: titleOverlayEnabled ? normalizedTitleOverlayStyle : undefined,
-            title_overlay_duration: titleOverlayEnabled ? normalizedTitleOverlayDuration : undefined
+            title_overlay_duration: titleOverlayEnabled ? normalizedTitleOverlayDuration : undefined,
+            title_overlay_language: titleOverlayEnabled ? normalizedTitleOverlayLanguage : undefined
         };
         if (isDraftMode) {
             formData.draft = true;
@@ -920,7 +928,7 @@ export function CreationForm({
                                                 {normalizedTitleOverlayText.length}/{MAX_TITLE_OVERLAY_TEXT_LENGTH}
                                             </div>
                                         </div>
-                                        <div className='grid gap-3 sm:grid-cols-2'>
+                                        <div className='grid gap-3 sm:grid-cols-3'>
                                             <div className='space-y-1'>
                                                 <Label htmlFor='title-overlay-style' className='text-xs text-white/60'>
                                                     Style
@@ -933,6 +941,22 @@ export function CreationForm({
                                                     {TITLE_OVERLAY_STYLES.map((style) => (
                                                         <option key={style.id} value={style.id}>
                                                             {style.label}
+                                                        </option>
+                                                    ))}
+                                                </NativeSelect>
+                                            </div>
+                                            <div className='space-y-1'>
+                                                <Label htmlFor='title-overlay-language' className='text-xs text-white/60'>
+                                                    Language
+                                                </Label>
+                                                <NativeSelect
+                                                    id='title-overlay-language'
+                                                    value={normalizedTitleOverlayLanguage}
+                                                    onChange={(event) => setTitleOverlayLanguage(event.target.value)}
+                                                    disabled={isLoading}>
+                                                    {TITLE_OVERLAY_LANGUAGES.map((language) => (
+                                                        <option key={language.id} value={language.id}>
+                                                            {language.label}
                                                         </option>
                                                     ))}
                                                 </NativeSelect>

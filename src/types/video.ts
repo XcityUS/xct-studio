@@ -156,4 +156,6 @@ export type VideoJobCreate = {
     title_overlay_style?: string;
     /** Studio-only opening title display duration. */
     title_overlay_duration?: string;
+    /** Studio-only opening title language handling. */
+    title_overlay_language?: string;
 };
