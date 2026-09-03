@@ -1,5 +1,5 @@
-import OpenAI from 'openai';
 import { InvalidApiKeyError } from './errors';
+import OpenAI from 'openai';
 
 export class RateLimitError extends Error {
     retryAt?: string;
@@ -18,10 +18,13 @@ export class BudgetExceededError extends Error {
     }
 }
 
+const FRONTEND_OPENAI_TIMEOUT_MS = 120_000;
+
 export function createFrontendOpenAI(apiKey: string, baseURL?: string): OpenAI {
     return new OpenAI({
         apiKey,
         baseURL,
+        timeout: FRONTEND_OPENAI_TIMEOUT_MS,
         dangerouslyAllowBrowser: true
     });
 }
@@ -46,11 +49,12 @@ export async function verifyFrontendApiKey(apiKey: string, baseURL?: string): Pr
                 const retryAt =
                     headers instanceof Headers
                         ? (headers.get('x-ratelimit-reset-requests') ?? headers.get('retry-after') ?? undefined)
-                        : headers?.['x-ratelimit-reset-requests'] ?? headers?.['retry-after'];
+                        : (headers?.['x-ratelimit-reset-requests'] ?? headers?.['retry-after']);
                 throw new RateLimitError('The gateway is rate-limiting this API key right now.', retryAt);
             }
 
-            const code = (error as { code?: string; error?: { code?: string } }).code ??
+            const code =
+                (error as { code?: string; error?: { code?: string } }).code ??
                 (error as { code?: string; error?: { code?: string } }).error?.code;
             if (code === 'invalid_api_key') {
                 throw new InvalidApiKeyError();

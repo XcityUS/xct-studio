@@ -44,8 +44,8 @@ import { calculateVideoCost } from '@/lib/cost-utils';
 import { db, type ImageRecord } from '@/lib/db';
 import { InvalidApiKeyError, RealPersonImageError } from '@/lib/errors';
 import type { GalleryItem } from '@/lib/gallery';
-import { BudgetExceededError, RateLimitError } from '@/lib/openai-client';
 import { reconcilePreset } from '@/lib/gallery-preset';
+import { validateAssetImage } from '@/lib/image-constraints';
 import {
     generateImages,
     loadImageModels,
@@ -53,7 +53,6 @@ import {
     type ImageModel,
     type ImageSizeId
 } from '@/lib/image-service';
-import { validateAssetImage } from '@/lib/image-constraints';
 import {
     ArchiveSourceFetchError,
     archiveLocalVideo,
@@ -83,6 +82,7 @@ import {
     uploadReferenceVideo
 } from '@/lib/media-archive';
 import { providerLinkLikelyDead } from '@/lib/media-state';
+import { BudgetExceededError, RateLimitError } from '@/lib/openai-client';
 import {
     createPortraitGroup,
     createPortraitAsset,
@@ -305,7 +305,8 @@ function shareParamsToForm(prompt: string, params: unknown): { params: CreationF
             params: {
                 ...reconciled,
                 voice_language: normalizeVoiceLanguage(
-                    reconciled.voice_language ?? (reconciled.generate_audio ? DEFAULT_VOICE_LANGUAGE : SILENT_VOICE_LANGUAGE)
+                    reconciled.voice_language ??
+                        (reconciled.generate_audio ? DEFAULT_VOICE_LANGUAGE : SILENT_VOICE_LANGUAGE)
                 ),
                 caption_mode: captionMode,
                 avoid_generated_captions: captionMode === 'none',
@@ -344,7 +345,9 @@ function shareParamsToForm(prompt: string, params: unknown): { params: CreationF
         ? record.generated_caption_languages.filter((language): language is string => typeof language === 'string')
         : [];
     const captionMode = normalizeCaptionMode(
-        typeof record.caption_mode === 'string' ? record.caption_mode : captionModeFromLanguages(rawGeneratedCaptionLanguages)
+        typeof record.caption_mode === 'string'
+            ? record.caption_mode
+            : captionModeFromLanguages(rawGeneratedCaptionLanguages)
     );
     const titleOverlayText = normalizeTitleOverlayText(
         typeof record.title_overlay_text === 'string' ? record.title_overlay_text : undefined
@@ -451,6 +454,14 @@ function isWebReferenceUrl(url: string): boolean {
 function isReferenceVideoDownloadError(error: unknown): boolean {
     const message = error instanceof Error ? error.message : String(error);
     return /video_url|reference_video/i.test(message) && /resource download failed|download/i.test(message);
+}
+
+function referenceVideoDownloadErrorMessage(): string {
+    return [
+        'BytePlus could not download the draft video used for Finalize.',
+        'The provider link may have expired, or the archived copy is not reachable yet.',
+        'Reopen the completed draft after it finishes archiving, or regenerate the draft and try Finalize again.'
+    ].join(' ');
 }
 
 function ensureFinalizeEditPrompt(prompt: string): string {
@@ -597,6 +608,7 @@ export default function HomePage() {
     const [createWatermarkText, setCreateWatermarkText] = React.useState(BRANDING_WATERMARK_TEXT);
     const [finalizeDialogItem, setFinalizeDialogItem] = React.useState<VideoMetadata | null>(null);
     const [isFinalizeSubmitting, setIsFinalizeSubmitting] = React.useState(false);
+    const [finalizeSubmitLabel, setFinalizeSubmitLabel] = React.useState('');
     const [imageAssets, setImageAssets] = React.useState<UserAsset[]>([]);
     const [isLoadingImageAssets, setIsLoadingImageAssets] = React.useState(false);
 
@@ -720,9 +732,15 @@ export default function HomePage() {
             setCreateRatio(p.ratio);
             setCreateResolution(p.resolution);
             setCreateSeconds(p.seconds);
-            setCreateVoiceLanguage(normalizeVoiceLanguage(p.voice_language ?? (p.generate_audio ? DEFAULT_VOICE_LANGUAGE : SILENT_VOICE_LANGUAGE)));
+            setCreateVoiceLanguage(
+                normalizeVoiceLanguage(
+                    p.voice_language ?? (p.generate_audio ? DEFAULT_VOICE_LANGUAGE : SILENT_VOICE_LANGUAGE)
+                )
+            );
             setCreateCaptionMode(normalizeCaptionMode(p.caption_mode));
-            setCreateTitleOverlayEnabled(p.title_overlay_enabled === true && Boolean(normalizeTitleOverlayText(p.title_overlay_text)));
+            setCreateTitleOverlayEnabled(
+                p.title_overlay_enabled === true && Boolean(normalizeTitleOverlayText(p.title_overlay_text))
+            );
             setCreateTitleOverlayText(normalizeTitleOverlayText(p.title_overlay_text));
             setCreateTitleOverlayStyle(normalizeTitleOverlayStyle(p.title_overlay_style));
             setCreateTitleOverlayDuration(normalizeTitleOverlayDuration(p.title_overlay_duration));
@@ -758,7 +776,9 @@ export default function HomePage() {
                 setCreateSeconds(params.seconds);
                 setCreateVoiceLanguage(normalizeVoiceLanguage(params.voice_language));
                 setCreateCaptionMode(normalizeCaptionMode(params.caption_mode));
-                setCreateTitleOverlayEnabled(params.title_overlay_enabled === true && Boolean(params.title_overlay_text));
+                setCreateTitleOverlayEnabled(
+                    params.title_overlay_enabled === true && Boolean(params.title_overlay_text)
+                );
                 setCreateTitleOverlayText(normalizeTitleOverlayText(params.title_overlay_text));
                 setCreateTitleOverlayStyle(normalizeTitleOverlayStyle(params.title_overlay_style));
                 setCreateTitleOverlayDuration(normalizeTitleOverlayDuration(params.title_overlay_duration));
@@ -1496,15 +1516,11 @@ export default function HomePage() {
                 if (shouldAddBranding) {
                     try {
                         console.log(`[branding] adding watermark to ${job.id}`);
-                        brandedBlob = await burnBrandingWatermarkIntoVideo(
-                            blob,
-                            watermarkText,
-                            (progress) => {
-                                if (progress === 0 || progress === 1) {
-                                    console.log(`[branding] ${job.id} ${Math.round(progress * 100)}%`);
-                                }
+                        brandedBlob = await burnBrandingWatermarkIntoVideo(blob, watermarkText, (progress) => {
+                            if (progress === 0 || progress === 1) {
+                                console.log(`[branding] ${job.id} ${Math.round(progress * 100)}%`);
                             }
-                        );
+                        });
                         await db.videos.put({
                             id: job.id,
                             filename: `${job.id}.mp4`,
@@ -1990,11 +2006,11 @@ export default function HomePage() {
             referenceVideoFallbackUrls?: string[];
             finalizeFlag?: 0 | 1 | 2;
             rethrowOnError?: boolean;
+            onSubmitStage?: (message: string) => void;
         } = {}
     ): Promise<string | null> => {
         const voiceLanguage = normalizeVoiceLanguage(
-            rawFormData.voice_language ??
-                (rawFormData.generate_audio ? DEFAULT_VOICE_LANGUAGE : SILENT_VOICE_LANGUAGE)
+            rawFormData.voice_language ?? (rawFormData.generate_audio ? DEFAULT_VOICE_LANGUAGE : SILENT_VOICE_LANGUAGE)
         );
         const captionMode = normalizeCaptionMode(rawFormData.caption_mode);
         const titleOverlayText = normalizeTitleOverlayText(rawFormData.title_overlay_text);
@@ -2040,6 +2056,7 @@ export default function HomePage() {
 
         // Resolve the key at submit time — an SSO key that lands after this
         // handler's render is invisible to its closure, and keys rotate.
+        options.onSubmitStage?.('Checking Xcity API key...');
         const activeKey = await resolveKey();
         if (!activeKey) {
             setError('Could not read your Xcity API key. Sign in at xcity.ai and retry.');
@@ -2051,6 +2068,7 @@ export default function HomePage() {
         // link (e.g. an asset deleted after being added here) fails there as
         // an opaque "resource download failed". Our worker's URLs are
         // CORS-open, so verify those up front and name the broken image.
+        options.onSubmitStage?.('Preparing reference media...');
         const workerBase = await mediaWorkerUrl();
         // Ark cannot fetch *.workers.dev (blocklisted), which is why the
         // worker moved to a custom domain — rebase legacy links (history
@@ -2108,6 +2126,7 @@ export default function HomePage() {
             const inlined: string[] = [];
             for (let i = 0; i < refUrls.length; i++) {
                 const url = refUrls[i];
+                options.onSubmitStage?.(`Reading reference image ${i + 1}/${refUrls.length}...`);
                 if (isAssetReferenceUrl(url)) {
                     inlined.push(url);
                     continue;
@@ -2142,6 +2161,7 @@ export default function HomePage() {
             }
         }
         if (formData.reference_audio_url && formData.reference_image_urls?.length) {
+            options.onSubmitStage?.('Reading reference audio...');
             const isWorkerHosted = Boolean(workerBase && formData.reference_audio_url.startsWith(workerBase));
             const dataUri = formData.reference_audio_url.startsWith('data:')
                 ? formData.reference_audio_url
@@ -2215,7 +2235,9 @@ export default function HomePage() {
             draft: formData.draft || undefined,
             finalResolution: formData.draft ? formData.final_resolution : undefined,
             finalizeFlag: options.finalizeFlag,
-            brandingWatermark: formData.watermark ? { enabled: true, text: normalizedWatermarkText } : { enabled: false },
+            brandingWatermark: formData.watermark
+                ? { enabled: true, text: normalizedWatermarkText }
+                : { enabled: false },
             replacesId: options.replacesItem?.id,
             status: 'submitting',
             progress: 0
@@ -2231,6 +2253,7 @@ export default function HomePage() {
                 );
             };
             logReferenceVideoUrls('Submitting reference video URLs:');
+            options.onSubmitStage?.('Creating video job...');
             let result: VideoJob;
             try {
                 result = await videoService.createVideo(requestParams);
@@ -2241,7 +2264,10 @@ export default function HomePage() {
                 if (!fallbackUrl || !isReferenceVideoDownloadError(createError)) {
                     throw createError;
                 }
-                console.warn('Reference video URL download failed; retrying with fallback URL:', summarizeWebUrl(fallbackUrl));
+                console.warn(
+                    'Reference video URL download failed; retrying with fallback URL:',
+                    summarizeWebUrl(fallbackUrl)
+                );
                 requestParams.reference_video_urls = [fallbackUrl];
                 logReferenceVideoUrls('Retrying reference video URLs:');
                 result = await videoService.createVideo(requestParams);
@@ -2353,7 +2379,8 @@ export default function HomePage() {
     const buildParamsFromItem = React.useCallback((item: VideoMetadata): CreationFormData => {
         if (item.createParams) {
             const captionMode = normalizeCaptionMode(
-                item.createParams.caption_mode ?? captionModeFromLanguages(item.createParams.generated_caption_languages)
+                item.createParams.caption_mode ??
+                    captionModeFromLanguages(item.createParams.generated_caption_languages)
             );
             const voiceLanguage = normalizeVoiceLanguage(
                 item.createParams.voice_language ??
@@ -2517,33 +2544,37 @@ export default function HomePage() {
         [buildParamsFromItem, resolveKey]
     );
 
-    const applyParamsToCreationForm = React.useCallback((params: CreationFormData) => {
-        setCreateModel(params.model);
-        setCreatePrompt(params.prompt);
-        setCreateRatio(params.ratio);
-        setCreateResolution(
-            params.draft ? finalResolutionForDraft(params.model, params.final_resolution) : params.resolution
-        );
-        setCreateSeconds(params.seconds);
-        setCreateVoiceLanguage(normalizeVoiceLanguage(params.voice_language));
-        setCreateCaptionMode(normalizeCaptionMode(params.caption_mode));
-        setCreateTitleOverlayEnabled(params.title_overlay_enabled === true && Boolean(params.title_overlay_text));
-        setCreateTitleOverlayText(normalizeTitleOverlayText(params.title_overlay_text));
-        setCreateTitleOverlayStyle(normalizeTitleOverlayStyle(params.title_overlay_style));
-        setCreateTitleOverlayDuration(normalizeTitleOverlayDuration(params.title_overlay_duration));
-        setCreateTitleOverlayLanguage(normalizeTitleOverlayLanguage(params.title_overlay_language));
-        setCreateCameraFixed(params.camera_fixed ?? false);
-        const refs = params.reference_image_urls ?? (params.input_reference_url ? [params.input_reference_url] : []);
-        setCreateReferenceUrls(refs);
-        setCreateLastFrameUrl(refs.length === 1 ? (params.last_frame_url ?? '') : '');
-        setCreateReferenceAudioUrl(refs.length >= 2 ? (params.reference_audio_url ?? '') : '');
-        setCreateReferenceVideoUrls((params.reference_video_urls ?? []).slice(0, MAX_REFERENCE_VIDEOS));
-        setCreateSeed(params.seed);
-        setCreateWatermark(params.watermark ?? false);
-        setCreateWatermarkText(normalizeWatermarkText(params.watermarkText));
-        setActiveTab('video');
-        scrollToCreationForm();
-    }, [scrollToCreationForm]);
+    const applyParamsToCreationForm = React.useCallback(
+        (params: CreationFormData) => {
+            setCreateModel(params.model);
+            setCreatePrompt(params.prompt);
+            setCreateRatio(params.ratio);
+            setCreateResolution(
+                params.draft ? finalResolutionForDraft(params.model, params.final_resolution) : params.resolution
+            );
+            setCreateSeconds(params.seconds);
+            setCreateVoiceLanguage(normalizeVoiceLanguage(params.voice_language));
+            setCreateCaptionMode(normalizeCaptionMode(params.caption_mode));
+            setCreateTitleOverlayEnabled(params.title_overlay_enabled === true && Boolean(params.title_overlay_text));
+            setCreateTitleOverlayText(normalizeTitleOverlayText(params.title_overlay_text));
+            setCreateTitleOverlayStyle(normalizeTitleOverlayStyle(params.title_overlay_style));
+            setCreateTitleOverlayDuration(normalizeTitleOverlayDuration(params.title_overlay_duration));
+            setCreateTitleOverlayLanguage(normalizeTitleOverlayLanguage(params.title_overlay_language));
+            setCreateCameraFixed(params.camera_fixed ?? false);
+            const refs =
+                params.reference_image_urls ?? (params.input_reference_url ? [params.input_reference_url] : []);
+            setCreateReferenceUrls(refs);
+            setCreateLastFrameUrl(refs.length === 1 ? (params.last_frame_url ?? '') : '');
+            setCreateReferenceAudioUrl(refs.length >= 2 ? (params.reference_audio_url ?? '') : '');
+            setCreateReferenceVideoUrls((params.reference_video_urls ?? []).slice(0, MAX_REFERENCE_VIDEOS));
+            setCreateSeed(params.seed);
+            setCreateWatermark(params.watermark ?? false);
+            setCreateWatermarkText(normalizeWatermarkText(params.watermarkText));
+            setActiveTab('video');
+            scrollToCreationForm();
+        },
+        [scrollToCreationForm]
+    );
 
     const showReferenceDeclarationGate = React.useCallback(
         (params: CreationFormData, blockedReferences: string[]) => {
@@ -2585,6 +2616,7 @@ export default function HomePage() {
     /** Finalize — open a review step before starting a paid draft-to-final generation. */
     const handleFinalizeItem = (item: VideoMetadata) => {
         setError(null, 'output');
+        setFinalizeSubmitLabel('');
         setFinalizeDialogItem(item);
     };
 
@@ -2667,10 +2699,12 @@ export default function HomePage() {
             });
         }
         setIsFinalizeSubmitting(true);
+        setFinalizeSubmitLabel('Starting final generation...');
         void (async () => {
             if (providerUrl) {
                 const providerParams = buildEditParams(providerUrl);
                 try {
+                    setFinalizeSubmitLabel('Creating final from provider draft URL...');
                     console.info('Finalize step start:', {
                         finalizeFlag: 0,
                         mode: 'update',
@@ -2680,7 +2714,8 @@ export default function HomePage() {
                     await handleCreateVideo(providerParams, {
                         title: item.title,
                         finalizeFlag: 0,
-                        rethrowOnError: true
+                        rethrowOnError: true,
+                        onSubmitStage: setFinalizeSubmitLabel
                     });
                     console.info('Finalize step succeeded:', {
                         finalizeFlag: 0,
@@ -2702,13 +2737,19 @@ export default function HomePage() {
             if (storedUrl && storedUrl !== providerUrl) {
                 const storedParams = buildEditParams(storedUrl);
                 try {
+                    setFinalizeSubmitLabel('Retrying with archived draft URL...');
                     console.info('Finalize step start:', {
                         finalizeFlag: 1,
                         mode: 'update',
                         source: 'storedUrl',
                         referenceVideoUrl: summarizeWebUrl(storedUrl)
                     });
-                    await handleCreateVideo(storedParams, { title: item.title, finalizeFlag: 1, rethrowOnError: true });
+                    await handleCreateVideo(storedParams, {
+                        title: item.title,
+                        finalizeFlag: 1,
+                        rethrowOnError: true,
+                        onSubmitStage: setFinalizeSubmitLabel
+                    });
                     console.info('Finalize step succeeded:', { finalizeFlag: 1, mode: 'update', source: 'storedUrl' });
                     return;
                 } catch (error) {
@@ -2725,6 +2766,7 @@ export default function HomePage() {
                 throw new Error('Could not read this draft video for Finalize fallback.');
             }
             try {
+                setFinalizeSubmitLabel('Creating final from current draft URL...');
                 console.info('Finalize step start:', {
                     finalizeFlag: 2,
                     mode: 'create',
@@ -2735,7 +2777,8 @@ export default function HomePage() {
                 const createJobId = await handleCreateVideo(createParams, {
                     title: item.title,
                     finalizeFlag: 2,
-                    rethrowOnError: true
+                    rethrowOnError: true,
+                    onSubmitStage: setFinalizeSubmitLabel
                 });
                 if (!createJobId) {
                     throw new Error('Finalize create fallback did not start a video job.');
@@ -2761,12 +2804,15 @@ export default function HomePage() {
                 console.error('Finalize failed:', error);
                 if (error instanceof RealPersonImageError) {
                     setError(realPersonReferenceErrorMessage(isPortraitEnabled), 'output');
+                } else if (isReferenceVideoDownloadError(error)) {
+                    setError(referenceVideoDownloadErrorMessage(), 'output');
                 } else {
                     setError(error instanceof Error ? error.message : 'Finalize failed.', 'output');
                 }
             })
             .finally(() => {
                 setIsFinalizeSubmitting(false);
+                setFinalizeSubmitLabel('');
             });
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
@@ -2799,15 +2845,11 @@ export default function HomePage() {
 
                 const thumbnailBlob = record?.thumbnail ?? (await captureVideoPoster(sourceBlob));
                 console.log(`[branding] adding watermark to existing video ${item.id}`);
-                const brandedBlob = await burnBrandingWatermarkIntoVideo(
-                    sourceBlob,
-                    watermarkText,
-                    (progress) => {
-                        if (progress === 0 || progress === 1) {
-                            console.log(`[branding] ${item.id} ${Math.round(progress * 100)}%`);
-                        }
+                const brandedBlob = await burnBrandingWatermarkIntoVideo(sourceBlob, watermarkText, (progress) => {
+                    if (progress === 0 || progress === 1) {
+                        console.log(`[branding] ${item.id} ${Math.round(progress * 100)}%`);
                     }
-                );
+                });
 
                 await db.videos.put({
                     id: item.id,
@@ -2836,12 +2878,7 @@ export default function HomePage() {
                 }
 
                 const watermarkedId = watermarkedVideoId(item.id, watermarkText);
-                const archived = await archiveLocalVideo(
-                    watermarkedId,
-                    brandedBlob,
-                    key,
-                    `${watermarkedId}.mp4`
-                );
+                const archived = await archiveLocalVideo(watermarkedId, brandedBlob, key, `${watermarkedId}.mp4`);
                 if (!archived?.url) {
                     updateItem(item.id, {
                         storageModeUsed: 'indexeddb',
@@ -2998,7 +3035,9 @@ export default function HomePage() {
                 setCreateSeconds(params.seconds);
                 setCreateVoiceLanguage(normalizeVoiceLanguage(params.voice_language));
                 setCreateCaptionMode(normalizeCaptionMode(params.caption_mode));
-                setCreateTitleOverlayEnabled(params.title_overlay_enabled === true && Boolean(params.title_overlay_text));
+                setCreateTitleOverlayEnabled(
+                    params.title_overlay_enabled === true && Boolean(params.title_overlay_text)
+                );
                 setCreateTitleOverlayText(normalizeTitleOverlayText(params.title_overlay_text));
                 setCreateTitleOverlayStyle(normalizeTitleOverlayStyle(params.title_overlay_style));
                 setCreateTitleOverlayDuration(normalizeTitleOverlayDuration(params.title_overlay_duration));
@@ -3493,6 +3532,7 @@ export default function HomePage() {
                 item={finalizeDialogItem}
                 open={Boolean(finalizeDialogItem)}
                 isSubmitting={isFinalizeSubmitting}
+                submittingLabel={finalizeSubmitLabel}
                 defaultWatermarkText={BRANDING_WATERMARK_TEXT}
                 declarations={effectiveDeclarations}
                 approvedAuthorizationIds={approvedAuthorizationIds}
@@ -3731,7 +3771,7 @@ export default function HomePage() {
                                     variant='ghost'
                                     size='icon'
                                     onClick={handleCopyShareUrl}
-                                    className='absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 text-white/70 hover:bg-white/10 hover:text-white'
+                                    className='absolute top-1/2 right-1 h-7 w-7 -translate-y-1/2 text-white/70 hover:bg-white/10 hover:text-white'
                                     aria-label={shareUrlCopied ? 'Share link copied' : 'Copy share link'}>
                                     {shareUrlCopied ? <Check className='h-4 w-4' /> : <Copy className='h-4 w-4' />}
                                 </Button>

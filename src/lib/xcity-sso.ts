@@ -18,6 +18,7 @@
 export const XCITY_SSO_ENABLED = process.env.NEXT_PUBLIC_XCITY_SSO === 'true';
 
 const KEY_URL = process.env.NEXT_PUBLIC_XCITY_KEY_URL || 'https://xcity.ai/api/me/litellm-key';
+const KEY_FETCH_TIMEOUT_MS = 15_000;
 
 export const XCITY_LOGIN_URL = process.env.NEXT_PUBLIC_XCITY_LOGIN_URL || 'https://xcity.ai/login';
 
@@ -32,8 +33,10 @@ export type XcityKeyFetch =
     | { status: 'error'; message: string };
 
 export async function fetchXcityUserKey(): Promise<XcityKeyFetch> {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), KEY_FETCH_TIMEOUT_MS);
     try {
-        const res = await fetch(KEY_URL, { credentials: 'include' });
+        const res = await fetch(KEY_URL, { credentials: 'include', signal: controller.signal });
         if (res.status === 401) {
             return { status: 'unauthenticated' };
         }
@@ -49,6 +52,11 @@ export async function fetchXcityUserKey(): Promise<XcityKeyFetch> {
         // Same-site fetch failing usually means CORS not yet allowing this
         // origin, or the user is on a non-xcity.ai preview domain (cookie
         // not sent cross-site).
+        if (err instanceof DOMException && err.name === 'AbortError') {
+            return { status: 'error', message: 'key request timed out' };
+        }
         return { status: 'error', message: err instanceof Error ? err.message : 'network error' };
+    } finally {
+        window.clearTimeout(timeoutId);
     }
 }

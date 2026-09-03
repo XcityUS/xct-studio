@@ -13,7 +13,6 @@
  * happened on Railway). No worker configured = archiving is skipped and
  * playback falls back to the provider URL.
  */
-
 import { StateConflictError } from './errors';
 
 type RuntimeConfig = {
@@ -32,9 +31,7 @@ function normalizeRuntimeConfig(cfg: Partial<RuntimeConfig> & { imageModels?: un
         transcribeModel: (cfg.transcribeModel || '').trim(),
         ttsModel: (cfg.ttsModel || '').trim(),
         imageModels: Array.isArray(cfg.imageModels)
-            ? cfg.imageModels
-                  .map((model) => (typeof model === 'string' ? model.trim() : ''))
-                  .filter(Boolean)
+            ? cfg.imageModels.map((model) => (typeof model === 'string' ? model.trim() : '')).filter(Boolean)
             : [],
         portraitEnabled: Boolean(cfg.portraitEnabled)
     };
@@ -354,7 +351,10 @@ export async function lookupArchivedVideo(videoId: string, apiKey: string): Prom
         }
         const data = (await res.json()) as { url?: string; key?: string; bytes?: number | null; cached?: boolean };
         if (!data.url) return { status: 'unavailable' };
-        return { status: 'found', media: { url: data.url, key: data.key, bytes: data.bytes ?? null, cached: !!data.cached } };
+        return {
+            status: 'found',
+            media: { url: data.url, key: data.key, bytes: data.bytes ?? null, cached: !!data.cached }
+        };
     } catch (err) {
         console.warn(`[media-archive] ${videoId} lookup errored:`, err);
         return { status: 'unavailable' };
@@ -536,20 +536,52 @@ export async function pushCloudState(doc: unknown, apiKey: string, etag: string 
     return data.etag;
 }
 
+const DATA_URI_FETCH_TIMEOUT_MS = 30_000;
+
+function timeoutSignal(timeoutMs: number): { signal: AbortSignal; cancel: () => void } {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+    return {
+        signal: controller.signal,
+        cancel: () => window.clearTimeout(timeoutId)
+    };
+}
+
+async function readBlobAsDataUri(blob: Blob, timeoutMs: number): Promise<string | null> {
+    return await new Promise<string | null>((resolve) => {
+        const reader = new FileReader();
+        const timeoutId = window.setTimeout(() => {
+            reader.abort();
+            resolve(null);
+        }, timeoutMs);
+        reader.onload = () => {
+            window.clearTimeout(timeoutId);
+            resolve(typeof reader.result === 'string' ? reader.result : null);
+        };
+        reader.onerror = () => {
+            window.clearTimeout(timeoutId);
+            resolve(null);
+        };
+        reader.onabort = () => {
+            window.clearTimeout(timeoutId);
+            resolve(null);
+        };
+        reader.readAsDataURL(blob);
+    });
+}
+
 async function urlToDataUri(url: string, accepts: (blob: Blob) => boolean): Promise<string | null> {
+    const timeout = timeoutSignal(DATA_URI_FETCH_TIMEOUT_MS);
     try {
-        const res = await fetch(url);
+        const res = await fetch(url, { signal: timeout.signal });
         if (!res.ok) return null;
         const blob = await res.blob();
         if (!accepts(blob)) return null;
-        return await new Promise<string | null>((resolve) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null);
-            reader.onerror = () => resolve(null);
-            reader.readAsDataURL(blob);
-        });
+        return await readBlobAsDataUri(blob, DATA_URI_FETCH_TIMEOUT_MS);
     } catch {
         return null;
+    } finally {
+        timeout.cancel();
     }
 }
 
