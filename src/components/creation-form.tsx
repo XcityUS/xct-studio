@@ -41,6 +41,7 @@ import {
 } from '@/lib/reference-origin';
 import {
     DEFAULT_MODEL,
+    DEFAULT_VIDEO_REFERENCE_MODEL,
     RATIOS,
     RESOLUTIONS,
     SEEDANCE_MODELS,
@@ -139,6 +140,8 @@ type CreationFormProps = {
     onOpenAssets?: (referenceKey?: string) => void;
     /** Successful/neutral feedback from non-submit actions, rendered under the Create button. */
     notice?: string | null;
+    /** Clears neutral feedback after direct form edits. */
+    onClearNotice?: () => void;
     /** Message from the last submission — rendered under the Create button. */
     error?: string | null;
 };
@@ -253,6 +256,7 @@ export function CreationForm({
     onBreakdownScript,
     onOpenAssets,
     notice,
+    onClearNotice,
     error
 }: CreationFormProps) {
     const activeModel = getSeedanceModel(model) ? model : DEFAULT_MODEL;
@@ -631,6 +635,7 @@ export function CreationForm({
                             value={activeModel}
                             onChange={(event) => {
                                 const newModel = event.target.value as VideoModel;
+                                onClearNotice?.();
                                 setModel((current) => (current === newModel ? current : newModel));
                                 // Pull the current choices back into range instead
                                 // of submitting something the selected model rejects.
@@ -1129,6 +1134,7 @@ export function CreationForm({
                         portraits={portraits}
                         showCharacters={false}
                         onCreateVirtualAsset={onCreateVirtualAsset}
+                        onSwitchToAssetModel={() => setModel(DEFAULT_VIDEO_REFERENCE_MODEL)}
                         disabled={isLoading}
                     />
                     {showReferenceAudio && (

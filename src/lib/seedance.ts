@@ -133,6 +133,10 @@ export function modelSupportsFinalize(modelId: string): boolean {
     return modelId === DEFAULT_VIDEO_REFERENCE_MODEL;
 }
 
+export function modelSupportsReferenceVideo(modelId: string): boolean {
+    return maxReferenceImages(modelId) > 1;
+}
+
 export function modelSupportsResolution(modelId: string, resolution: VideoResolution): boolean {
     return getSeedanceModel(modelId)?.unitPrices[resolution] != null;
 }
