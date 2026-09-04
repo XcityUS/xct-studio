@@ -41,6 +41,7 @@ interface ReferenceImagesInputProps {
     isLoadingImageAssets?: boolean;
     onRefreshImageAssets?: () => void;
     onCreateVirtualAsset?: (input: { url: string; name: string }) => Promise<string>;
+    onSwitchToAssetModel?: () => void;
     label?: string;
     hint?: string;
     showCharacters?: boolean;
@@ -348,6 +349,7 @@ export function ReferenceImagesInput({
     isLoadingImageAssets = false,
     onRefreshImageAssets,
     onCreateVirtualAsset,
+    onSwitchToAssetModel,
     label,
     hint: hintOverride,
     showCharacters = true,
@@ -683,13 +685,14 @@ export function ReferenceImagesInput({
                             const assetLibraryUnsupported =
                                 maxImages <= 1 &&
                                 Boolean(declaration && originRequiresAssetLibrary(declaration.origin));
+                            const canSwitchToAssetModel = assetLibraryUnsupported && Boolean(onSwitchToAssetModel);
                             const canOpenAssets =
                                 Boolean(onOpenAssets) &&
                                 Boolean(
                                     declaration?.origin === 'real-person' ||
                                         declaration?.origin === 'licensed-ip'
                                 ) &&
-                                !assetLibraryUnsupported;
+                                (!assetLibraryUnsupported || canSwitchToAssetModel);
                             const referenceKey = refKey(item.url);
                             const canCreateVirtual =
                                 Boolean(onCreateVirtualAsset) &&
@@ -750,20 +753,23 @@ export function ReferenceImagesInput({
                                                             canOpenAssets
                                                                 ? 'Open Assets'
                                                                 : assetLibraryUnsupported
-                                                                  ? 'Switch model first'
+                                                                  ? 'Switch model and open Assets'
                                                                   : 'Open Assets'
                                                         }
-                                                        onClick={() =>
-                                                            canOpenAssets &&
+                                                        onClick={() => {
+                                                            if (!canOpenAssets) return;
+                                                            if (assetLibraryUnsupported) {
+                                                                onSwitchToAssetModel?.();
+                                                            }
                                                             onOpenAssets?.(
                                                                 declaration?.origin === 'licensed-ip'
                                                                     ? referenceKey
                                                                     : undefined
-                                                            )
-                                                        }
+                                                            );
+                                                        }}
                                                         disabled={!canOpenAssets || disabled}
                                                         className='shrink-0 rounded-md border border-white/15 bg-white/5 px-2 py-1 text-xs text-white/65 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:text-white/40'>
-                                                        {assetLibraryUnsupported ? 'Switch model first' : actionLabel}
+                                                        {assetLibraryUnsupported ? 'Switch and set up' : actionLabel}
                                                     </button>
                                                 )}
                                             </div>

@@ -41,6 +41,7 @@ import {
 } from '@/lib/reference-origin';
 import {
     DEFAULT_MODEL,
+    DEFAULT_VIDEO_REFERENCE_MODEL,
     RATIOS,
     RESOLUTIONS,
     SEEDANCE_MODELS,
@@ -1129,6 +1130,7 @@ export function CreationForm({
                         portraits={portraits}
                         showCharacters={false}
                         onCreateVirtualAsset={onCreateVirtualAsset}
+                        onSwitchToAssetModel={() => setModel(DEFAULT_VIDEO_REFERENCE_MODEL)}
                         disabled={isLoading}
                     />
                     {showReferenceAudio && (
