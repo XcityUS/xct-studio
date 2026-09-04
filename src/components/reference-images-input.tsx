@@ -87,21 +87,42 @@ function declarationActionLabel(origin: ReferenceOrigin): string | null {
 
 function ReferenceStatusBadge({
     declaration,
-    approvedAuthorizationIds
+    approvedAuthorizationIds,
+    onEdit
 }: {
     declaration: ReferenceDeclaration | undefined;
     approvedAuthorizationIds: ReadonlySet<string>;
+    onEdit?: () => void;
 }) {
     const satisfied = declarationSatisfied(declaration, approvedAuthorizationIds);
-    const title = satisfied ? 'Declaration complete' : declaration ? 'Needs setup before submit' : 'Choose origin';
+    const title = declaration
+        ? satisfied
+            ? 'Declaration complete. Click to change origin.'
+            : 'Needs setup before submit. Click to change origin.'
+        : 'Choose origin';
+    const content = satisfied ? <Check className='h-3 w-3' /> : declaration ? <AlertTriangle className='h-3 w-3' /> : '?';
+    const className = cn(
+        'absolute right-0 bottom-0 flex h-4 w-4 items-center justify-center rounded-tl border border-black/50 text-[10px] font-semibold',
+        satisfied ? 'bg-emerald-400 text-black' : 'bg-amber-400 text-black'
+    );
+    if (onEdit && declaration) {
+        return (
+            <button
+                type='button'
+                title={title}
+                onClick={(event) => {
+                    event.stopPropagation();
+                    onEdit();
+                }}
+                className={cn(className, 'transition-opacity hover:opacity-85')}
+                aria-label='Change reference origin'>
+                {content}
+            </button>
+        );
+    }
     return (
-        <span
-            title={title}
-            className={cn(
-                'absolute right-0 bottom-0 flex h-4 w-4 items-center justify-center rounded-tl border border-black/50 text-[10px] font-semibold',
-                satisfied ? 'bg-emerald-400 text-black' : 'bg-amber-400 text-black'
-            )}>
-            {satisfied ? <Check className='h-3 w-3' /> : declaration ? <AlertTriangle className='h-3 w-3' /> : '?'}
+        <span title={title} className={className}>
+            {content}
         </span>
     );
 }
@@ -140,6 +161,7 @@ type LastFrameSlotProps = {
     onUpload?: (file: File) => Promise<string>;
     declaration?: ReferenceDeclaration;
     approvedAuthorizationIds: ReadonlySet<string>;
+    onEditDeclaration?: () => void;
     disabled?: boolean;
 };
 
@@ -149,6 +171,7 @@ function LastFrameSlot({
     onUpload,
     declaration,
     approvedAuthorizationIds,
+    onEditDeclaration,
     disabled
 }: LastFrameSlotProps) {
     const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -216,6 +239,7 @@ function LastFrameSlot({
                     <ReferenceStatusBadge
                         declaration={declaration}
                         approvedAuthorizationIds={approvedAuthorizationIds}
+                        onEdit={disabled ? undefined : onEditDeclaration}
                     />
                 </div>
             ) : (
@@ -366,6 +390,7 @@ export function ReferenceImagesInput({
     const [showStoredImages, setShowStoredImages] = React.useState(false);
     const [urlDraft, setUrlDraft] = React.useState('');
     const [virtualNames, setVirtualNames] = React.useState<Record<string, string>>({});
+    const [editingDeclarationKeys, setEditingDeclarationKeys] = React.useState<Set<string>>(() => new Set());
 
     const remaining = maxImages - urls.length;
     const canUpload = Boolean(onUpload);
@@ -381,9 +406,36 @@ export function ReferenceImagesInput({
             items.push({ url: lastFrameUrl, label: 'Last frame' });
         }
         return items.filter(
-            (item) => !declarationSatisfied(declarationForUrl(declarations, item.url), approvedAuthorizationIds)
+            (item) =>
+                editingDeclarationKeys.has(refKey(item.url)) ||
+                !declarationSatisfied(declarationForUrl(declarations, item.url), approvedAuthorizationIds)
         );
-    }, [approvedAuthorizationIds, declarations, lastFrameUrl, urls]);
+    }, [approvedAuthorizationIds, declarations, editingDeclarationKeys, lastFrameUrl, urls]);
+
+    const editDeclarationForUrl = React.useCallback((url: string) => {
+        const key = refKey(url);
+        if (!key) return;
+        setEditingDeclarationKeys((current) => {
+            const next = new Set(current);
+            next.add(key);
+            return next;
+        });
+    }, []);
+
+    const declareReference = React.useCallback(
+        (url: string, origin: ReferenceOrigin) => {
+            onDeclare(url, origin);
+            const key = refKey(url);
+            if (!key) return;
+            setEditingDeclarationKeys((current) => {
+                if (!current.has(key)) return current;
+                const next = new Set(current);
+                next.delete(key);
+                return next;
+            });
+        },
+        [onDeclare]
+    );
 
     const addUrls = React.useCallback(
         (added: string[]) => {
@@ -517,6 +569,7 @@ export function ReferenceImagesInput({
                             <ReferenceStatusBadge
                                 declaration={declarationForUrl(declarations, url)}
                                 approvedAuthorizationIds={approvedAuthorizationIds}
+                                onEdit={disabled ? undefined : () => editDeclarationForUrl(url)}
                             />
                         </div>
                     ))}
@@ -657,6 +710,7 @@ export function ReferenceImagesInput({
                     onUpload={onUpload}
                     declaration={declarationForUrl(declarations, lastFrameUrl)}
                     approvedAuthorizationIds={approvedAuthorizationIds}
+                    onEditDeclaration={() => editDeclarationForUrl(lastFrameUrl)}
                     disabled={disabled}
                 />
             )}
@@ -725,7 +779,7 @@ export function ReferenceImagesInput({
                                         </div>
                                         <Select
                                             value={declaration?.origin}
-                                            onValueChange={(value) => onDeclare(item.url, value as ReferenceOrigin)}
+                                            onValueChange={(value) => declareReference(item.url, value as ReferenceOrigin)}
                                             disabled={disabled}>
                                             <SelectTrigger className='h-9 w-full border-white/20 bg-black text-xs text-white focus:border-white/50 focus:ring-white/50'>
                                                 <SelectValue placeholder='Select origin' />

@@ -30,6 +30,7 @@ import {
     type PortraitSession,
     type PortraitStatus
 } from '@/lib/portrait';
+import { refKey } from '@/lib/reference-origin';
 import {
     Check,
     ChevronDown,
@@ -62,7 +63,7 @@ type AssetsPanelProps = {
     loadAuthorizationQueue: () => Promise<AuthorizationQueueItem[] | null>;
     reviewAuthorization: (id: string, action: AuthorizationReviewAction, note: string) => Promise<void>;
     fetchAuthorizationDoc: (id: string) => Promise<Blob>;
-    authorizationTargets: { key: string; label: string; url: string; authorizationId?: string }[];
+    authorizationTargets: { key: string; label: string; url: string; kind?: 'image' | 'video'; authorizationId?: string }[];
     selectedAuthorizationReferenceKey: string | null;
     onAuthorizationSubmitted: (referenceKey: string, authorizationId: string) => void;
     characters: VideoCharacter[];
@@ -88,8 +89,18 @@ type AssetsPanelProps = {
     onUseAsReference: (url: string) => void;
     /** Loads a video asset into the video form's reference video list. */
     onUseAsReferenceVideo: (url: string) => void;
+    /** Sends the user back to the video form to mark a reference for licensing review. */
+    onMarkReferenceForAuthorization?: () => void;
     /** The panel fetches lazily — only once it has actually been shown. */
     active: boolean;
+};
+
+type AuthorizationTargetOption = {
+    key: string;
+    label: string;
+    url: string;
+    kind?: 'image' | 'video';
+    authorizationId?: string;
 };
 
 function formatBytes(bytes: number | null): string {
@@ -136,6 +147,26 @@ function defaultCharacterName(asset: UserAsset): string {
             .replace(/[-_]+/g, ' ')
             .trim() || 'Character'
     );
+}
+
+function readableAssetStem(asset: UserAsset): string {
+    const raw = asset.name?.trim() || asset.key.split('/').pop()?.trim() || '';
+    const stem = raw
+        .replace(/\.[^.]+$/, '')
+        .replace(/^(video|image|audio)[-_]/i, '')
+        .trim();
+    if (!stem || /^[A-Za-z0-9_-]{28,}$/.test(stem)) return '';
+    return stem.length > 24 ? `${stem.slice(0, 12)}...${stem.slice(-8)}` : stem;
+}
+
+function authorizationAssetLabel(asset: UserAsset, index: number): string {
+    const kindLabel = asset.kind === 'video' ? 'Video' : 'Image';
+    const details = [readableAssetStem(asset), formatBytes(asset.bytes), formatDate(asset.uploaded ?? '')].filter(Boolean);
+    return [`${kindLabel} asset ${index + 1}`, ...details].join(' · ');
+}
+
+function isUploadedReferenceMedia(asset: UserAsset): boolean {
+    return /\/(?:refs|videos)\//.test(asset.key) && (asset.kind === 'image' || asset.kind === 'video');
 }
 
 function shortAssetId(assetId: string): string {
@@ -387,6 +418,7 @@ export function AssetsPanel({
     getPortraitStatus,
     onUseAsReference,
     onUseAsReferenceVideo,
+    onMarkReferenceForAuthorization,
     active
 }: AssetsPanelProps) {
     const [assets, setAssets] = React.useState<UserAsset[] | null>(null);
@@ -419,6 +451,30 @@ export function AssetsPanel({
     const [portraitDrafts, setPortraitDrafts] = React.useState<Record<string, { assetKey: string; name: string }>>({});
     const [portraitStatus, setPortraitStatus] = React.useState<string | null>(null);
     const [isCheckingPortraitSetup, setIsCheckingPortraitSetup] = React.useState(false);
+    const uploadedAuthorizationTargets = React.useMemo<AuthorizationTargetOption[]>(
+        () =>
+            (assets ?? [])
+                .filter(isUploadedReferenceMedia)
+                .map((asset, index) => {
+                    const kind: 'image' | 'video' = asset.kind === 'video' ? 'video' : 'image';
+                    return {
+                        key: refKey(asset.url),
+                        label: authorizationAssetLabel({ ...asset, kind }, index),
+                        url: asset.url,
+                        kind
+                    };
+                })
+                .filter((target) => target.key),
+        [assets]
+    );
+    const authorizationTargetOptions = React.useMemo<AuthorizationTargetOption[]>(() => {
+        const seen = new Set<string>();
+        return [...authorizationTargets, ...uploadedAuthorizationTargets].filter((target) => {
+            if (seen.has(target.key)) return false;
+            seen.add(target.key);
+            return true;
+        });
+    }, [authorizationTargets, uploadedAuthorizationTargets]);
 
     const checkPortraitSetup = React.useCallback(async () => {
         setIsCheckingPortraitSetup(true);
@@ -494,17 +550,17 @@ export function AssetsPanel({
     React.useEffect(() => {
         if (
             selectedAuthorizationReferenceKey &&
-            authorizationTargets.some((target) => target.key === selectedAuthorizationReferenceKey)
+            authorizationTargetOptions.some((target) => target.key === selectedAuthorizationReferenceKey)
         ) {
             setAuthorizationReferenceKey(selectedAuthorizationReferenceKey);
             return;
         }
         setAuthorizationReferenceKey((current) =>
-            current && authorizationTargets.some((target) => target.key === current)
+            current && authorizationTargetOptions.some((target) => target.key === current)
                 ? current
-                : (authorizationTargets[0]?.key ?? '')
+                : (authorizationTargetOptions[0]?.key ?? '')
         );
-    }, [authorizationTargets, selectedAuthorizationReferenceKey]);
+    }, [authorizationTargetOptions, selectedAuthorizationReferenceKey]);
 
     const fetchedPortraitGroupsRef = React.useRef(false);
     React.useEffect(() => {
@@ -713,8 +769,10 @@ export function AssetsPanel({
         [authorizationReviewNotes, loadAuthorizations, reviewAuthorization]
     );
 
-    const selectedAuthorizationTarget = authorizationTargets.find((target) => target.key === authorizationReferenceKey);
     const visible = (assets ?? []).filter((a) => kindFilter === 'all' || a.kind === kindFilter);
+    const selectedAuthorizationTarget = authorizationTargetOptions.find(
+        (target) => target.key === authorizationReferenceKey
+    );
 
     return (
         <Card className='flex h-full w-full flex-col overflow-hidden rounded-lg border border-white/10 bg-black'>
@@ -1199,18 +1257,28 @@ export function AssetsPanel({
                         <div className='grid gap-3 md:grid-cols-[minmax(0,1.15fr)_minmax(12rem,0.85fr)]'>
                             <div className='space-y-1.5'>
                                 <Label htmlFor='authorization-reference' className='text-xs text-white/70'>
-                                    Reference image
+                                    Reference media
                                 </Label>
-                                {authorizationTargets.length > 0 ? (
+                                {authorizationTargetOptions.length > 0 ? (
                                     <div className='grid grid-cols-[2.5rem_minmax(0,1fr)] items-center gap-2'>
                                         {selectedAuthorizationTarget && (
                                             <div className='h-10 w-10 shrink-0 overflow-hidden rounded-md border border-white/15 bg-white/5'>
-                                                {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary reference URL */}
-                                                <img
-                                                    src={selectedAuthorizationTarget.url}
-                                                    alt={selectedAuthorizationTarget.label}
-                                                    className='h-full w-full object-cover'
-                                                />
+                                                {selectedAuthorizationTarget.kind === 'video' ? (
+                                                    <video
+                                                        src={`${selectedAuthorizationTarget.url}#t=0.001`}
+                                                        muted
+                                                        playsInline
+                                                        preload='metadata'
+                                                        className='h-full w-full object-cover'
+                                                    />
+                                                ) : (
+                                                    // eslint-disable-next-line @next/next/no-img-element -- arbitrary reference URL
+                                                    <img
+                                                        src={selectedAuthorizationTarget.url}
+                                                        alt={selectedAuthorizationTarget.label}
+                                                        className='h-full w-full object-cover'
+                                                    />
+                                                )}
                                             </div>
                                         )}
                                         <div className='relative min-w-0'>
@@ -1220,7 +1288,7 @@ export function AssetsPanel({
                                                 onChange={(event) => setAuthorizationReferenceKey(event.target.value)}
                                                 disabled={isSubmittingAuthorization}
                                                 className='h-10 w-full appearance-none rounded-md border border-white/20 bg-black px-3 pr-10 text-sm text-white disabled:opacity-40'>
-                                                {authorizationTargets.map((target) => (
+                                                {authorizationTargetOptions.map((target) => (
                                                     <option key={target.key} value={target.key}>
                                                         {target.label}
                                                         {target.authorizationId ? ` · ${target.authorizationId}` : ''}
@@ -1231,9 +1299,23 @@ export function AssetsPanel({
                                         </div>
                                     </div>
                                 ) : (
-                                    <p className='rounded-md border border-amber-300/20 bg-amber-300/[0.06] px-3 py-2 text-xs leading-5 text-amber-100/80'>
-                                        Mark a video reference image as a celebrity or licensed character first.
-                                    </p>
+                                    <div className='rounded-md border border-amber-300/20 bg-amber-300/[0.06] p-3'>
+                                        <p className='text-xs leading-5 text-amber-100/80'>
+                                            Mark a video reference image or video as a celebrity or licensed character
+                                            first, or upload that media to Assets. This lets Studio know which media the
+                                            authorization document belongs to.
+                                        </p>
+                                        {onMarkReferenceForAuthorization && (
+                                            <Button
+                                                type='button'
+                                                variant='ghost'
+                                                size='sm'
+                                                onClick={onMarkReferenceForAuthorization}
+                                                className='mt-2 h-8 rounded-md border border-amber-200/20 px-2 text-xs text-amber-100 hover:bg-amber-200/10 hover:text-white'>
+                                                Go to reference image
+                                            </Button>
+                                        )}
+                                    </div>
                                 )}
                             </div>
                             <div className='space-y-1.5'>
@@ -1245,7 +1327,7 @@ export function AssetsPanel({
                                     value={authorizationSubjectName}
                                     onChange={(event) => setAuthorizationSubjectName(event.target.value)}
                                     placeholder='Celebrity or character name'
-                                    disabled={isSubmittingAuthorization || authorizationTargets.length === 0}
+                                    disabled={isSubmittingAuthorization || authorizationTargetOptions.length === 0}
                                     className='h-10 rounded-md border border-white/20 bg-black text-sm text-white placeholder:text-white/35 focus:border-white/50 focus:ring-white/50'
                                 />
                             </div>
@@ -1259,7 +1341,7 @@ export function AssetsPanel({
                                 value={authorizationNote}
                                 onChange={(event) => setAuthorizationNote(event.target.value)}
                                 placeholder='Agreement summary, usage scope, reviewer context'
-                                disabled={isSubmittingAuthorization || authorizationTargets.length === 0}
+                                disabled={isSubmittingAuthorization || authorizationTargetOptions.length === 0}
                                 className='min-h-20 w-full resize-y rounded-md border border-white/20 bg-black px-3 py-2 text-sm text-white placeholder:text-white/35 focus:border-white/50 focus:ring-white/50'
                             />
                         </div>
@@ -1274,7 +1356,7 @@ export function AssetsPanel({
                                     type='file'
                                     accept='application/pdf,image/png,image/jpeg,image/webp'
                                     onChange={(event) => setAuthorizationFile(event.target.files?.[0] ?? null)}
-                                    disabled={isSubmittingAuthorization || authorizationTargets.length === 0}
+                                    disabled={isSubmittingAuthorization || authorizationTargetOptions.length === 0}
                                     className='h-10 rounded-md border border-white/20 bg-black text-sm text-white file:mr-3 file:rounded-md file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-xs file:text-white hover:file:bg-white/20 disabled:opacity-40'
                                 />
                                 <p className='text-[10px] text-white/35'>PDF · PNG · JPEG · WebP · up to 5 MB</p>
@@ -1283,7 +1365,7 @@ export function AssetsPanel({
                                 type='submit'
                                 disabled={
                                     isSubmittingAuthorization ||
-                                    authorizationTargets.length === 0 ||
+                                    authorizationTargetOptions.length === 0 ||
                                     !authorizationReferenceKey ||
                                     !authorizationSubjectName.trim() ||
                                     !authorizationFile
