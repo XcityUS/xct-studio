@@ -1009,6 +1009,10 @@ export default function HomePage() {
                 const file = new File([record.blob], `${record.id}.png`, {
                     type: record.blob.type || 'image/png'
                 });
+                const validation = await validateAssetImage(file);
+                if (validation.status === 'rejected') {
+                    throw new Error(validation.message);
+                }
                 url = await uploadReferenceImage(file, key, fileNameWithoutExtension(file.name));
             } else if (record.source_url) {
                 // Provider URL: works while it lasts; the gateway fetches it
@@ -1303,7 +1307,7 @@ export default function HomePage() {
 
     /** Assets tab → video form: append the image to the reference list. */
     const handleUseAssetAsReference = React.useCallback(
-        (url: string) => {
+        async (url: string) => {
             const refCap = maxReferenceImages(createModel);
             if (createReferenceUrls.includes(url)) {
                 setCreateNotice(null);
@@ -1312,6 +1316,14 @@ export default function HomePage() {
                 setCreateNotice(null);
                 setError(`Reference image limit reached (${refCap}). Remove one before adding another.`, 'create');
             } else {
+                const validation = await validateAssetImage(url);
+                if (validation.status === 'rejected') {
+                    setCreateNotice(null);
+                    setError(validation.message, 'create');
+                    setActiveTab('video');
+                    void scrollToCreationForm();
+                    return;
+                }
                 setCreateReferenceUrls((prev) => (prev.includes(url) ? prev : [...prev, url].slice(0, refCap)));
                 setError(null, 'create');
                 setCreateNotice('Added as reference image.');
