@@ -4,7 +4,7 @@ const GENERATED_CAPTIONS_PROMPT_HEADER = 'Caption overlay instructions:';
 const LANGUAGE_PROMPT_HEADER = 'Language instructions:';
 const TITLE_OVERLAY_PROMPT_HEADER = 'Title overlay instructions:';
 const SUBTITLE_LAYOUT_PROMPT =
-    'Subtitle pacing and styling: do not display the full transcript at once. Split long dialogue into short timed subtitle segments and show only the current segment. For bilingual subtitles, show at most one short English segment above its matching Chinese segment at any moment. Use a compact small subtitle font, keep subtitles within the bottom safe area, and keep at least one line-height of vertical spacing between stacked lines. If a segment would exceed the safe area, reduce the font size first, then wrap; subtitle lines must never overlap.';
+    'Subtitle pacing and styling: do not display the full transcript at once. Split long dialogue into short timed subtitle segments and show only the current segment. If one subtitle segment is too long for the character limits, split it into two consecutive subtitle screens instead of fitting everything into one frame. Show only one subtitle language at a time; never display English and Chinese subtitles simultaneously. Keep each English line within 24 characters and each Chinese line within 12 Chinese characters. Chinese subtitles must be concise paraphrases, not word-for-word translations. Do not autocomplete uncertain speech, do not invent unclear words, and do not repeat characters or syllables; omit uncertain text instead. Use a compact small subtitle font, keep subtitles within the bottom safe area, and reduce the font size before wrapping if a segment would exceed the safe area. Subtitle lines must never overlap.';
 export const MAX_GENERATED_CAPTIONS = 2;
 export const NO_GENERATED_CAPTION_LANGUAGE = 'none';
 export const DEFAULT_GENERATED_CAPTION_LANGUAGES = ['en-US', 'zh-CN'] as const;
@@ -147,6 +147,14 @@ export function normalizeGeneratedCaptionItems(
     return items;
 }
 
+function avoidGeneratedCaptionsPattern() {
+    return new RegExp(`\\n?${AVOID_GENERATED_CAPTIONS_PROMPT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i');
+}
+
+export function cleanPromptForReuse(prompt: string): string {
+    return stripCaptionDirective(prompt).replace(avoidGeneratedCaptionsPattern(), '').trimEnd();
+}
+
 function stripCaptionDirective(prompt: string): string {
     const markerIndex = [
         GENERATED_CAPTIONS_PROMPT_HEADER,
@@ -179,9 +187,7 @@ export function promptWithGeneratedCaptions(
     languages?: readonly string[]
 ): string {
     const captionItems = normalizeGeneratedCaptionItems(captions, languages);
-    const trimmed = stripCaptionDirective(prompt)
-        .replace(new RegExp(`\\n?${AVOID_GENERATED_CAPTIONS_PROMPT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i'), '')
-        .trimEnd();
+    const trimmed = cleanPromptForReuse(prompt);
     if (captionItems.length === 0) return promptWithCaptionGuard(trimmed);
 
     const captionLines = captionItems.map((caption, index) => {
@@ -196,7 +202,7 @@ export function promptWithGeneratedCaptions(
         ...captionLines,
         'Use natural American English for spoken dialogue by default.',
         activeLanguageLabels.length > 1
-            ? `Render subtitles only from the lines above, stacked in this order from top to bottom: ${activeLanguageLabels.join(', ')}.`
+            ? `Render subtitles only from the lines above, but show only one language at a time instead of stacking them: ${activeLanguageLabels.join(', ')}.`
             : 'Render only the subtitle line above.',
         SUBTITLE_LAYOUT_PROMPT
     ].join('\n');
@@ -218,9 +224,7 @@ export function promptWithLanguageControls(
     const titleStyle = normalizeTitleOverlayStyle(options.titleOverlay?.style);
     const titleDuration = normalizeTitleOverlayDuration(options.titleOverlay?.duration);
     const titleLanguage = normalizeTitleOverlayLanguage(options.titleOverlay?.language);
-    const trimmed = stripCaptionDirective(prompt)
-        .replace(new RegExp(`\\n?${AVOID_GENERATED_CAPTIONS_PROMPT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i'), '')
-        .trimEnd();
+    const trimmed = cleanPromptForReuse(prompt);
     const voice = VOICE_LANGUAGE_OPTIONS.find((item) => item.id === voiceLanguage);
     const lines = [
         LANGUAGE_PROMPT_HEADER,
@@ -233,7 +237,7 @@ export function promptWithLanguageControls(
         lines.push('Subtitles: no subtitles, no captions, no on-screen subtitle text.');
     } else if (captionMode === DEFAULT_CAPTION_MODE) {
         lines.push(
-            'Subtitles: render bilingual subtitles from the dialogue, English on the upper subtitle line and Chinese directly below it.'
+            'Subtitles: generate English and Chinese subtitle variants from the dialogue, but show only one language at a time. Do not stack bilingual subtitles in the same frame.'
         );
         lines.push(SUBTITLE_LAYOUT_PROMPT);
     } else {

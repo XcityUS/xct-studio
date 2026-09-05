@@ -113,7 +113,7 @@ export type VideoJobCreate = {
     omni_reference_task_type?: 'edit' | 'extend';
     /** Provider ratio override for omni-reference video editing/extension. */
     omni_reference_ratio?: 'adaptive';
-    /** Provider duration override for omni-reference workflows. Do not set for video editing tasks. */
+    /** Provider duration override for omni-reference workflows. Seedance edit expects -1. */
     omni_reference_duration?: number;
     /** Omit resolution for provider task types where output specs follow the reference video. */
     omit_resolution?: boolean;

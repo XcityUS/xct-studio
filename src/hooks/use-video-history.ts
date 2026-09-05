@@ -230,11 +230,22 @@ function writeLocalHistory(doc: HistoryDoc) {
     localStorage.setItem(DELETED_IDS_KEY, JSON.stringify(doc.deletedIds));
 }
 
+type VideoHistoryOptions = {
+    onPersistenceError?: (message: string) => void;
+};
+
+function persistenceErrorMessage(error: unknown): string {
+    if (error instanceof DOMException && error.name === 'QuotaExceededError') {
+        return 'Video finished, but Studio could not save it to History because browser storage is full. Download or archive it before refreshing.';
+    }
+    return 'Video finished, but Studio could not save it to History in this browser. Download or archive it before refreshing.';
+}
+
 /**
  * Video history metadata, persisted to localStorage. Blobs live in IndexedDB
  * (src/lib/db.ts) — this is only the listing the panels render from.
  */
-export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
+export function useVideoHistory(resolveKey?: () => Promise<string | null>, options: VideoHistoryOptions = {}) {
     const [history, setHistory] = React.useState<VideoMetadata[]>([]);
     const [characters, setCharacters] = React.useState<VideoCharacter[]>([]);
     const [portraits, setPortraits] = React.useState<VideoPortrait[]>([]);
@@ -257,6 +268,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
     const pushTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const pushQueueRef = React.useRef<Promise<void>>(Promise.resolve());
     const lastSyncedFingerprintRef = React.useRef<string | null>(null);
+    const onPersistenceErrorRef = React.useRef(options.onPersistenceError);
 
     historyRef.current = history;
     charactersRef.current = characters;
@@ -266,6 +278,15 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
     React.useEffect(() => {
         resolveKeyRef.current = resolveKey;
     }, [resolveKey]);
+
+    React.useEffect(() => {
+        onPersistenceErrorRef.current = options.onPersistenceError;
+    }, [options.onPersistenceError]);
+
+    const reportPersistenceError = React.useCallback((error: unknown) => {
+        console.error('Failed to save history to localStorage:', error);
+        onPersistenceErrorRef.current?.(persistenceErrorMessage(error));
+    }, []);
 
     /** The doc as this device currently sees it. */
     const localDoc = React.useCallback(
@@ -326,10 +347,10 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
                     deletedIds: deletedIdsRef.current
                 });
             } catch (e) {
-                console.error('Failed to save history to localStorage:', e);
+                reportPersistenceError(e);
             }
         }
-    }, [characters, declarations, history, isInitialLoad, portraits]);
+    }, [characters, declarations, history, isInitialLoad, portraits, reportPersistenceError]);
 
     const applyCloudDoc = React.useCallback((doc: HistoryDoc) => {
         skipNextCloudPushRef.current = true;
@@ -346,9 +367,9 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
         try {
             writeLocalHistory(doc);
         } catch (e) {
-            console.error('Failed to save cloud history to localStorage:', e);
+            reportPersistenceError(e);
         }
-    }, []);
+    }, [reportPersistenceError]);
 
     const pushDocRef = React.useRef<((apiKey: string, doc: HistoryDoc) => Promise<void>) | null>(null);
 
@@ -607,14 +628,14 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
                     deletedIds: deletedIdsRef.current
                 });
             } catch (e) {
-                console.error('Failed to save history to localStorage:', e);
+                reportPersistenceError(e);
             }
             setHistory(next.history);
             setCharacters(next.characters);
             setPortraits(next.portraits);
             setDeclarations(nextDeclarations);
         },
-        []
+        [reportPersistenceError]
     );
 
     /** Records ids as deleted so the removal survives a merge with another device. */
@@ -636,10 +657,10 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>) {
                 deletedIds: deletedIdsRef.current
             });
         } catch (e) {
-            console.error('Failed to save history to localStorage:', e);
+            reportPersistenceError(e);
         }
         setHistory(next);
-    }, []);
+    }, [reportPersistenceError]);
 
     const addItem = React.useCallback(
         (item: VideoMetadata) => {
