@@ -134,7 +134,7 @@ function TileTitle({
     };
 
     return (
-        <div className='flex items-start gap-1'>
+        <div className='flex min-h-8 items-start gap-1'>
             {editing ? (
                 <input
                     value={draft}
@@ -156,7 +156,7 @@ function TileTitle({
                     aria-label='History title'
                 />
             ) : (
-                <p className='line-clamp-1 flex-1 text-xs font-medium text-white/75' title={prompt}>
+                <p className='line-clamp-2 flex-1 break-words text-xs leading-4 font-medium text-white/75' title={prompt}>
                     {displayTitle}
                 </p>
             )}

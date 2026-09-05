@@ -283,7 +283,9 @@ function LastFrameSlot({
                                     <p className='text-xs text-white/60'>
                                         Drop the final frame here or click to upload
                                     </p>
-                                    <p className='text-[10px] text-white/35'>PNG · JPEG · WebP · up to 10 MB</p>
+                                    <p className='text-[10px] text-white/35'>
+                                        PNG · JPEG · WebP · 300-6000 px per side · up to 10 MB
+                                    </p>
                                 </>
                             )}
                         </div>
@@ -934,7 +936,9 @@ export function ReferenceImagesInput({
                                     <p className='text-xs text-white/60'>
                                         {urls.length ? 'Add another image' : 'Drop an image here or click to upload'}
                                     </p>
-                                    <p className='text-[10px] text-white/35'>PNG · JPEG · WebP · up to 10 MB</p>
+                                    <p className='text-[10px] text-white/35'>
+                                        PNG · JPEG · WebP · 300-6000 px per side · up to 10 MB
+                                    </p>
                                 </>
                             )}
                         </div>

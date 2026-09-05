@@ -95,6 +95,7 @@ import {
 } from '@/lib/portrait';
 import { estimateVideoProgress } from '@/lib/progress';
 import {
+    cleanPromptForReuse,
     DEFAULT_CAPTION_MODE,
     DEFAULT_TITLE_OVERLAY_DURATION,
     DEFAULT_TITLE_OVERLAY_LANGUAGE,
@@ -284,7 +285,11 @@ function sharePromptWithinLimit(prompt: string): string {
 
 function shareTitleFromItem(item: VideoMetadata): string {
     const title = item.title?.trim();
-    return title ? (title.length > 120 ? `${title.slice(0, 117)}...` : title) : shareTitleFromPrompt(item.prompt);
+    return title
+        ? title.length > 120
+            ? `${title.slice(0, 117)}...`
+            : title
+        : shareTitleFromPrompt(cleanPromptForReuse(item.prompt));
 }
 
 function captionModeFromLanguages(languages: readonly string[] | undefined): string | undefined {
@@ -296,8 +301,9 @@ function captionModeFromLanguages(languages: readonly string[] | undefined): str
 }
 
 function shareParamsToForm(prompt: string, params: unknown): { params: CreationFormData; adjusted: string[] } {
+    const reusablePrompt = cleanPromptForReuse(prompt);
     if (isVideoJobCreateParams(params)) {
-        const reconciled = reconcilePreset({ ...params, prompt });
+        const reconciled = reconcilePreset({ ...params, prompt: reusablePrompt });
         const captionMode = normalizeCaptionMode(
             reconciled.caption_mode ?? captionModeFromLanguages(reconciled.generated_caption_languages)
         );
@@ -364,7 +370,7 @@ function shareParamsToForm(prompt: string, params: unknown): { params: CreationF
     return {
         params: {
             model,
-            prompt,
+            prompt: reusablePrompt,
             ratio,
             resolution,
             seconds,
@@ -636,7 +642,9 @@ export default function HomePage() {
         addPortrait,
         removePortrait,
         setDeclaration
-    } = useVideoHistory(resolveKey);
+    } = useVideoHistory(resolveKey, {
+        onPersistenceError: (message) => setError(message, 'output')
+    });
     const { getVideoSrc, getThumbnailSrc, setRemoteSource, removeSource, clearAllSources, hasLocalCopy, hasSource } =
         useVideoSources();
     const effectiveDeclarations = React.useMemo(
@@ -921,6 +929,10 @@ export default function HomePage() {
 
     const handleUploadImage = React.useCallback(
         async (file: File): Promise<string> => {
+            const validation = await validateAssetImage(file);
+            if (validation.status === 'rejected') {
+                throw new Error(validation.message);
+            }
             const key = await resolveKey();
             if (!key) {
                 throw new Error('Sign in at xcity.ai (or set an API key) before uploading images.');
@@ -997,6 +1009,10 @@ export default function HomePage() {
                 const file = new File([record.blob], `${record.id}.png`, {
                     type: record.blob.type || 'image/png'
                 });
+                const validation = await validateAssetImage(file);
+                if (validation.status === 'rejected') {
+                    throw new Error(validation.message);
+                }
                 url = await uploadReferenceImage(file, key, fileNameWithoutExtension(file.name));
             } else if (record.source_url) {
                 // Provider URL: works while it lasts; the gateway fetches it
@@ -1291,7 +1307,7 @@ export default function HomePage() {
 
     /** Assets tab → video form: append the image to the reference list. */
     const handleUseAssetAsReference = React.useCallback(
-        (url: string) => {
+        async (url: string) => {
             const refCap = maxReferenceImages(createModel);
             if (createReferenceUrls.includes(url)) {
                 setCreateNotice(null);
@@ -1300,6 +1316,14 @@ export default function HomePage() {
                 setCreateNotice(null);
                 setError(`Reference image limit reached (${refCap}). Remove one before adding another.`, 'create');
             } else {
+                const validation = await validateAssetImage(url);
+                if (validation.status === 'rejected') {
+                    setCreateNotice(null);
+                    setError(validation.message, 'create');
+                    setActiveTab('video');
+                    void scrollToCreationForm();
+                    return;
+                }
                 setCreateReferenceUrls((prev) => (prev.includes(url) ? prev : [...prev, url].slice(0, refCap)));
                 setError(null, 'create');
                 setCreateNotice('Added as reference image.');
@@ -2175,6 +2199,12 @@ export default function HomePage() {
                     inlined.push(url);
                     continue;
                 }
+                const validation = await validateAssetImage(dataUri);
+                if (validation.status === 'rejected') {
+                    setError(`Reference image ${i + 1}: ${validation.message}`);
+                    setIsSubmitting(false);
+                    return null;
+                }
                 totalChars += dataUri.length;
                 inlined.push(dataUri);
             }
@@ -2358,6 +2388,8 @@ export default function HomePage() {
             } else {
                 replaceItem(tempId, historyItem);
             }
+            options.onSubmitStage?.('Saving video history...');
+            await syncNow();
 
             if (job.status === 'completed') {
                 queueMicrotask(() => jobCallbacks.onCompleted(job));
@@ -2417,7 +2449,7 @@ export default function HomePage() {
             const titleOverlayEnabled = item.createParams.title_overlay_enabled === true && Boolean(titleOverlayText);
             return {
                 ...item.createParams,
-                prompt: item.prompt,
+                prompt: cleanPromptForReuse(item.prompt),
                 watermarkText: normalizeWatermarkText(item.createParams.watermarkText ?? item.brandingWatermark?.text),
                 generate_audio: voiceLanguage !== SILENT_VOICE_LANGUAGE,
                 avoid_generated_captions: captionMode === 'none',
@@ -2436,7 +2468,7 @@ export default function HomePage() {
         const model = getSeedanceModel(item.model) ? (item.model as VideoModel) : DEFAULT_MODEL;
         return {
             model,
-            prompt: item.prompt,
+            prompt: cleanPromptForReuse(item.prompt),
             ratio: parsed?.ratio ?? DEFAULT_RATIO,
             resolution: parsed?.resolution ?? DEFAULT_RESOLUTION,
             seconds: clampSeconds(item.seconds, model),
@@ -2540,8 +2572,9 @@ export default function HomePage() {
                     throw new Error('Sign in at xcity.ai (or set an API key) before sharing.');
                 }
 
-                const sharePrompt = sharePromptWithinLimit(item.prompt);
-                const promptWasShortened = sharePrompt.length !== item.prompt.trim().length;
+                const reusablePrompt = cleanPromptForReuse(item.prompt);
+                const sharePrompt = sharePromptWithinLimit(reusablePrompt);
+                const promptWasShortened = sharePrompt.length !== reusablePrompt.trim().length;
                 const shareParams = {
                     ...buildParamsFromItem(item),
                     prompt: sharePrompt
@@ -2680,9 +2713,9 @@ export default function HomePage() {
             reference_video_urls: [draftVideoUrl],
             reference_video_seconds: [item.seconds],
             omni_reference_task_type: 'edit',
+            omni_reference_ratio: 'adaptive',
+            omni_reference_duration: -1,
             omit_resolution: true,
-            omit_ratio: true,
-            omit_duration: true,
             camera_fixed: undefined,
             watermark: settings.watermark,
             watermarkText: settings.watermarkText
