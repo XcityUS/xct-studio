@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
     title: 'Xcity Video Studio',
-    description: "Generate videos with ByteDance Seedance via Xcity TokenHub.",
+    description: 'Generate videos with Xcity Studio.',
 };
 
 export default function RootLayout({

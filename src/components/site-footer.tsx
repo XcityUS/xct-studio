@@ -72,12 +72,12 @@ export function SiteFooter() {
                 <div className='mt-10 flex flex-col gap-2 border-t border-white/10 pt-6 text-sm text-white/40 sm:flex-row sm:items-center sm:justify-between'>
                     <p>© {year ?? ''} Xcity. All rights reserved.</p>
                     <p>
-                        Video generation powered by ByteDance Seedance via{' '}
+                        Video generation powered by{' '}
                         <a
                             href='https://xcity.ai/models'
                             rel='noopener'
                             className='text-white/60 transition-colors hover:text-[#635bff]'>
-                            Xcity TokenHub
+                            Xcity Studio
                         </a>
                         .
                     </p>

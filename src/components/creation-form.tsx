@@ -511,7 +511,7 @@ export function CreationForm({
                         <CardTitle className='py-1 text-lg font-medium text-white'>Create Video</CardTitle>
                     </div>
                     <CardDescription className='mt-1 text-white/60'>
-                        Generate a video with ByteDance Seedance via Xcity TokenHub.
+                        Generate a video with Xcity Studio.
                     </CardDescription>
                 </div>
             </CardHeader>

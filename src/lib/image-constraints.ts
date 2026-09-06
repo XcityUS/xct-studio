@@ -52,7 +52,7 @@ function validateMime(mime: string): AssetImageValidationResult | null {
     return {
         status: 'rejected',
         reason: 'mime',
-        message: `This file is ${mime}. BytePlus accepts JPEG, PNG, WebP, BMP, TIFF, GIF, HEIC, or HEIF images.`
+        message: `This file is ${mime}. Studio accepts JPEG, PNG, WebP, BMP, TIFF, GIF, HEIC, or HEIF images.`
     };
 }
 
@@ -61,7 +61,7 @@ function validateBytes(bytes: number): AssetImageValidationResult | null {
     return {
         status: 'rejected',
         reason: 'bytes',
-        message: `This image is ${formatBytes(bytes)}. BytePlus requires image assets to be under 30 MB.`
+        message: `This image is ${formatBytes(bytes)}. Studio requires reference images to be under 30 MB.`
     };
 }
 
@@ -70,7 +70,7 @@ function validateDimensions(width: number, height: number): AssetImageValidation
         return {
             status: 'rejected',
             reason: 'dimensions',
-            message: `This image is ${width}×${height}. BytePlus requires width and height each between 300 and 6000 px.`
+            message: `This image is ${width}×${height}. Studio requires width and height each between 300 and 6000 px.`
         };
     }
 
@@ -79,7 +79,7 @@ function validateDimensions(width: number, height: number): AssetImageValidation
         return {
             status: 'rejected',
             reason: 'ratio',
-            message: `This image is ${width}×${height} (ratio ${ratio.toFixed(2)}). BytePlus requires width ÷ height strictly between 0.4 and 2.5.`
+            message: `This image is ${width}×${height} (ratio ${ratio.toFixed(2)}). Studio requires width ÷ height strictly between 0.4 and 2.5.`
         };
     }
 
@@ -127,7 +127,7 @@ async function inspectBlob(blob: Blob): Promise<AssetImageValidationResult> {
     if (!dimensions) {
         return {
             status: 'unknown',
-            message: 'Could not inspect this image before upload. BytePlus will validate it after submission.'
+            message: 'Could not inspect this image before upload. Studio will validate it after submission.'
         };
     }
 
@@ -168,7 +168,7 @@ export async function validateAssetImage(input: Blob | string): Promise<AssetIma
         return {
             status: 'unknown',
             message:
-                'Could not inspect this image before upload. Cross-origin image hosts can block browser inspection, so BytePlus will validate it after submission.'
+                'Could not inspect this image before upload. Cross-origin image hosts can block browser inspection, so Studio will validate it after submission.'
         };
     }
 
@@ -178,6 +178,6 @@ export async function validateAssetImage(input: Blob | string): Promise<AssetIma
     return {
         status: 'unknown',
         message:
-            'Could not inspect this image size or MIME type before upload. BytePlus will validate it after submission.'
+            'Could not inspect this image size or MIME type before upload. Studio will validate it after submission.'
     };
 }
