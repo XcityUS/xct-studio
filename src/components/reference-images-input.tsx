@@ -762,7 +762,7 @@ export function ReferenceImagesInput({
                             const originHint = assetLibraryUnsupported
                                 ? ASSET_LIBRARY_MODEL_BLOCK_REASON
                                 : virtualLibraryUnavailable
-                                  ? 'Virtual portrait library is not configured on this deployment. Use AI-generated · Seedream/BytePlus if it came from BytePlus, or ask an admin to enable Assets.'
+                                  ? 'Virtual portrait library is not configured on this deployment. Use AI-generated · Studio model if it came from Studio, or ask an admin to enable Assets.'
                                   : declaration?.origin
                                     ? REFERENCE_ORIGIN_LABELS[declaration.origin].hint
                                     : '';

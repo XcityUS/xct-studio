@@ -104,7 +104,7 @@ export async function waitForPortraitAsset(
         if (asset.status === 'Active') return;
         if (asset.status === 'Failed') {
             throw new Error(
-                'BytePlus rejected this image. Common causes: more than one face in a real-person photo, the face not matching the liveness capture, or the image being outside BytePlus size or ratio limits.'
+                'Studio rejected this image. Common causes: more than one face in a real-person photo, the face not matching the liveness capture, or the image being outside Studio size or ratio limits.'
             );
         }
         await sleep(3000);

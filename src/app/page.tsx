@@ -42,7 +42,7 @@ import {
 import { transcribeVideo, type CaptionSegment } from '@/lib/captions';
 import { calculateVideoCost } from '@/lib/cost-utils';
 import { db, type ImageRecord } from '@/lib/db';
-import { InvalidApiKeyError, RealPersonImageError } from '@/lib/errors';
+import { InvalidApiKeyError, RealPersonImageError, sanitizeStudioErrorMessage } from '@/lib/errors';
 import type { GalleryItem } from '@/lib/gallery';
 import { reconcilePreset } from '@/lib/gallery-preset';
 import { validateAssetImage } from '@/lib/image-constraints';
@@ -219,8 +219,8 @@ type ErrorScope = 'create' | 'output';
 
 function realPersonReferenceErrorMessage(canVerify: boolean): string {
     return canVerify
-        ? 'BytePlus blocked a raw reference image that appears to contain a real person. If this is an AI character, mark it as AI-generated and create a Virtual asset first; if it is a real person, use Assets → Verified people and attach the verified asset.'
-        : 'BytePlus blocked a raw reference image that appears to contain a real person. If this is an AI character, mark it as AI-generated and create a Virtual asset first; real-person references require the verified-people library to be enabled by the Xcity admin.';
+        ? 'Studio blocked a raw reference image that appears to contain a real person. If this is an AI character, mark it as AI-generated and create a Virtual asset first; if it is a real person, use Assets → Verified people and attach the verified asset.'
+        : 'Studio blocked a raw reference image that appears to contain a real person. If this is an AI character, mark it as AI-generated and create a Virtual asset first; real-person references require the verified-people library to be enabled by the Xcity admin.';
 }
 
 function isVideoResolution(value: string | undefined): value is VideoResolution {
@@ -466,7 +466,7 @@ function isReferenceVideoDownloadError(error: unknown): boolean {
 
 function referenceVideoDownloadErrorMessage(): string {
     return [
-        'BytePlus could not download the draft video used for Finalize.',
+        'Studio could not download the draft video used for Finalize.',
         'The provider link may have expired, or the archived copy is not reachable yet.',
         'Reopen the completed draft after it finishes archiving, or regenerate the draft and try Finalize again.'
     ].join(' ');
@@ -1212,7 +1212,7 @@ export default function HomePage() {
         async (input: { url: string; name: string }): Promise<string> => {
             if (!isVirtualPortraitEnabled) {
                 throw new Error(
-                    'Virtual portrait library is not available on this deployment. Use Seedream/BytePlus origin, or ask an admin to enable AIGC portrait assets.'
+                    'Virtual portrait library is not available on this deployment. Use Studio-generated origin, or ask an admin to enable AIGC portrait assets.'
                 );
             }
             const name = input.name.trim() || 'Virtual character';
@@ -1780,9 +1780,9 @@ export default function HomePage() {
                 updateItem(job.id, {
                     status: 'failed',
                     costDetails: null,
-                    error: job.error?.message || 'Video generation failed'
+                    error: sanitizeStudioErrorMessage(job.error?.message || 'Video generation failed')
                 });
-                setError(job.error?.message || 'Video generation failed', 'output');
+                setError(sanitizeStudioErrorMessage(job.error?.message || 'Video generation failed'), 'output');
             },
             onInvalidKey: () => handleInvalidApiKey()
         }),
@@ -2416,7 +2416,7 @@ export default function HomePage() {
                 const canVerify = isPortraitEnabled || (await loadPortraitEnabled());
                 setError(realPersonReferenceErrorMessage(canVerify));
             } else {
-                setError(err instanceof Error ? err.message : 'An unexpected error occurred.');
+                setError(sanitizeStudioErrorMessage(err instanceof Error ? err.message : 'An unexpected error occurred.'));
             }
             removeJob(tempId);
             removeItem(tempId);
@@ -2871,7 +2871,7 @@ export default function HomePage() {
                 } else if (isReferenceVideoDownloadError(error)) {
                     setError(referenceVideoDownloadErrorMessage(), 'output');
                 } else {
-                    setError(error instanceof Error ? error.message : 'Finalize failed.', 'output');
+                    setError(sanitizeStudioErrorMessage(error instanceof Error ? error.message : 'Finalize failed.'), 'output');
                 }
             })
             .finally(() => {
@@ -3125,7 +3125,7 @@ export default function HomePage() {
                 if (err instanceof InvalidApiKeyError) {
                     handleInvalidApiKey(err.message);
                 } else {
-                    setError(err instanceof Error ? err.message : 'Failed to extend video', 'output');
+                    setError(sanitizeStudioErrorMessage(err instanceof Error ? err.message : 'Failed to extend video'), 'output');
                 }
             } finally {
                 markExtendPending(item.id, false);
@@ -3324,7 +3324,7 @@ export default function HomePage() {
                 seconds: String(item.seconds),
                 size: item.size,
                 prompt: item.prompt,
-                ...(item.error && { error: { message: item.error } }),
+                ...(item.error && { error: { message: sanitizeStudioErrorMessage(item.error) } }),
                 ...(item.remix_of && { remix_of: item.remix_of })
             });
 

@@ -1,4 +1,4 @@
-import { InvalidApiKeyError, RealPersonImageError } from './errors';
+import { InvalidApiKeyError, RealPersonImageError, sanitizeStudioErrorMessage } from './errors';
 import { BudgetExceededError, RateLimitError, createFrontendOpenAI } from './openai-client';
 import { clampSeconds } from './seedance';
 import type { VideoJob, VideoJobCreate } from '@/types/video';
@@ -189,10 +189,15 @@ function normalizeJob(raw: unknown): VideoJob {
     const progress =
         status === 'completed' ? 100 : Number.isFinite(reported) ? Math.max(0, Math.min(100, reported)) : 0;
     const normalizedSeed = normalizeSeed(seed);
+    const error =
+        job.error && typeof job.error === 'object' && typeof job.error.message === 'string'
+            ? { ...job.error, message: sanitizeStudioErrorMessage(job.error.message) }
+            : job.error;
     return {
         ...job,
         status,
         progress,
+        ...(error ? { error } : {}),
         ...(normalizedSeed !== undefined ? { seed: normalizedSeed } : {})
     };
 }
@@ -258,7 +263,9 @@ export class VideoService {
                         ? (headers.get('x-ratelimit-reset-requests') ?? headers.get('retry-after') ?? undefined)
                         : (headers?.['x-ratelimit-reset-requests'] ?? headers?.['retry-after']);
                 throw new RateLimitError(
-                    gatewayMessage || 'The gateway is rate-limiting this API key right now.',
+                    gatewayMessage
+                        ? sanitizeStudioErrorMessage(gatewayMessage)
+                        : 'Studio is rate-limiting this API key right now. Please retry shortly.',
                     retryAt
                 );
             }
@@ -275,15 +282,13 @@ export class VideoService {
                         /access|allow/i.test(gatewayMessage));
                 if (modelAccessDenied) {
                     throw new Error(
-                        `Your key does not have access to model "${model ?? 'unknown'}"` +
-                            (gatewayMessage ? ` — ${gatewayMessage}` : '') +
-                            ". Add it to the key's allowed models on TokenHub."
+                        `Your key does not have access to model "${model ?? 'unknown'}". Add it to the key's allowed models on TokenHub.`
                     );
                 }
-                throw new InvalidApiKeyError(gatewayMessage);
+                throw new InvalidApiKeyError(sanitizeStudioErrorMessage(gatewayMessage) || 'Invalid Xcity API key');
             }
             if (code === 'invalid_api_key') {
-                throw new InvalidApiKeyError(gatewayMessage);
+                throw new InvalidApiKeyError(sanitizeStudioErrorMessage(gatewayMessage) || 'Invalid Xcity API key');
             }
             const realPersonReferenceBlocked =
                 typeof gatewayMessage === 'string' &&
@@ -306,15 +311,16 @@ export class VideoService {
                         gatewayMessage
                     ));
             if (modelNotFound && model) {
-                throw new Error(
-                    `Video model "${model}" is not available on the gateway` +
-                        (gatewayMessage ? `: ${gatewayMessage}` : '.')
-                );
+                throw new Error(`Video model "${model}" is not available in Studio.`);
+            }
+
+            if (typeof gatewayMessage === 'string' && gatewayMessage) {
+                throw new Error(sanitizeStudioErrorMessage(gatewayMessage));
             }
         }
 
         if (error instanceof Error) {
-            throw error;
+            throw new Error(sanitizeStudioErrorMessage(error.message));
         }
 
         throw new Error('Unexpected error while communicating with the video gateway.');

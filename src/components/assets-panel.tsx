@@ -483,7 +483,7 @@ export function AssetsPanel({
             const status = await getPortraitStatus();
             setPortraitStatus(
                 status.ok
-                    ? `Ready — BytePlus accepted both portrait libraries (project "${status.projectName}").`
+                    ? `Ready — Studio accepted both portrait libraries (project "${status.projectName}").`
                     : `Not usable: ${status.error ?? 'unknown error'}`
             );
         } catch (err) {
@@ -742,7 +742,7 @@ export function AssetsPanel({
             setAuthorizationFile(null);
             if (authorizationFileInputRef.current) authorizationFileInputRef.current.value = '';
             setAuthorizationNotice(
-                'Authorization submitted for review. Approval only unblocks this studio check; BytePlus may still refuse the image during moderation.'
+                'Authorization submitted for review. Approval only unblocks this studio check; final model moderation may still refuse the image.'
             );
             await refreshAuthorizations();
         } catch (err) {
@@ -845,7 +845,7 @@ export function AssetsPanel({
                     <div className='mb-4 space-y-2 border-b border-white/10 pb-4'>
                         <h3 className='text-xs font-medium text-white/50'>Verified people</h3>
                         <p className='text-xs text-white/40'>
-                            BytePlus rejects reference images containing an identifiable real person. Verifying people
+                            Studio rejects reference images containing an identifiable real person. Verifying people
                             once (consent + face match) unlocks them — that library is not enabled on this deployment
                             yet. Ask the Xcity admin to enable it, or use reference images without a recognizable
                             person.
@@ -1192,7 +1192,7 @@ export function AssetsPanel({
                             <h3 className='text-sm font-medium text-white'>Licensed characters</h3>
                             <p className='mt-1 max-w-4xl text-xs leading-5 text-white/45'>
                                 Submit proof that you can use a celebrity likeness or copyrighted character. Approval
-                                only unblocks this studio&apos;s own reference check; BytePlus may still refuse the
+                                only unblocks this studio&apos;s own reference check; final model moderation may still refuse the
                                 image during automated moderation.
                             </p>
                         </div>

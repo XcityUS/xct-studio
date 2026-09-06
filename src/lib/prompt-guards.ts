@@ -4,7 +4,7 @@ const GENERATED_CAPTIONS_PROMPT_HEADER = 'Caption overlay instructions:';
 const LANGUAGE_PROMPT_HEADER = 'Language instructions:';
 const TITLE_OVERLAY_PROMPT_HEADER = 'Title overlay instructions:';
 const SUBTITLE_LAYOUT_PROMPT =
-    'Subtitle pacing and styling: do not display the full transcript at once. Split long dialogue into short timed subtitle segments and show only the current segment. If one subtitle segment is too long for the character limits, split it into two consecutive subtitle screens instead of fitting everything into one frame. Show only one subtitle language at a time; never display English and Chinese subtitles simultaneously. Keep each English line within 24 characters and each Chinese line within 12 Chinese characters. Chinese subtitles must be concise paraphrases, not word-for-word translations. Do not autocomplete uncertain speech, do not invent unclear words, and do not repeat characters or syllables; omit uncertain text instead. Use a compact small subtitle font, keep subtitles within the bottom safe area, and reduce the font size before wrapping if a segment would exceed the safe area. Subtitle lines must never overlap.';
+    'Subtitle pacing and styling: do not display the full transcript at once. Split long dialogue into short timed subtitle segments and show only the current segment. If one subtitle segment is too long for the character limits, split it into two consecutive subtitle screens instead of fitting everything into one frame. When bilingual subtitles are requested, produce both English and Chinese coverage for every dialogue segment, but split them into consecutive subtitle screens instead of showing both in the same frame; do not omit either language. Show only one subtitle language at a time; never display English and Chinese subtitles simultaneously. Keep each English line within 24 characters and each Chinese line within 12 Chinese characters. Chinese subtitles must be concise paraphrases, not word-for-word translations. Do not autocomplete uncertain speech, do not invent unclear words, and do not repeat characters or syllables; omit uncertain text instead. Use a compact small subtitle font, keep subtitles within the bottom safe area, and reduce the font size before wrapping if a segment would exceed the safe area. Subtitle lines must never overlap.';
 export const MAX_GENERATED_CAPTIONS = 2;
 export const NO_GENERATED_CAPTION_LANGUAGE = 'none';
 export const DEFAULT_GENERATED_CAPTION_LANGUAGES = ['en-US', 'zh-CN'] as const;
@@ -202,7 +202,7 @@ export function promptWithGeneratedCaptions(
         ...captionLines,
         'Use natural American English for spoken dialogue by default.',
         activeLanguageLabels.length > 1
-            ? `Render subtitles only from the lines above, but show only one language at a time instead of stacking them: ${activeLanguageLabels.join(', ')}.`
+            ? `Render subtitles only from the lines above. Include every listed language, but show them as consecutive subtitle screens instead of stacking them in the same frame: ${activeLanguageLabels.join(', ')}.`
             : 'Render only the subtitle line above.',
         SUBTITLE_LAYOUT_PROMPT
     ].join('\n');
@@ -237,7 +237,7 @@ export function promptWithLanguageControls(
         lines.push('Subtitles: no subtitles, no captions, no on-screen subtitle text.');
     } else if (captionMode === DEFAULT_CAPTION_MODE) {
         lines.push(
-            'Subtitles: generate English and Chinese subtitle variants from the dialogue, but show only one language at a time. Do not stack bilingual subtitles in the same frame.'
+            'Subtitles: generate both English and Chinese subtitles for the dialogue. For each dialogue beat, show the English subtitle and the concise Chinese subtitle as consecutive subtitle screens; do not stack both languages in the same frame, and do not output only one language for the whole video.'
         );
         lines.push(SUBTITLE_LAYOUT_PROMPT);
     } else {
@@ -255,8 +255,8 @@ export function promptWithLanguageControls(
             `Opening title: "${titleText.replace(/"/g, "'")}".`,
             `Title language: ${language?.promptLabel ?? 'keep the title exactly in the language and wording provided by the user'}. Do not translate it unless the user-provided title text is already in that language.`,
             `Title style: ${style?.promptLabel ?? 'cinematic title card typography'}.`,
-            `Title timing: show the title ${duration?.promptLabel ?? 'only during the opening 2 seconds'}, then remove it completely.`,
-            'Title layout: place it centered in the frame, large and readable, with automatic font-size reduction if the text is too long.',
+            `Title timing: start the title on the first real video frame with visible scene content; do not create a black screen, blank intro, or separate title card. Show the title ${duration?.promptLabel ?? 'only during the opening 1 second'}, then remove it completely.`,
+            'Title layout: overlay it centered on top of the first video frame, large and readable, with automatic font-size reduction if the text is too long.',
             'Do not overlap the title with subtitles; keep subtitles in the bottom safe area.'
         );
     }

@@ -28,12 +28,12 @@ export const REFERENCE_ORIGIN_LABELS: Record<ReferenceOrigin, { label: string; h
         hint: 'Landscapes, products, styles — nothing that identifies someone.'
     },
     'byteplus-ai': {
-        label: 'AI-generated · Seedream/BytePlus',
-        hint: "Made by BytePlus's own image models. Usable directly."
+        label: 'AI-generated · Studio model',
+        hint: 'Made by Studio image models. Usable directly.'
     },
     'thirdparty-ai': {
         label: 'AI-generated · other model',
-        hint: 'Imagen, nano-banana and other non-BytePlus renders. Create a virtual asset here before submitting.'
+        hint: 'External AI renders. Create a virtual asset here before submitting.'
     },
     'real-person': {
         label: 'A real person',
@@ -113,8 +113,8 @@ export function declarationBlockReason(
     }
     if (decl.origin === 'licensed-ip') {
         return decl.authorizationId
-            ? 'This authorization is not approved yet. Studio approval only unblocks this check; BytePlus may still reject the image during moderation.'
-            : 'Submit an approved authorization document before using this celebrity or licensed character. Studio approval only unblocks this check; BytePlus may still reject the image during moderation.';
+            ? 'This authorization is not approved yet. Studio approval only unblocks this reference check; final model moderation may still reject the image.'
+            : 'Submit an approved authorization document before using this celebrity or licensed character. Studio approval only unblocks this reference check; final model moderation may still reject the image.';
     }
     return 'Choose where this image came from.';
 }

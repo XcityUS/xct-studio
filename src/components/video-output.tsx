@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Slider } from '@/components/ui/slider';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { XCITY_BILLING_URL, shouldShowBillingAction } from '@/lib/billing';
+import { sanitizeStudioErrorMessage } from '@/lib/errors';
 import { estimateVideoProgress } from '@/lib/progress';
 import { cn } from '@/lib/utils';
 import type { VideoJob, VideoMetadata } from '@/types/video';
@@ -203,17 +204,19 @@ export function VideoOutput({
 
     const completedOutput =
         job?.status === 'completed' && !mediaExpired && typeof videoSrc === 'string' ? { job, videoSrc } : null;
-    const isActionBudgetError = shouldShowBillingAction(error);
-    const isJobBudgetError = shouldShowBillingAction(job?.error?.message);
+    const displayError = error ? sanitizeStudioErrorMessage(error) : null;
+    const displayJobError = job?.error?.message ? sanitizeStudioErrorMessage(job.error.message) : null;
+    const isActionBudgetError = shouldShowBillingAction(displayError);
+    const isJobBudgetError = shouldShowBillingAction(displayJobError);
 
     // Rendered next to the buttons that raise it — an alert at the top of the
     // panel meant scrolling back up to find out why a click did nothing.
-    const actionError = error ? (
+    const actionError = displayError ? (
         <div
             role='alert'
             className='shrink-0 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200'>
             <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
-                <span className='min-w-0 break-words'>{error}</span>
+                <span className='min-w-0 break-words'>{displayError}</span>
                 {isActionBudgetError && (
                     <Button asChild size='sm' className='w-full bg-white text-black hover:bg-white/90 sm:w-auto'>
                         <a href={XCITY_BILLING_URL}>
@@ -516,10 +519,10 @@ export function VideoOutput({
                         <div className='flex flex-col items-center justify-center text-center'>
                             <AlertCircle className='mb-4 h-12 w-12 text-red-400' />
                             <p className='text-lg text-red-300'>Video generation failed</p>
-                            {job.error && (
+                            {displayJobError && (
                                 <div className='mt-4 max-w-md rounded-md border border-red-500/30 bg-red-500/10 p-4'>
                                     <p className='text-sm font-medium text-red-200'>Error:</p>
-                                    <p className='mt-1 text-sm text-red-300'>{job.error.message}</p>
+                                    <p className='mt-1 text-sm text-red-300'>{displayJobError}</p>
                                     {isJobBudgetError && (
                                         <Button
                                             asChild

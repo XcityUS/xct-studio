@@ -136,7 +136,7 @@ export async function POST(request: Request) {
     } catch (err) {
         if (isAuthorizationAgreementError(err)) {
             return jsonError(
-                'The virtual portrait library is waiting on BytePlus authorization. Ask the Xcity admin to complete the AIGC asset authorization agreement, then retry.',
+                'The virtual portrait library is waiting on Studio authorization. Ask the Xcity admin to complete the AIGC asset authorization agreement, then retry.',
                 409
             );
         }
