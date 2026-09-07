@@ -1,0 +1,26 @@
+.dialog {
+    max-width: 25rem;
+    border-color: rgb(255 255 255 / 20%);
+    background: #000;
+    color: #fff;
+}
+
+.form {
+    display: grid;
+    gap: 1rem;
+}
+
+.field {
+    display: grid;
+    gap: 0.5rem;
+
+    label {
+        color: rgb(255 255 255 / 80%);
+    }
+
+    input {
+        border-color: rgb(255 255 255 / 20%);
+        background: #000;
+        color: #fff;
+    }
+}

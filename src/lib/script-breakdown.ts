@@ -1,4 +1,4 @@
-import { InvalidApiKeyError } from './errors';
+import { InvalidApiKeyError } from '../shared/errors';
 import { createFrontendOpenAI } from './openai-client';
 
 const BREAKDOWN_MODEL = process.env.NEXT_PUBLIC_PROMPT_OPTIMIZER_MODEL || 'gpt-4o-mini';

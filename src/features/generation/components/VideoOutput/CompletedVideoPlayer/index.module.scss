@@ -1,0 +1,9 @@
+.player {
+    width: 100%;
+    max-height: min(76vh, 860px);
+    flex-shrink: 0;
+    overflow: hidden;
+    border: 1px solid rgb(255 255 255 / 20%);
+    border-radius: 8px;
+    background: #000;
+}

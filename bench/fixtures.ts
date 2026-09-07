@@ -4,11 +4,11 @@
  * Benchmarks must not depend on Math.random or Date.now: the same input has to
  * be measured on every run, otherwise CodSpeed compares different workloads.
  */
+import type { ReferenceDeclaration } from '@/features/assets/reference/origin';
+import type { HistoryDoc, VideoCharacter, VideoPortrait } from '@/features/generation/history/merge';
+import type { Fcp7XmlClip } from '@/features/post-production/export/nle';
 import type { CaptionSegment } from '@/lib/captions';
-import type { HistoryDoc, VideoCharacter, VideoPortrait } from '@/lib/history-merge';
-import type { Fcp7XmlClip } from '@/lib/nle-export';
-import type { ReferenceDeclaration } from '@/lib/reference-origin';
-import type { VideoMetadata } from '@/types/video';
+import type { VideoMetadata } from '@/shared/contracts/video';
 
 const BASE_TIMESTAMP = 1_740_000_000_000;
 const RATIOS = ['16:9', '9:16', '1:1', '4:3', '21:9'] as const;
@@ -68,7 +68,9 @@ export function makePortraits(count: number, offset = 0): VideoPortrait[] {
         groupId: `group-${(offset + i) % 7}`,
         groupType: (offset + i) % 2 === 0 ? 'LivenessFace' : 'AIGC',
         name: `Portrait ${offset + i}`,
-        thumbUrl: `https://media.xcity.one/media/u/user-1/thumbs/${offset + i}.jpg`
+        thumbUrl: `https://media.xcity.one/media/u/user-1/thumbs/${offset + i}.jpg`,
+        status: 'Active',
+        updatedAt: BASE_TIMESTAMP + (offset + i) * 100
     }));
 }
 

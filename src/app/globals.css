@@ -44,6 +44,12 @@
 }
 
 :root {
+  --studio-background: #000;
+  --studio-foreground: #fff;
+  --studio-muted: #a3a3a3;
+  --studio-border: #ffffff1a;
+  --studio-hover: #ffffff12;
+  --studio-focus: #34d399;
   --radius: 0.625rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);

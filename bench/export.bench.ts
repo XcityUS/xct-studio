@@ -5,7 +5,7 @@
  */
 import { makeCaptionSegments, makeClips } from './fixtures';
 import { segmentsToSrt } from '@/lib/captions';
-import { buildFcp7Xml } from '@/lib/nle-export';
+import { buildFcp7Xml } from '@/features/post-production/export/nle';
 import { bench, describe } from 'vitest';
 
 const shortTranscript = makeCaptionSegments(40);

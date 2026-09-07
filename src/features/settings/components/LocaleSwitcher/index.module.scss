@@ -1,0 +1,51 @@
+.control {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.button {
+    display: inline-flex;
+    min-width: 92px;
+    height: 36px;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 0 12px;
+    border: 1px solid var(--studio-border);
+    border-radius: 6px;
+    background: var(--studio-background);
+    color: var(--studio-foreground);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition:
+        border-color 140ms ease,
+        background-color 140ms ease;
+}
+
+.button:hover {
+    border-color: color-mix(in srgb, var(--studio-foreground) 35%, transparent);
+    background: color-mix(in srgb, var(--studio-foreground) 7%, var(--studio-background));
+}
+
+.button:focus-visible {
+    outline: 2px solid var(--studio-focus);
+    outline-offset: 2px;
+}
+
+.button:disabled {
+    cursor: wait;
+    opacity: 0.6;
+}
+
+.status {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}

@@ -1,3 +1,4 @@
+import { getRuntimeConfig } from '@/server/config/runtime-config';
 import { NextResponse } from 'next/server';
 
 /**
@@ -11,21 +12,6 @@ import { NextResponse } from 'next/server';
  */
 export const dynamic = 'force-dynamic';
 
-function parseImageModels(value: string | undefined): string[] {
-    return (value || '')
-        .split(',')
-        .map((model) => model.trim())
-        .filter(Boolean);
-}
-
 export function GET() {
-    return NextResponse.json({
-        mediaWorkerUrl: (process.env.MEDIA_WORKER_URL || process.env.NEXT_PUBLIC_MEDIA_WORKER_URL || '')
-            .trim()
-            .replace(/\/+$/, ''),
-        transcribeModel: (process.env.TRANSCRIBE_MODEL || '').trim(),
-        ttsModel: (process.env.TTS_MODEL || '').trim(),
-        imageModels: parseImageModels(process.env.IMAGE_MODELS),
-        portraitEnabled: Boolean(process.env.BYTEPLUS_AK && process.env.BYTEPLUS_SK)
-    });
+    return NextResponse.json(getRuntimeConfig(), { headers: { 'Cache-Control': 'no-store' } });
 }

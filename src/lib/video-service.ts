@@ -1,7 +1,7 @@
-import { InvalidApiKeyError, RealPersonImageError, sanitizeStudioErrorMessage } from './errors';
+import { InvalidApiKeyError, RealPersonImageError, sanitizeStudioErrorMessage } from '../shared/errors';
 import { BudgetExceededError, RateLimitError, createFrontendOpenAI } from './openai-client';
-import { clampSeconds } from './seedance';
-import type { VideoJob, VideoJobCreate } from '@/types/video';
+import { clampSeconds } from '@/shared/config/seedance';
+import type { VideoJob, VideoJobCreate } from '@/shared/contracts/video';
 
 /**
  * Direct client for the TokenHub gateway's OpenAI-style /v1/videos API.

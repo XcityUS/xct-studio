@@ -1,4 +1,4 @@
-import { InvalidApiKeyError } from './errors';
+import { InvalidApiKeyError } from '../shared/errors';
 import { createFrontendOpenAI } from './openai-client';
 
 export type TtsVoice = 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer';

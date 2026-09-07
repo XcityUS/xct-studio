@@ -1,0 +1,10 @@
+.frame {
+    display: flex;
+    min-height: 100dvh;
+    flex-direction: column;
+}
+
+.content {
+    flex: 1;
+    min-width: 0;
+}

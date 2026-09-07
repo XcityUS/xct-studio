@@ -1,4 +1,4 @@
-import { InvalidApiKeyError } from './errors';
+import { InvalidApiKeyError } from '../shared/errors';
 import { createFrontendOpenAI } from './openai-client';
 
 export type CaptionSegment = {

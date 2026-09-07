@@ -51,9 +51,10 @@ Deployed on Railway at studio.xcity.ai; media worker on Cloudflare (R2).
   raw real-person images (`InputImageSensitiveContentDetected`). The fix is the
   private real-human asset library: H5 liveness verification → Asset Group →
   CreateAsset (face-matched) → reference `asset://<id>`. Those calls use
-  account AK/SK (BytePlus OpenAPI, `src/lib/server/byteplus-openapi.ts` +
-  /api/portrait/* routes — env BYTEPLUS_AK/SK, ARK_PROJECT_NAME must match the
-  tokenhub Ark endpoint's project). `asset://` reference entries skip rebase,
+  account AK/SK in xcity-litellm. Studio's `/api/portrait/*` routes forward the
+  user's bearer token to `/v1/provider-assets/*`; Studio must never hold or use
+  BytePlus credentials. `ARK_PROJECT_NAME` on xcity-litellm must match the
+  TokenHub Ark endpoint's project. `asset://` reference entries skip rebase,
   Base64 inlining, and preflight — passed through verbatim.
 - **First-frame mode must omit `ratio`** (BytePlus TaskTypeConstraint: the
   output ratio follows the image). Multi-reference mode (2+ images, `role:

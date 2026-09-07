@@ -1,1 +1,15 @@
-src/components/ui/
+# Legacy primitive bodies retain their existing formatting during directory migration.
+src/components/ui/Alert/index.tsx
+src/components/ui/Button/index.tsx
+src/components/ui/Card/index.tsx
+src/components/ui/Checkbox/index.tsx
+src/components/ui/Dialog/index.tsx
+src/components/ui/Label/index.tsx
+src/components/ui/ModeToggle/index.tsx
+src/components/ui/RadioGroup/index.tsx
+src/components/ui/Select/index.tsx
+src/components/ui/Slider/index.tsx
+src/components/ui/Tabs/index.tsx
+src/components/ui/Toggle/index.tsx
+src/components/ui/ToggleGroup/index.tsx
+src/components/ui/Tooltip/index.tsx

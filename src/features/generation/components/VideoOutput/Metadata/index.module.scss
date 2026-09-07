@@ -1,0 +1,25 @@
+.root {
+    flex-shrink: 0;
+    min-width: 0;
+    padding: 16px;
+    border-radius: 6px;
+    background: #ffffff0d;
+    color: var(--studio-muted);
+    font-size: 12px;
+    line-height: 16px;
+    overflow-wrap: anywhere;
+
+    div {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+
+    dt {
+        font-weight: 500;
+    }
+
+    dd {
+        margin: 0;
+    }
+}

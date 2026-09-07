@@ -1348,13 +1348,14 @@ function isRecord(value) {
 
 function normalizeStateDoc(value) {
     if (!isRecord(value)) {
-        return { updatedAt: 0, history: [], characters: [], portraits: [], deletedIds: [] };
+        return { updatedAt: 0, history: [], characters: [], portraits: [], declarations: {}, deletedIds: [] };
     }
     return {
         updatedAt: Number.isFinite(value.updatedAt) ? value.updatedAt : 0,
         history: Array.isArray(value.history) ? value.history : [],
         characters: Array.isArray(value.characters) ? value.characters : [],
         portraits: Array.isArray(value.portraits) ? value.portraits : [],
+        declarations: isRecord(value.declarations) ? value.declarations : {},
         deletedIds: Array.isArray(value.deletedIds) ? value.deletedIds.filter((id) => typeof id === 'string') : []
     };
 }
@@ -1365,6 +1366,14 @@ function historyRank(item) {
 }
 
 function historyVersion(item) {
+    return Number.isFinite(item?.updatedAt) ? item.updatedAt : 0;
+}
+
+function portraitRank(item) {
+    return item?.status === 'Active' || item?.status === 'Failed' ? 1 : 0;
+}
+
+function portraitVersion(item) {
     return Number.isFinite(item?.updatedAt) ? item.updatedAt : 0;
 }
 
@@ -1396,8 +1405,24 @@ function mergeStateDocs(local, remote) {
 
     const portraitByAssetId = new Map();
     for (const item of [...b.portraits, ...a.portraits]) {
-        if (isRecord(item) && typeof item.assetId === 'string' && !tombstoned.has(item.assetId)) {
+        if (!isRecord(item) || typeof item.assetId !== 'string' || tombstoned.has(item.assetId)) continue;
+        const existing = portraitByAssetId.get(item.assetId);
+        if (
+            !existing ||
+            portraitRank(item) > portraitRank(existing) ||
+            (portraitRank(item) === portraitRank(existing) && portraitVersion(item) >= portraitVersion(existing))
+        ) {
             portraitByAssetId.set(item.assetId, item);
+        }
+    }
+
+    const declarationByKey = new Map(Object.entries(b.declarations));
+    for (const [key, declaration] of Object.entries(a.declarations)) {
+        const existing = declarationByKey.get(key);
+        const declaredAt = Number.isFinite(declaration?.declaredAt) ? declaration.declaredAt : 0;
+        const existingDeclaredAt = Number.isFinite(existing?.declaredAt) ? existing.declaredAt : 0;
+        if (!existing || declaredAt >= existingDeclaredAt) {
+            declarationByKey.set(key, declaration);
         }
     }
 
@@ -1406,6 +1431,11 @@ function mergeStateDocs(local, remote) {
         history: Array.from(byId.values()).sort((x, y) => (y.timestamp || 0) - (x.timestamp || 0)),
         characters: Array.from(characterById.values()),
         portraits: Array.from(portraitByAssetId.values()),
+        declarations: Object.fromEntries(
+            Array.from(declarationByKey.entries())
+                .sort(([, left], [, right]) => (right?.declaredAt || 0) - (left?.declaredAt || 0))
+                .slice(0, 500)
+        ),
         deletedIds
     };
 }

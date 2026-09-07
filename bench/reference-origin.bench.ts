@@ -9,7 +9,7 @@ import {
     originForGeneratedImage,
     refKey,
     type ReferenceDeclaration
-} from '@/lib/reference-origin';
+} from '@/features/assets/reference/origin';
 import { bench, describe } from 'vitest';
 
 const urls = Array.from({ length: 240 }, (_, i) => {

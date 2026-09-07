@@ -1,5 +1,5 @@
 import { createFrontendOpenAI } from './openai-client';
-import { InvalidApiKeyError } from './errors';
+import { InvalidApiKeyError } from '../shared/errors';
 
 /**
  * AI prompt refinement via the TokenHub gateway's chat API, billed to the

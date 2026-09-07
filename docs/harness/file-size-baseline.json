@@ -1,0 +1,38 @@
+{
+    "src/features/post-production/components/AssemblyEditor/index.tsx": {
+        "maxLines": 816,
+        "reason": "Legacy post-production editor; split timeline UI, state, and export orchestration. Tracked in docs/requirements/xct-studio-task-list.md."
+    },
+    "src/features/assets/components/AssetsPanel/index.tsx": {
+        "maxLines": 1224,
+        "reason": "Legacy asset panel; split media listing, portrait authorization, and selection UI. Tracked in docs/requirements/xct-studio-task-list.md."
+    },
+    "src/features/generation/components/CreationForm/index.tsx": {
+        "maxLines": 1118,
+        "reason": "Legacy generation form; extract model settings, references, and submission state. Tracked in docs/requirements/xct-studio-task-list.md."
+    },
+    "src/features/assets/components/ReferenceImagesInput/index.tsx": {
+        "maxLines": 682,
+        "reason": "Legacy reference input; split upload, ordering, and asset selection. Tracked in docs/requirements/xct-studio-task-list.md."
+    },
+    "src/features/studio/components/StudioWorkspace/index.tsx": {
+        "maxLines": 3642,
+        "reason": "Behavior-preserving move from app/page.tsx during locale upgrade; move workflows into owning features. Tracked in docs/requirements/xct-studio-task-list.md."
+    },
+    "src/features/generation/components/VideoHistoryPanel/index.tsx": {
+        "maxLines": 1157,
+        "reason": "Legacy history UI; split filtering, selection, and media actions. Tracked in docs/requirements/xct-studio-task-list.md."
+    },
+    "src/features/generation/hooks/use-video-history.ts": {
+        "maxLines": 830,
+        "reason": "Legacy history state; separate persistence, sync, and merge behavior. Tracked in docs/requirements/xct-studio-task-list.md."
+    },
+    "src/features/post-production/assembly/client.ts": {
+        "maxLines": 638,
+        "reason": "Legacy FFmpeg assembly; extract media preparation, timeline processing, and encoding. Tracked in docs/requirements/xct-studio-task-list.md."
+    },
+    "src/lib/media-archive.ts": {
+        "maxLines": 738,
+        "reason": "Legacy Worker client; split contracts, media operations, sharing, and state transport. Tracked in docs/requirements/xct-studio-task-list.md."
+    }
+}

@@ -1,5 +1,5 @@
 import { createFrontendOpenAI } from './openai-client';
-import { InvalidApiKeyError } from './errors';
+import { InvalidApiKeyError } from '../shared/errors';
 import { imageModels as loadRuntimeImageModelIds } from './media-archive';
 
 /**
