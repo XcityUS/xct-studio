@@ -6,14 +6,16 @@ import * as React from 'react';
 
 type CopyUrlButtonProps = {
     className?: string;
+    label?: string;
     labelClassName?: string;
     url: string;
 };
 
-export function CopyUrlButton({ className, labelClassName, url }: CopyUrlButtonProps) {
+export function CopyUrlButton({ className, label, labelClassName, url }: CopyUrlButtonProps) {
     const t = useTranslations();
     const [copied, setCopied] = React.useState(false);
     const [copyFailed, setCopyFailed] = React.useState(false);
+    const idleLabel = label ?? t('Copy URL');
     return (
         <button
             type='button'
@@ -46,7 +48,7 @@ export function CopyUrlButton({ className, labelClassName, url }: CopyUrlButtonP
             }}
             className={className}>
             {copied ? <Check size={11} className='text-green-400' /> : <Copy size={11} />}
-            <span className={labelClassName}>{copyFailed ? t('Copy failed') : copied ? t('Copied') : t('Copy URL')}</span>
+            <span className={labelClassName}>{copyFailed ? t('Copy failed') : copied ? t('Copied') : idleLabel}</span>
         </button>
     );
 }

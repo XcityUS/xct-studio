@@ -126,7 +126,7 @@
     display: inline-flex;
     width: 100%;
     min-width: 0;
-    min-height: 40px;
+    min-height: 34px;
     align-items: center;
     justify-content: center;
     gap: 4px;
@@ -137,7 +137,7 @@
     color: var(--studio-muted);
     cursor: pointer;
     font-size: 10px;
-    line-height: 1.2;
+    line-height: 1;
     text-align: center;
 }
 
@@ -159,12 +159,10 @@
 }
 
 .actionLabel {
-    display: -webkit-box;
     min-width: 0;
     overflow: hidden;
-    overflow-wrap: anywhere;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .spinner {

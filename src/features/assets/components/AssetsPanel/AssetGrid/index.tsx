@@ -52,12 +52,12 @@ function ReviewStatusLabel({ state }: { state: AssetReviewState }) {
     return t('Needs review');
 }
 
-function ReviewActionLabel({ state }: { state: AssetReviewState }) {
+function ReviewActionShortLabel({ state }: { state: AssetReviewState }) {
     const t = useTranslations();
-    if (state === 'active' || state === 'exempt') return t('Use as reference');
-    if (state === 'processing') return t('Check review status');
-    if (state === 'failed') return t('Retry review');
-    return t('Submit for review');
+    if (state === 'active' || state === 'exempt') return t('Use');
+    if (state === 'processing') return t('Check');
+    if (state === 'failed') return t('Retry');
+    return t('Review');
 }
 
 export function AssetGrid({
@@ -168,12 +168,13 @@ export function AssetGrid({
                                                 <ReviewIcon state={item.reviewState} />
                                             )}
                                             <span className={styles.actionLabel}>
-                                                <ReviewActionLabel state={item.reviewState} />
+                                                <ReviewActionShortLabel state={item.reviewState} />
                                             </span>
                                         </button>
                                         {asset.url && (
                                             <CopyUrlButton
                                                 url={asset.url}
+                                                label={t('Copy')}
                                                 className={styles.action}
                                                 labelClassName={styles.actionLabel}
                                             />
@@ -193,11 +194,7 @@ export function AssetGrid({
                                             }>
                                             {canUse ? <UserPlus /> : <ReviewIcon state={item.reviewState} />}
                                             <span className={styles.actionLabel}>
-                                                {canUse ? (
-                                                    t('Save as character')
-                                                ) : (
-                                                    <ReviewActionLabel state={item.reviewState} />
-                                                )}
+                                                {canUse ? t('Character') : <ReviewActionShortLabel state={item.reviewState} />}
                                             </span>
                                         </button>
                                     </>
@@ -218,17 +215,14 @@ export function AssetGrid({
                                             <ReviewIcon state={item.reviewState} />
                                         )}
                                         <span className={styles.actionLabel}>
-                                            {canUse ? (
-                                                t('Use as reference video')
-                                            ) : (
-                                                <ReviewActionLabel state={item.reviewState} />
-                                            )}
+                                            {canUse ? t('Video ref') : <ReviewActionShortLabel state={item.reviewState} />}
                                         </span>
                                     </button>
                                 )}
                                 {asset.kind !== 'image' && asset.url && (
                                     <CopyUrlButton
                                         url={asset.url}
+                                        label={t('Copy')}
                                         className={styles.action}
                                         labelClassName={styles.actionLabel}
                                     />
