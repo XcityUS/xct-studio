@@ -29,6 +29,11 @@ function PreviewImage({ src, alt, fallback }: { src: string; alt: string; fallba
     );
 }
 
+function compactDescription(value: string): string {
+    const normalized = value.trim().replace(/\s+/g, ' ');
+    return normalized.length > 14 ? `${normalized.slice(0, 14)}...` : normalized;
+}
+
 export function SelectedReference({
     url,
     index,
@@ -45,6 +50,7 @@ export function SelectedReference({
     const previewUrl = portrait?.thumbUrl || (isAsset ? '' : url);
     const label = portrait?.name || t('Reference <lcur>number<rcur>', { number: index + 1 });
     const officialDescription = declaration?.note || t('No description yet');
+    const compactOfficialDescription = compactDescription(officialDescription);
     const fallback = (
         <div className={styles.fallback}>
             {isAsset ? <ShieldCheck aria-hidden='true' /> : <ImageOff aria-hidden='true' />}
@@ -83,7 +89,7 @@ export function SelectedReference({
             <div className={styles.name}>{label}</div>
             {isOfficialAsset ? (
                 <div className={styles.description} title={officialDescription}>
-                    {officialDescription}
+                    {compactOfficialDescription}
                 </div>
             ) : (
                 isAsset && <div className={styles.assetId}>{assetReferenceLabel(url)}</div>
