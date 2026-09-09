@@ -886,7 +886,7 @@ export function VideoHistoryPanel({
                                                                     )}
                                                                     className={styles.actionButton}>
                                                                     <PencilLine size={11} />
-                                                                    {t('Reuse')}
+                                                                    {t('Use')}
                                                                 </button>
                                                             )}
                                                             {onRetryArchive && needsCloudArchive && (
@@ -906,8 +906,8 @@ export function VideoHistoryPanel({
                                                                         <CloudUpload size={11} />
                                                                     )}
                                                                     {isArchivePending
-                                                                        ? t('Archiving')
-                                                                        : t('Archive now')}
+                                                                        ? t('Saving')
+                                                                        : t('Save')}
                                                                 </button>
                                                             )}
                                                             {canAddWatermark && (
@@ -955,7 +955,7 @@ export function VideoHistoryPanel({
                                                                     }
                                                                     className={styles.actionButton}>
                                                                     <X size={11} className='shrink-0' />
-                                                                    {t('Original')}
+                                                                    {t('Orig')}
                                                                 </button>
                                                             )}
                                                             {onShareItem && isCompleted && !isExpired && (
@@ -993,7 +993,7 @@ export function VideoHistoryPanel({
                                                                     )}
                                                                     {extendPendingIds?.has(item.id)
                                                                         ? t('Preparing')
-                                                                        : t('Extend')}
+                                                                        : t('More')}
                                                                 </button>
                                                             )}
                                                             {onFinalizeItem && isCompleted && isDraft && (
@@ -1013,7 +1013,7 @@ export function VideoHistoryPanel({
                                                                     }
                                                                     className={styles.actionButton}>
                                                                     <Rocket size={11} />
-                                                                    {t('Finalize')}
+                                                                    {t('Final')}
                                                                 </button>
                                                             )}
                                                             {onRegenerateItem && item.status !== 'failed' && (
@@ -1025,7 +1025,7 @@ export function VideoHistoryPanel({
                                                                     )}
                                                                     className={styles.actionButton}>
                                                                     <RotateCcw size={11} />
-                                                                    {t('Regenerate')}
+                                                                    {t('Again')}
                                                                 </button>
                                                             )}
                                                         </div>
