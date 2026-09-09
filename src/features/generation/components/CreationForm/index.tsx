@@ -93,6 +93,7 @@ export function CreationForm({
     approvedAuthorizationIds,
     characters,
     portraits,
+    virtualCharacterGroups,
     lastFrameUrl,
     setLastFrameUrl,
     referenceAudioUrl,
@@ -888,6 +889,7 @@ export function CreationForm({
                     <CharacterSelectors
                         characters={characters}
                         portraits={portraits}
+                        virtualCharacterGroups={virtualCharacterGroups}
                         referenceUrls={referenceUrls}
                         referenceLimit={refCap}
                         disabled={isLoading}

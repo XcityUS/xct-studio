@@ -1,7 +1,8 @@
 'use client';
 
 import styles from './index.module.scss';
-import { virtualCharacterOptions } from './options';
+import { type VirtualCharacterOption, virtualCharacterOptions } from './options';
+import type { PortraitGroup } from '@/features/assets/portrait/api';
 import { portraitReferenceUrl } from '@/features/assets/portrait/reference';
 import { characterPreviewUrl } from '@/features/generation/history/characters';
 import type { VideoCharacter, VideoPortrait } from '@/features/generation/hooks/use-video-history';
@@ -13,6 +14,7 @@ import * as React from 'react';
 type CharacterSelectorsProps = {
     characters: VideoCharacter[];
     portraits: VideoPortrait[];
+    virtualCharacterGroups: PortraitGroup[];
     referenceUrls: string[];
     referenceLimit: number;
     disabled: boolean;
@@ -110,6 +112,7 @@ function PortraitAvatar({ portrait, virtual }: { portrait: VideoPortrait; virtua
 export function CharacterSelectors({
     characters,
     portraits,
+    virtualCharacterGroups,
     referenceUrls,
     referenceLimit,
     disabled,
@@ -120,7 +123,7 @@ export function CharacterSelectors({
     const verifiedPortraits = portraits.filter(
         (portrait) => portrait.status === 'Active' && portrait.groupType === 'LivenessFace'
     );
-    const virtualPortraits = virtualCharacterOptions(portraits, referenceUrls);
+    const virtualPortraits = virtualCharacterOptions(portraits, referenceUrls, virtualCharacterGroups);
 
     return (
         <>
@@ -159,7 +162,7 @@ export function CharacterSelectors({
                 referenceLimit={referenceLimit}
                 disabled={disabled}
                 getId={(portrait) => portrait.assetId}
-                getName={(portrait) => portrait.name}
+                getName={(portrait: VirtualCharacterOption) => portrait.displayName || portrait.name}
                 getUrl={(portrait) => portraitReferenceUrl(portrait.assetId)}
                 renderAvatar={(portrait) => <PortraitAvatar portrait={portrait} virtual={false} />}
                 onAttach={onAttachPortrait}

@@ -1,4 +1,5 @@
 import type { ProviderAssetReviewInput } from '@/features/assets/hooks/use-provider-asset-review';
+import type { PortraitGroup } from '@/features/assets/portrait/api';
 import { type ReferenceDeclaration, type ReferenceOrigin } from '@/features/assets/reference/origin';
 import type { VideoCharacter, VideoPortrait } from '@/features/generation/hooks/use-video-history';
 import { type ShotDraft } from '@/features/script/components/ShotBuilderDialog';
@@ -31,6 +32,7 @@ export type CreationFormProps = {
     approvedAuthorizationIds: ReadonlySet<string>;
     characters: VideoCharacter[];
     portraits: VideoPortrait[];
+    virtualCharacterGroups: PortraitGroup[];
     lastFrameUrl: string;
     setLastFrameUrl: React.Dispatch<React.SetStateAction<string>>;
     referenceAudioUrl: string;

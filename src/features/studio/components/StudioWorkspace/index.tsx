@@ -56,6 +56,7 @@ import {
     getPortraitAsset,
     listPortraitAssets,
     listPortraitGroups,
+    type PortraitGroup,
     type PortraitGroupQueryType
 } from '@/features/assets/portrait/api';
 import {
@@ -525,6 +526,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
     const [uploadEnabled, setUploadEnabled] = React.useState(false);
     const [isPortraitEnabled, setIsPortraitEnabled] = React.useState(false);
     const [isVirtualPortraitEnabled, setIsVirtualPortraitEnabled] = React.useState(false);
+    const [virtualCharacterGroups, setVirtualCharacterGroups] = React.useState<PortraitGroup[]>([]);
     const [imageModels, setImageModels] = React.useState<ImageModel[]>([]);
     React.useEffect(() => {
         void mediaArchiveEnabled().then(setUploadEnabled);
@@ -716,6 +718,24 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         },
         [resolveKey]
     );
+
+    React.useEffect(() => {
+        if (activeTab !== 'video' || !isPortraitEnabled) return;
+
+        let cancelled = false;
+        void handleLoadPortraitGroups('aigc')
+            .then((groups) => {
+                if (!cancelled) setVirtualCharacterGroups(groups);
+            })
+            .catch((err) => {
+                console.warn('Could not load virtual character groups:', err);
+                if (!cancelled) setVirtualCharacterGroups([]);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [activeTab, handleLoadPortraitGroups, isPortraitEnabled]);
 
     const handleLoadPortraitAssets = React.useCallback(
         async (type?: PortraitGroupQueryType) => {
@@ -3254,6 +3274,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                                 approvedAuthorizationIds={approvedAuthorizationIds}
                                 characters={characters}
                                 portraits={portraits}
+                                virtualCharacterGroups={virtualCharacterGroups}
                                 lastFrameUrl={createLastFrameUrl}
                                 setLastFrameUrl={setCreateLastFrameUrl}
                                 referenceAudioUrl={createReferenceAudioUrl}
