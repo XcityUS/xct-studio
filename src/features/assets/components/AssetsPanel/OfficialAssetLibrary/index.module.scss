@@ -93,7 +93,15 @@
     }
 }
 
-.copyButton {
+.cardActions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.copyButton,
+.referenceButton {
     display: inline-flex;
     height: 32px;
     align-items: center;
@@ -107,6 +115,24 @@
     font: inherit;
     font-size: 12px;
     cursor: pointer;
+
+    svg {
+        width: 13px;
+        height: 13px;
+    }
+}
+
+.referenceButton {
+    border-color: var(--studio-foreground);
+    background: var(--studio-foreground);
+    color: var(--studio-background);
+
+    &:disabled {
+        border-color: var(--studio-border);
+        background: var(--studio-surface);
+        color: var(--studio-muted-soft);
+        cursor: default;
+    }
 }
 
 .empty {

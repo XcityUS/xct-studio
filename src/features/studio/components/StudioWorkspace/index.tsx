@@ -40,6 +40,7 @@ import {
 import { Input } from '@/components/ui/Input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs';
 import { AssetsPanel } from '@/features/assets/components/AssetsPanel';
+import type { ReferenceUseOptions } from '@/features/assets/components/AssetsPanel/types';
 import { useMediaArchive } from '@/features/assets/hooks/use-media-archive';
 import { usePosterBackfill } from '@/features/assets/hooks/use-poster-backfill';
 import { useProviderAssetReview } from '@/features/assets/hooks/use-provider-asset-review';
@@ -862,8 +863,9 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
 
     /** Assets tab → video form: append the image to the reference list. */
     const handleUseAssetAsReference = React.useCallback(
-        async (url: string, approvedReferenceUrl?: string) => {
+        async (url: string, approvedReferenceUrl?: string, options?: ReferenceUseOptions) => {
             const refCap = maxReferenceImages(createModel);
+            const stayOnAssets = Boolean(options?.stayOnAssets);
             if (createReferenceUrls.includes(url)) {
                 setCreateNotice(null);
                 setError('Reference image is already attached.', 'create');
@@ -875,8 +877,10 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                 if (validation.status === 'rejected') {
                     setCreateNotice(null);
                     setError(validation.message, 'create');
-                    navigateToTab('video');
-                    void scrollToCreationForm();
+                    if (!stayOnAssets) {
+                        navigateToTab('video');
+                        void scrollToCreationForm();
+                    }
                     return;
                 }
                 setCreateReferenceUrls((prev) => (prev.includes(url) ? prev : [...prev, url].slice(0, refCap)));
@@ -893,8 +897,10 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                 setError(null, 'create');
                 setCreateNotice('Added as reference image.');
             }
-            navigateToTab('video');
-            void scrollToCreationForm();
+            if (!stayOnAssets) {
+                navigateToTab('video');
+                void scrollToCreationForm();
+            }
         },
         [
             createModel,
@@ -3517,6 +3523,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                                         portraits={portraits}
                                         deletedIds={deletedIds}
                                         declarations={effectiveDeclarations}
+                                        referenceImageUrls={createReferenceUrls}
                                         addPortrait={addPortrait}
                                         syncPortraitState={syncNow}
                                         removePortrait={removePortrait}

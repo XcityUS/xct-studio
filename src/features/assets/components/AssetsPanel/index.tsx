@@ -36,6 +36,7 @@ export function AssetsPanel({
     portraits,
     deletedIds,
     declarations,
+    referenceImageUrls,
     addPortrait,
     syncPortraitState,
     removePortrait,
@@ -479,6 +480,7 @@ export function AssetsPanel({
                     items={assetList}
                     providerAssets={visibleProviderAssets}
                     declarations={declarations}
+                    referenceImageUrls={referenceImageUrls}
                     isLoading={isLoading || isLoadingProviderAssets}
                     onCheckReviewStatus={handleCheckReviewStatus}
                     onDelete={handleDelete}

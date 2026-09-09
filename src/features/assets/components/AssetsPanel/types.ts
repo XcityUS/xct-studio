@@ -11,6 +11,10 @@ import type { ReferenceDeclaration, ReferenceOrigin } from '@/features/assets/re
 import type { VideoCharacter, VideoPortrait } from '@/features/generation/hooks/use-video-history';
 import type { UserAsset } from '@/lib/media-archive';
 
+export type ReferenceUseOptions = {
+    stayOnAssets?: boolean;
+};
+
 export type AssetsPanelProps = {
     /** Fetches the caller's stored assets (uploads + archived videos). */
     loadAssets: () => Promise<UserAsset[]>;
@@ -22,6 +26,7 @@ export type AssetsPanelProps = {
     portraits: VideoPortrait[];
     deletedIds: string[];
     declarations: Record<string, ReferenceDeclaration>;
+    referenceImageUrls: string[];
     addPortrait: (portrait: VideoPortrait) => void;
     syncPortraitState: () => Promise<void>;
     removePortrait: (assetId: string) => void;
@@ -41,7 +46,7 @@ export type AssetsPanelProps = {
     getPortraitStatus: () => Promise<PortraitStatus>;
     reviewAsset: (input: ProviderAssetReviewInput) => Promise<string>;
     /** Loads an image asset into the video form's reference list. */
-    onUseAsReference: (sourceUrl: string, providerReferenceUrl?: string) => void;
+    onUseAsReference: (sourceUrl: string, providerReferenceUrl?: string, options?: ReferenceUseOptions) => void;
     /** Loads a video asset into the video form's reference video list. */
     onUseAsReferenceVideo: (sourceUrl: string, providerReferenceUrl?: string) => void;
     onAttachAssetId: (input: { assetId: string; origin: ReferenceOrigin; note?: string }) => boolean;

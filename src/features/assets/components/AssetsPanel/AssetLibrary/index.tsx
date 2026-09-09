@@ -16,11 +16,13 @@ type AssetLibraryProps = Omit<AssetGridProps, 'items'> & {
     items: AssetListItem[];
     providerAssets: ProviderLibraryAsset[];
     declarations: Record<string, ReferenceDeclaration>;
+    referenceImageUrls: string[];
     isLoading: boolean;
 };
 
 type AssetLibraryBodyProps = {
     availableOnly: boolean;
+    referenceImageUrls: string[];
     gridProps: Omit<AssetGridProps, 'items'>;
     isLoading: boolean;
     items: AssetListItem[];
@@ -65,6 +67,7 @@ function AssetMetrics({
 
 function AssetLibraryBody({
     availableOnly,
+    referenceImageUrls,
     gridProps,
     isLoading,
     items,
@@ -76,7 +79,14 @@ function AssetLibraryBody({
     visible
 }: AssetLibraryBodyProps) {
     const t = useTranslations();
-    if (source === 'seedance') return <OfficialAssetLibrary declarations={declarations} />;
+    if (source === 'seedance')
+        return (
+            <OfficialAssetLibrary
+                declarations={declarations}
+                onUseImage={gridProps.onUseImage}
+                referenceImageUrls={referenceImageUrls}
+            />
+        );
     return (
         <>
             <AssetFilters
@@ -105,7 +115,14 @@ function AssetLibraryBody({
     );
 }
 
-export function AssetLibrary({ items, providerAssets, declarations, isLoading, ...gridProps }: AssetLibraryProps) {
+export function AssetLibrary({
+    items,
+    providerAssets,
+    declarations,
+    isLoading,
+    referenceImageUrls,
+    ...gridProps
+}: AssetLibraryProps) {
     const t = useTranslations();
     const [kindFilter, setKindFilter] = React.useState<AssetKind>('all');
     const [availableOnly, setAvailableOnly] = React.useState(false);
@@ -134,6 +151,7 @@ export function AssetLibrary({ items, providerAssets, declarations, isLoading, .
 
             <AssetLibraryBody
                 availableOnly={availableOnly}
+                referenceImageUrls={referenceImageUrls}
                 gridProps={gridProps}
                 isLoading={isLoading}
                 items={items}

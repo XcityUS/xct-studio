@@ -8,6 +8,7 @@ import { AssetPreview } from './AssetPreview';
 import styles from './index.module.scss';
 import type { ProviderAssetReviewInput } from '@/features/assets/hooks/use-provider-asset-review';
 import type { InlineReviewOrigin } from '@/features/assets/reference/origin';
+import type { ReferenceUseOptions } from '@/features/assets/components/AssetsPanel/types';
 import { cn } from '@/shared/utils/classnames';
 import {
     AlertCircle,
@@ -29,7 +30,7 @@ export type AssetGridProps = {
     onDelete: (item: AssetListItem) => Promise<void>;
     onReview: (input: ProviderAssetReviewInput) => Promise<string>;
     onSaveCharacter: (asset: AssetListItem['asset'], referenceUrl: string) => void;
-    onUseImage: (sourceUrl: string, providerReferenceUrl?: string) => void;
+    onUseImage: (sourceUrl: string, providerReferenceUrl?: string, options?: ReferenceUseOptions) => void;
     onUseVideo: (sourceUrl: string, providerReferenceUrl?: string) => void;
     checkingAssetId: string | null;
     onCheckReviewStatus: (portrait: NonNullable<AssetListItem['portrait']>) => Promise<void>;
