@@ -141,7 +141,7 @@ export function declarationSatisfied(
     approvedAuthorizationIds?: ReadonlySet<string>
 ): boolean {
     void approvedAuthorizationIds;
-    if (!decl || decl.origin === 'official-asset') return false;
+    if (!decl) return false;
     if (decl.assetId) return true;
     if (decl.origin !== 'byteplus-ai') return false;
 
