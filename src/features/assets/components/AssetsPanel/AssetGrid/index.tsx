@@ -194,7 +194,7 @@ export function AssetGrid({
                                             }>
                                             {canUse ? <UserPlus /> : <ReviewIcon state={item.reviewState} />}
                                             <span className={styles.actionLabel}>
-                                                {canUse ? t('Character') : <ReviewActionShortLabel state={item.reviewState} />}
+                                                {canUse ? t('Role') : <ReviewActionShortLabel state={item.reviewState} />}
                                             </span>
                                         </button>
                                     </>
