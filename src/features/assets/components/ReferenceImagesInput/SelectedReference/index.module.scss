@@ -1,0 +1,154 @@
+.root {
+    width: 112px;
+    min-width: 0;
+}
+
+.preview {
+    position: relative;
+    width: 112px;
+    aspect-ratio: 1;
+    overflow: hidden;
+    border: 1px solid var(--studio-border-strong);
+    border-radius: 6px;
+    background: var(--studio-surface-soft);
+    box-shadow: var(--studio-control-shadow);
+}
+
+.image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.fallback {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px;
+    color: var(--studio-success);
+    text-align: center;
+}
+
+.fallback svg {
+    width: 24px;
+    height: 24px;
+}
+
+.fallback span {
+    max-width: 100%;
+    overflow: hidden;
+    font-family: monospace;
+    font-size: 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.assetBadge,
+.indexBadge,
+.remove {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--studio-media-overlay);
+    color: var(--studio-media-foreground);
+}
+
+.assetBadge {
+    top: 6px;
+    left: 6px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--studio-success-solid);
+}
+
+.assetBadge svg {
+    width: 14px;
+    height: 14px;
+}
+
+.indexBadge {
+    bottom: 0;
+    left: 0;
+    min-width: 22px;
+    height: 20px;
+    border-radius: 0 5px 0 0;
+    font-size: 11px;
+}
+
+.remove {
+    top: 0;
+    right: 0;
+    width: 28px;
+    height: 28px;
+    border-radius: 0 0 0 6px;
+    transition: background 160ms ease;
+}
+
+.remove:hover:not(:disabled) {
+    background: var(--studio-media-danger-hover);
+}
+
+.remove:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+.remove svg {
+    width: 15px;
+    height: 15px;
+}
+
+.name {
+    margin-top: 6px;
+    overflow: hidden;
+    color: var(--studio-foreground);
+    font-size: 12px;
+    line-height: 16px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.assetId {
+    overflow: hidden;
+    color: var(--studio-muted-soft);
+    font-family: monospace;
+    font-size: 10px;
+    line-height: 14px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.description {
+    overflow: hidden;
+    color: var(--studio-muted-soft);
+    font-size: 10px;
+    line-height: 14px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.edit {
+    width: 100%;
+    margin-top: 5px;
+    overflow: hidden;
+    padding: 3px 6px;
+    border: 1px solid var(--studio-border);
+    border-radius: 4px;
+    background: var(--studio-surface-soft);
+    color: var(--studio-muted);
+    font-size: 10px;
+    line-height: 16px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.edit:hover {
+    border-color: var(--studio-border-strong);
+    color: var(--studio-foreground);
+}

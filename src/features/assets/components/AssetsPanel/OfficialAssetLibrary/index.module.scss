@@ -1,0 +1,200 @@
+.root {
+    display: flex;
+    min-height: 190px;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 20px;
+    border: 1px solid var(--studio-border);
+    border-radius: 7px;
+    background: var(--studio-surface);
+    color: var(--studio-foreground);
+
+    > svg {
+        width: 20px; height: 20px;
+        flex: 0 0 auto;
+    }
+}
+
+.content {
+    width: 100%;
+    max-width: 700px;
+
+    h4,
+    h5,
+    p {
+        margin: 0;
+    }
+    h4 {
+        font-size: 14px;
+        font-weight: 600;
+    }
+    h5 {
+        color: var(--studio-foreground);
+        font-size: 12px;
+        font-weight: 600;
+    }
+    p {
+        margin-top: 7px;
+        color: var(--studio-muted);
+        font-size: 12px;
+        line-height: 1.6;
+    }
+
+    .notice {
+        color: var(--studio-muted-soft);
+    }
+}
+
+.savedAssets {
+    margin-top: 16px;
+}
+.assetList {
+    display: grid;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.assetCard {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: center;
+    padding: 10px 12px;
+    border: 1px solid var(--studio-border);
+    border-radius: 7px;
+    background: var(--studio-surface-strong);
+    strong,
+    span {
+        display: block;
+    }
+    strong {
+        overflow-wrap: anywhere;
+        color: var(--studio-foreground);
+        font-size: 13px;
+        font-weight: 600;
+    }
+    span {
+        margin-top: 2px;
+        color: var(--studio-muted-soft);
+        font-size: 11px;
+    }
+
+    p {
+        margin-top: 6px;
+        color: var(--studio-muted);
+    }
+}
+.cardActions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.noteEditor {
+    display: grid;
+    gap: 8px;
+    margin-top: 8px;
+
+    input {
+        width: 100%;
+        height: 34px;
+        padding: 0 10px;
+        border: 1px solid var(--studio-border-strong);
+        border-radius: 6px;
+        background: var(--studio-background);
+        color: var(--studio-foreground);
+        font: inherit;
+        font-size: 12px;
+        outline: none;
+        &:focus {
+            border-color: var(--studio-foreground);
+        }
+    }
+}
+
+.noteActions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+
+    button {
+        display: inline-flex;
+        height: 28px;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        padding: 0 9px;
+        border: 1px solid var(--studio-border);
+        border-radius: 6px;
+        background: var(--studio-surface);
+        color: var(--studio-foreground);
+        font: inherit;
+        font-size: 11px;
+        cursor: pointer;
+        svg {
+            width: 12px; height: 12px;
+        }
+    }
+}
+
+.copyButton,
+.editButton,
+.referenceButton {
+    display: inline-flex;
+    height: 32px;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 0 10px;
+    border: 1px solid var(--studio-border-strong);
+    border-radius: 6px;
+    background: var(--studio-surface);
+    color: var(--studio-foreground);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    svg {
+        width: 13px; height: 13px;
+    }
+}
+
+.referenceButton {
+    border-color: var(--studio-foreground);
+    background: var(--studio-foreground);
+    color: var(--studio-background);
+
+    &:disabled {
+        border-color: var(--studio-border);
+        background: var(--studio-surface);
+        color: var(--studio-muted-soft);
+        cursor: default;
+    }
+}
+
+.empty {
+    color: var(--studio-muted-soft);
+}
+
+.actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    margin-top: 14px;
+
+    a {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        color: var(--studio-foreground);
+        font-size: 12px;
+        font-weight: 600;
+        text-decoration: none;
+        &:hover {
+            text-decoration: underline;
+        }
+        svg {
+            width: 13px; height: 13px;
+        }
+    }
+}

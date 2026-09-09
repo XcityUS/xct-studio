@@ -1,7 +1,7 @@
-import { InvalidApiKeyError, RealPersonImageError, sanitizeStudioErrorMessage } from './errors';
+import { InvalidApiKeyError, RealPersonImageError, sanitizeStudioErrorMessage } from '../shared/errors';
 import { BudgetExceededError, RateLimitError, createFrontendOpenAI } from './openai-client';
-import { clampSeconds } from './seedance';
-import type { VideoJob, VideoJobCreate } from '@/types/video';
+import { clampSeconds } from '@/shared/config/seedance';
+import type { VideoJob, VideoJobCreate } from '@/shared/contracts/video';
 
 /**
  * Direct client for the TokenHub gateway's OpenAI-style /v1/videos API.
@@ -23,12 +23,22 @@ function referenceItem(url: string, role: GatewayReferenceItem['role']): Gateway
  * fields at the top level, while Doubao/Seedance provider params are read from
  * `extra_body` and forwarded to Ark.
  */
-function buildCreateBody(params: VideoJobCreate): Record<string, unknown> {
+export function buildCreateBody(params: VideoJobCreate): Record<string, unknown> {
     const extraBody: Record<string, unknown> = {
         generate_audio: params.generate_audio
     };
     if (!params.omit_resolution) {
         extraBody.resolution = params.resolution;
+    }
+    const referenceUrls = [
+        params.input_reference_url,
+        params.last_frame_url,
+        ...(params.reference_image_urls ?? []),
+        ...(params.reference_video_urls ?? []),
+        params.reference_audio_url
+    ];
+    if (referenceUrls.some((url) => url?.trim().startsWith('asset://'))) {
+        extraBody.seedance_use_asset_api = true;
     }
     const body: Record<string, unknown> = {
         model: params.model,
@@ -60,7 +70,10 @@ function buildCreateBody(params: VideoJobCreate): Record<string, unknown> {
         // InvalidParameter.TaskTypeConstraint — the output ratio always
         // follows the reference image, so the param must be omitted entirely.
         body.input_reference = params.last_frame_url
-            ? [referenceItem(params.input_reference_url, 'first_frame'), referenceItem(params.last_frame_url, 'last_frame')]
+            ? [
+                  referenceItem(params.input_reference_url, 'first_frame'),
+                  referenceItem(params.last_frame_url, 'last_frame')
+              ]
             : params.input_reference_url;
     } else {
         extraBody.ratio = params.ratio;

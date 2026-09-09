@@ -1,0 +1,139 @@
+.card {
+    overflow: hidden;
+    border: 1px solid var(--studio-border);
+    border-radius: 6px;
+    background: var(--studio-surface);
+    box-shadow: var(--studio-control-shadow);
+    transition:
+        border-color 140ms ease,
+        box-shadow 140ms ease;
+}
+
+.card:hover {
+    border-color: var(--studio-border-strong);
+    box-shadow: var(--studio-raised-shadow);
+}
+
+.mediaButton {
+    position: relative;
+    display: block;
+    width: 100%;
+    overflow: hidden;
+    padding: 0;
+    border: 0;
+    border-bottom: 1px solid var(--studio-border);
+    background: var(--studio-surface-soft);
+    cursor: pointer;
+}
+
+.mediaButton:focus-visible {
+    outline: 2px solid var(--studio-focus);
+    outline-offset: -2px;
+}
+
+.selectedMedia {
+    box-shadow: inset 0 0 0 2px var(--studio-foreground);
+}
+
+.modeBadge,
+.archiveBadge,
+.mediaMeta,
+.deleteButton {
+    color: var(--studio-media-foreground);
+}
+
+.modeBadge {
+    background: var(--studio-media-overlay-strong);
+    backdrop-filter: blur(6px);
+}
+
+.draftBadge,
+.costBadge,
+.watermarkBadge {
+    background: var(--studio-media-chip);
+    color: var(--studio-media-chip-foreground);
+    backdrop-filter: blur(6px);
+}
+
+.archiveBadge {
+    background: var(--studio-media-warning);
+}
+
+.mediaMeta {
+    border: 1px solid var(--studio-media-border);
+    background: var(--studio-media-overlay);
+    backdrop-filter: blur(6px);
+}
+
+.deleteButton {
+    background: var(--studio-media-danger);
+}
+
+.deleteButton:hover {
+    background: var(--studio-media-danger-hover);
+}
+
+.details {
+    padding: 10px;
+    background: var(--studio-surface);
+}
+
+.metadata {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 4px;
+    color: var(--studio-muted-soft);
+    font-size: 10px;
+}
+
+.actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px;
+    margin-top: 6px;
+}
+
+.actionButton {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    min-height: 28px;
+    gap: 4px;
+    padding: 4px 6px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: var(--studio-surface-soft);
+    color: var(--studio-muted);
+    font-size: 10px;
+    line-height: 1.2;
+    white-space: nowrap;
+    word-break: keep-all;
+    overflow-wrap: normal;
+    cursor: pointer;
+    transition:
+        border-color 140ms ease,
+        background-color 140ms ease,
+        color 140ms ease;
+
+    &:hover:not(:disabled) {
+        border-color: var(--studio-border);
+        background: var(--studio-hover);
+        color: var(--studio-foreground);
+    }
+
+    &:focus-visible {
+        outline: 2px solid var(--studio-focus);
+        outline-offset: 1px;
+    }
+
+    &:disabled {
+        cursor: not-allowed;
+        opacity: 0.45;
+    }
+
+    svg {
+        flex: 0 0 auto;
+    }
+}

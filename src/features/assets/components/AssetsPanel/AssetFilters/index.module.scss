@@ -1,0 +1,46 @@
+.root {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.filter,
+.active {
+    display: inline-flex;
+    min-height: 28px;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border: 0;
+    border-radius: 999px;
+    cursor: pointer;
+    font-size: 12px;
+
+    svg {
+        width: 13px;
+        height: 13px;
+    }
+}
+
+.filter {
+    background: var(--studio-hover);
+    color: var(--studio-muted);
+
+    &:hover {
+        color: var(--studio-foreground);
+    }
+}
+
+.active {
+    background: var(--studio-foreground);
+    color: var(--studio-background);
+}
+
+.divider {
+    width: 1px;
+    height: 20px;
+    align-self: center;
+    margin: 0 2px;
+    background: var(--studio-border);
+}

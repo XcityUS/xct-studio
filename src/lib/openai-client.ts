@@ -1,4 +1,4 @@
-import { InvalidApiKeyError } from './errors';
+import { InvalidApiKeyError } from '../shared/errors';
 import OpenAI from 'openai';
 
 export class RateLimitError extends Error {

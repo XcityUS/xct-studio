@@ -1,0 +1,18 @@
+.root {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 80px 24px;
+
+    h1 {
+        font-size: 28px;
+        font-weight: 600;
+    }
+    p {
+        margin: 16px 0;
+        color: var(--studio-muted);
+    }
+    a {
+        color: var(--studio-foreground);
+        text-decoration: underline;
+    }
+}

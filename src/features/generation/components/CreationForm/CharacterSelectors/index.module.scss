@@ -1,0 +1,122 @@
+.row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.label {
+    flex: 0 0 auto;
+    color: var(--studio-foreground);
+    font-size: 14px;
+}
+
+.options {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.option {
+    display: inline-flex;
+    max-width: 100%;
+    min-height: 36px;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 10px 3px 4px;
+    border: 1px solid var(--studio-border);
+    border-radius: 999px;
+    background: var(--studio-surface-soft);
+    color: var(--studio-muted);
+    font-size: 13px;
+    transition:
+        border-color 160ms ease,
+        background 160ms ease,
+        color 160ms ease,
+        box-shadow 160ms ease;
+}
+
+.option:hover:not(:disabled) {
+    border-color: var(--studio-border-strong);
+    background: var(--studio-hover);
+    color: var(--studio-foreground);
+}
+
+.option:focus-visible {
+    outline: 2px solid var(--studio-focus);
+    outline-offset: 2px;
+}
+
+.option:disabled {
+    cursor: not-allowed;
+    opacity: 0.42;
+}
+
+.selected {
+    border-color: var(--studio-success-border);
+    background: var(--studio-success-soft);
+    color: var(--studio-success);
+    box-shadow: inset 0 0 0 1px var(--studio-success-border);
+}
+
+.avatar {
+    position: relative;
+    display: flex;
+    width: 28px;
+    height: 28px;
+    flex: 0 0 28px;
+    align-items: center;
+    justify-content: center;
+    overflow: visible;
+    border: 1px solid var(--studio-border);
+    border-radius: 50%;
+    background: var(--studio-surface);
+}
+
+.avatar img {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.avatarIcon {
+    width: 14px;
+    height: 14px;
+    color: var(--studio-muted-soft);
+}
+
+.portraitType {
+    position: absolute;
+    right: -1px;
+    bottom: -1px;
+    display: flex;
+    width: 13px;
+    height: 13px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--studio-surface);
+    border-radius: 50%;
+    background: var(--studio-success-solid);
+    color: var(--studio-status-foreground);
+}
+
+.portraitType svg {
+    width: 8px;
+    height: 8px;
+}
+
+.name {
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.selectedMark {
+    width: 15px;
+    height: 15px;
+    flex: 0 0 auto;
+}

@@ -3,7 +3,7 @@
  * archive reconciler re-scans the whole history on a timer.
  */
 import { makeHistoryItem } from './fixtures';
-import { providerLinkLikelyDead, providerUrlExpiresAtMs, resolveMediaState } from '@/lib/media-state';
+import { providerLinkLikelyDead, providerUrlExpiresAtMs, resolveMediaState } from '@/features/assets/media/state';
 import { bench, describe } from 'vitest';
 
 const NOW = 1_740_100_000_000;

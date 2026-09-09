@@ -3,7 +3,7 @@
  * whole history of a user (hundreds of items plus declarations/tombstones).
  */
 import { makeDeclarations, makeDocPair } from './fixtures';
-import { mergeDocs, sameDocContent, withDeclarations, withTombstones } from '@/lib/history-merge';
+import { mergeDocs, sameDocContent, withDeclarations, withTombstones } from '@/features/generation/history/merge';
 import { bench, describe } from 'vitest';
 
 const smallPair = makeDocPair(50);

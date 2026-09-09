@@ -1,0 +1,26 @@
+.dialog {
+    max-width: 25rem;
+    border-color: var(--studio-border-strong);
+    background: var(--studio-overlay);
+    color: var(--studio-foreground);
+}
+
+.form {
+    display: grid;
+    gap: 1rem;
+}
+
+.field {
+    display: grid;
+    gap: 0.5rem;
+
+    label {
+        color: var(--studio-muted);
+    }
+
+    input {
+        border-color: var(--studio-border-strong);
+        background: var(--studio-surface);
+        color: var(--studio-foreground);
+    }
+}

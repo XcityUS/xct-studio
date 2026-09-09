@@ -1,0 +1,4 @@
+providers = ["node"]
+
+[phases.install]
+cmds = ["corepack pnpm install --frozen-lockfile"]

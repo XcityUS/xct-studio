@@ -1,0 +1,57 @@
+.root {
+    margin-bottom: 16px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--studio-border);
+}
+
+.header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 16px;
+    margin-bottom: 12px;
+}
+
+.title {
+    color: var(--studio-foreground);
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.metrics {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 12px;
+    color: var(--studio-muted);
+    font-size: 11px;
+}
+
+.metrics strong {
+    color: var(--studio-foreground);
+    font-weight: 600;
+}
+
+.empty {
+    display: flex;
+    min-height: 160px;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: var(--studio-muted);
+    font-size: 13px;
+    text-align: center;
+}
+
+.spinner {
+    width: 16px;
+    height: 16px;
+    animation: asset-library-spin 0.8s linear infinite;
+}
+
+@keyframes asset-library-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}

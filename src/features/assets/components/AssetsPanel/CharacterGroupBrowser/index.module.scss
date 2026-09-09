@@ -1,0 +1,259 @@
+.groupGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 8px;
+}
+
+.groupCard {
+    display: grid;
+    grid-template-columns: 48px minmax(0, 1fr) 28px;
+    min-height: 64px;
+    align-items: center;
+    gap: 10px;
+    padding: 8px;
+    border: 1px solid var(--studio-border);
+    border-radius: 6px;
+    background: var(--studio-surface-soft);
+    color: var(--studio-foreground);
+}
+
+.groupCard:has(.groupOpen:hover),
+.groupCard:has(.groupOpen:focus-visible) {
+    border-color: var(--studio-border-strong);
+    background: var(--studio-hover);
+}
+
+.groupOpen {
+    display: grid;
+    grid-column: 1 / 3;
+    grid-template-columns: 48px minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.groupOpen:focus-visible {
+    outline: 2px solid var(--studio-border-strong);
+    outline-offset: 3px;
+}
+
+.groupCover,
+.assetPreview {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border: 1px solid var(--studio-border);
+    border-radius: 4px;
+    background: var(--studio-surface);
+    color: var(--studio-muted);
+}
+
+.groupCover {
+    width: 48px;
+    height: 48px;
+}
+
+.groupCover img,
+.assetPreview img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.groupCover svg,
+.assetPreview svg {
+    width: 18px;
+    height: 18px;
+}
+
+.groupSummary,
+.assetMeta {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.groupSummary strong,
+.assetMeta strong {
+    overflow: hidden;
+    font-size: 12px;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.groupSummary span,
+.assetMeta span,
+.detailTitle span {
+    color: var(--studio-muted);
+    font-size: 10px;
+}
+
+.deleteButton,
+.backButton {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    background: transparent;
+    color: var(--studio-muted);
+    cursor: pointer;
+}
+
+.deleteButton {
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
+}
+
+.deleteButton:hover {
+    background: var(--studio-danger-soft);
+    color: var(--studio-danger);
+}
+
+.deleteButton:disabled {
+    cursor: wait;
+    opacity: 0.55;
+}
+
+.deleteButton svg,
+.backButton svg,
+.addButton svg {
+    width: 14px;
+    height: 14px;
+}
+
+.detail {
+    padding: 12px;
+    border: 1px solid var(--studio-border-strong);
+    border-radius: 6px;
+    background: var(--studio-surface-soft);
+}
+
+.detailHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.backButton {
+    gap: 6px;
+    padding: 4px 0;
+    font-size: 12px;
+}
+
+.backButton:hover {
+    color: var(--studio-foreground);
+}
+
+.detailTitle {
+    display: flex;
+    min-width: 0;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.detailTitle strong {
+    overflow: hidden;
+    font-size: 13px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.assetGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.assetCard {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding: 6px;
+    border: 1px solid var(--studio-border);
+    border-radius: 4px;
+    background: var(--studio-surface);
+}
+
+.assetPreview {
+    width: 44px;
+    height: 44px;
+}
+
+.assetMeta span[data-status='Active'] {
+    color: var(--studio-success);
+}
+
+.assetMeta span[data-status='Failed'] {
+    color: var(--studio-danger);
+}
+
+.empty,
+.hint {
+    margin: 0;
+    color: var(--studio-muted);
+    font-size: 11px;
+}
+
+.empty {
+    padding: 20px 0;
+    text-align: center;
+}
+
+.addRow {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(128px, 192px) auto;
+    gap: 8px;
+    padding-top: 12px;
+    border-top: 1px solid var(--studio-border);
+}
+
+.nameInput {
+    height: 32px;
+}
+
+.addButton {
+    height: 32px;
+    gap: 6px;
+}
+
+.hint {
+    margin-top: 6px;
+}
+
+.spinner {
+    animation: character-group-spin 0.8s linear infinite;
+}
+
+@media (max-width: 640px) {
+    .groupGrid,
+    .assetGrid,
+    .addRow {
+        grid-template-columns: 1fr;
+    }
+
+    .detailHeader {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+}
+
+@keyframes character-group-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}

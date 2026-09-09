@@ -12,9 +12,10 @@ Forked from [alasano/sora-2-playground](https://github.com/alasano/sora-2-playgr
 - **🖼️ Image-to-video** — drop a local image (stored via the media worker) or paste a URL; the clip starts from that frame.
 - **🎨 Text-to-image tab** *(optional)* — Seedream models through the same gateway; generated images persist in the browser and can be sent straight back into image-to-video ("Animate").
 - **💡 Prompt assistant** — an inspiration library (scene templates, camera moves, style/light phrases) plus one-click AI prompt rewriting via the gateway's chat API, with undo.
+- **📝 Script import and shot breakdown** — paste text or import TXT, Markdown, DOC, DOCX, and PDF files up to 20 MB, then create editable shot rows through a server-side TokenHub call.
 - **📜 History & cost tracking** — every job with live progress, per-video cost breakdown mirroring the TokenHub price map, status/model filters, one-click **Reuse** (做同款) and **Regenerate**.
 - **☁️ Permanent playback** — Ark's CDN links die after 24 h; finished videos are archived once to R2 and played from there forever.
-- **🔑 No server-held keys** — every model call runs in the browser on the signed-in user's own TokenHub key (SSO), or a manually pasted key.
+- **🔑 No server-held keys** — model calls use the signed-in user's own TokenHub key (SSO), or a manually pasted key; same-origin routes forward it without persisting it.
 
 ## 🏗️ Architecture
 
@@ -25,7 +26,10 @@ Browser (this app)
   ├──► TokenHub gateway (LiteLLM, tokenhub.xcity.one)
   │      /v1/videos            → BytePlus/Ark Seedance
   │      /v1/images            → Seedream (optional tab)
-  │      /v1/chat/completions  → prompt optimizer
+  │      /v1/chat/completions  → legacy prompt optimizer
+  │
+  ├──► Next /api/script/* → TokenHub /v1/chat/completions
+  │      file text extraction + script breakdown
   │
   └──► xcity-media worker (Cloudflare Workers + R2, media-worker/)
          POST /archive   copy a finished video into R2 (key-authenticated)
@@ -33,27 +37,43 @@ Browser (this app)
          GET  /media/*   serve stored media (public, immutable, CORS, ranges)
 ```
 
-- Video/image **bytes** live in the browser (IndexedDB) and in R2; **history metadata** lives in localStorage. The Next.js server holds no state and no API keys — its one API route, `/api/config`, exposes runtime config (`MEDIA_WORKER_URL`) so the setting takes effect on restart without a rebuild.
-- Keys are resolved **at call time** through a ref (`src/hooks/use-xcity-key.ts`) — SSO keys arrive async and rotate, so no closure ever trusts a key it captured at render time.
-- Archiving is **reconciliation-based** (`src/hooks/use-media-archive.ts`): any completed history item without a permanent URL gets one, with exponential backoff — not a completion callback that can race the CDN link appearing.
+- Video/image **bytes** live in the browser (IndexedDB) and in R2; **history metadata** uses browser state and Worker sync. The Next.js app does not yet own a production database. `/api/config` exposes browser-safe runtime configuration; existing portrait and video-content API routes remain in place. Remaining browser-to-gateway AI flows are legacy behavior scheduled for server-side migration.
+- Keys are resolved **at call time** through a ref (`src/features/settings/hooks/use-xcity-key.ts`) — SSO keys arrive async and rotate, so no closure ever trusts a key it captured at render time. Script breakdown forwards the current key through the same-origin route without storing it.
+- Archiving is **reconciliation-based** (`src/features/assets/hooks/use-media-archive.ts`): any completed history item without a permanent URL gets one, with exponential backoff — not a completion callback that can race the CDN link appearing.
 
 ## 🚀 Local development
 
+Use Node.js 22.18+ and pnpm 10.34.5, pinned in `package.json`. Corepack runs the project version without changing other repositories. The runtime is Next.js 16.3.4, React 19.2.8, and next-intl 4.14.2.
+
 ```bash
-npm install
+corepack pnpm install --frozen-lockfile
 cp .env.local.example .env.local   # then fill in what you need
-npm run dev
+corepack pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). With no SSO configured you'll be prompted for a TokenHub API key (stored only in the browser).
+Open [Chinese Studio](http://localhost:3000/zh) or [English Studio](http://localhost:3000/en). `/` redirects to `/zh`. With no SSO configured you'll be prompted for a TokenHub API key (stored only in the browser).
+
+`pnpm-lock.yaml` is the only dependency lockfile. Use `pnpm add` and `pnpm remove` for dependency changes; do not run npm or Yarn installs. The install guard enforces the pinned pnpm version.
+
+```bash
+corepack pnpm check:harness
+corepack pnpm lint
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+```
+
+The upgrade introduces Server Component route shells, CSS Modules for the localized shell and migrated settings, and typed runtime configuration under `src/server` and `src/shared/contracts`. Existing production UI, Tailwind styling, and browser AI adapters are explicitly retained for separate migration. Initial translations cover navigation, the account gate/dialog, sharing, verification callbacks, and error pages; deeper production forms remain a translation follow-up. See [implementation status](docs/architecture/runtime-upgrade-status.md) and [file naming and size rules](docs/rules/files.md).
+
+The [short-drama business rules](docs/rules/business.md) define the reference-project roles, IP continuity, script/storyboard review, candidate selection, director-agent boundaries, captions, multilingual releases, and export traceability. These are target constraints, not completed platform features.
 
 ### Benchmarks
 
 Pure studio logic (cloud-sync merge, cost math, SRT/FCP7 export, media-state resolution, reference keys) is benchmarked with `vitest bench` and tracked on CodSpeed:
 
 ```bash
-npm run bench                              # local run
-codspeed run --mode simulation -- npm run bench   # same run, CodSpeed instrumented
+corepack pnpm bench                              # local run
+codspeed run --mode simulation -- corepack pnpm bench   # same run, CodSpeed instrumented
 ```
 
 Benchmarks live in [bench/](bench/); every pull request gets a performance report from [.github/workflows/codspeed.yml](.github/workflows/codspeed.yml).
@@ -66,42 +86,54 @@ Benchmarks live in [bench/](bench/); every pull request gets a performance repor
 | `NEXT_PUBLIC_XCITY_SSO` | no | `true` → fetch the signed-in user's key from xcity.ai (origin must be on the xcity.ai CORS allowlist) |
 | `NEXT_PUBLIC_XCITY_KEY_URL` | no | Override the SSO key endpoint (default `https://xcity.ai/api/me/litellm-key`) |
 | `NEXT_PUBLIC_XCITY_LOGIN_URL` | no | Override the login URL (default `https://xcity.ai/login`) |
+| `XCITY_LITELLM_URL` | no | Server-only TokenHub origin used by provider-asset routes. Defaults to `https://tokenhub.xcity.one`; do not include `/v1`. |
+| `SCRIPT_BREAKDOWN_MODEL` | no | Server-side chat model used for script breakdown (default `gpt-5-mini`). |
+| `PROVIDER_ASSETS_ENABLED` | no | Set to `true` after TokenHub provider-asset routes and BytePlus credentials are deployed. Enables review, Asset ID status, and portrait-library UI. |
 | `MEDIA_WORKER_URL` | no | Deployed media worker origin. Unset → archiving and local image upload are disabled; playback falls back to 24 h provider links. Read at runtime via `/api/config` — restart, don't rebuild. |
 | `IMAGE_MODELS` | no | Comma-separated TokenHub image model ids, e.g. `seedream-5-0-260128`. Unset → the Image tab is hidden. Read at runtime via `/api/config` — restart, don't rebuild. |
-| `NEXT_PUBLIC_PROMPT_OPTIMIZER_MODEL` | no | Chat model for AI prompt rewriting (default `gpt-4o-mini`) |
+| `NEXT_PUBLIC_PROMPT_OPTIMIZER_MODEL` | no | Legacy browser-side chat model for AI prompt rewriting (default `gpt-4o-mini`) |
 
 ## ☁️ Deployment
 
 ### App (Railway)
 
-`railway.json` pins NIXPACKS with `npm run build` / `npm run start`. Set the environment variables above on the service; `MEDIA_WORKER_URL` only needs a restart to take effect.
+`nixpacks.toml` installs with `corepack pnpm install --frozen-lockfile`; `railway.json` builds and starts with `corepack pnpm build` / `corepack pnpm start`. The health check uses `/api/config` to avoid locale redirects. Set the environment variables above on the service; `MEDIA_WORKER_URL` only needs a restart to take effect.
 
 ### Media worker (Cloudflare)
 
 ```bash
 cd media-worker
-npx wrangler r2 bucket create xcity-media   # once
-npx wrangler deploy
+corepack pnpm dlx wrangler r2 bucket create xcity-media   # once
+corepack pnpm dlx wrangler deploy
 ```
 
 Config lives in [media-worker/wrangler.toml](media-worker/wrangler.toml): the gateway URL used to verify caller keys (`LITELLM_BASE_URL`), the browser origins allowed to call it (`ALLOWED_ORIGINS`), and size caps. Objects are namespaced per user (`u/<user_id>/…`), so one user's key can never overwrite another's media.
 
-To test the worker locally: `npx wrangler dev --local` and point `MEDIA_WORKER_URL` at `http://localhost:8787`.
+To test the worker locally: `corepack pnpm dlx wrangler dev --local` and point `MEDIA_WORKER_URL` at `http://localhost:8787`.
 
 ## 🧭 Repo map
 
 ```
-src/app/page.tsx            orchestration + layout (tabs, dialogs, wiring)
-src/hooks/                  use-xcity-key · use-video-jobs · use-video-history
-                            use-video-sources · use-media-archive
-src/lib/seedance.ts         model catalog, prices, ratios/resolutions
-src/lib/video-service.ts    gateway /v1/videos client (raw JSON, key getter)
-src/lib/image-service.ts    gateway /v1/images client (tab gated by env)
-src/lib/media-archive.ts    R2 worker client (archive + upload)
-src/lib/prompt-*.ts         inspiration templates · AI optimizer
-src/components/             form, output player, history panel, image studio…
+src/app/[locale]/           Server Component locale layout and Studio page
+src/proxy.ts               default locale and legacy callback redirects; API/media exclusions
+src/i18n/                  routing, navigation, request config, typed zh/en messages
+src/components/            shared ui, layout, providers; Component/index.tsx
+src/features/studio/       legacy cross-feature workspace composition
+src/features/settings/     locale/key UI, SSO, key hook, billing
+src/features/assets/       references, portrait/authorization, storage, media hooks
+src/features/generation/   creation/output/history/image UI, jobs, cost/progress
+src/features/script/       inspiration, shot builder, prompt templates/guards
+src/features/community/    gallery data, presets, community UI
+src/features/post-production/  assembly UI, browser FFmpeg, NLE export
+src/features/{ip,episode,localization}/  planned production-domain landing zones
+src/server/                server-only config, xcity-litellm clients, portrait guards
+src/shared/                video/cost/config contracts, model catalog, utilities
+src/lib/                   eight legacy AI/Worker transports awaiting migration
+scripts/harness/           directory/style/boundary/size/pnpm checks
 media-worker/               Cloudflare Worker: /archive /upload /media
 ```
+
+Components use `Component/index.tsx` and owned `index.module.scss` (Sass installed). Supporting files use short names such as `types.ts`, `hooks.ts`, and `utils.ts`. Directory migration is complete; nine oversized files and remaining Tailwind/provider migrations are tracked in [runtime status](docs/architecture/runtime-upgrade-status.md). Run `pnpm check:harness` to enforce the [file rules](docs/rules/files.md).
 
 ## License
 

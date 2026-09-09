@@ -13,15 +13,8 @@
  * happened on Railway). No worker configured = archiving is skipped and
  * playback falls back to the provider URL.
  */
-import { StateConflictError } from './errors';
-
-type RuntimeConfig = {
-    mediaWorkerUrl: string;
-    transcribeModel: string;
-    ttsModel: string;
-    imageModels: string[];
-    portraitEnabled: boolean;
-};
+import { StateConflictError } from '../shared/errors';
+import type { RuntimeConfig } from '@/shared/contracts/runtime-config';
 
 let runtimeConfigPromise: Promise<RuntimeConfig> | null = null;
 

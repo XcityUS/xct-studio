@@ -1,12 +1,5 @@
-import { arkOpenApi } from '@/lib/server/byteplus-openapi';
-import {
-    jsonError,
-    readJsonRecord,
-    requirePortraitRoute,
-    responseJson,
-    resultRoot,
-    stringField
-} from '@/lib/server/portrait-routes';
+import { jsonError, readJsonRecord, requirePortraitRoute } from '@/server/portrait/guards';
+import { providerAssetResponse } from '@/server/providers/xcity/provider-assets';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,18 +35,15 @@ export async function POST(request: Request) {
         return jsonError('invalid origin', 400);
     }
 
-    try {
-        const payload = await arkOpenApi('CreateVisualValidateSession', {
-            CallbackURL: `${origin}/portrait-callback`
-        });
-        const root = resultRoot(payload);
-        const h5Link = stringField(root, 'H5Link', 'h5Link');
-        const bytedToken = stringField(root, 'BytedToken', 'bytedToken');
-        if (!h5Link || !bytedToken) {
-            return jsonError(`portrait session returned an unexpected payload: ${JSON.stringify(payload)}`, 502);
-        }
-        return responseJson({ h5Link: h5LinkWithEnglish(h5Link), bytedToken });
-    } catch (err) {
-        return jsonError(err instanceof Error ? err.message : 'portrait session failed', 502);
+    const response = await providerAssetResponse('/verification-sessions', gate.auth.bearer, {
+        method: 'POST',
+        body: JSON.stringify({ callbackUrl: `${origin}/portrait-callback` })
+    });
+    if (!response.ok) return response;
+
+    const payload = (await response.json()) as { h5Link?: unknown; bytedToken?: unknown };
+    if (typeof payload.h5Link !== 'string' || typeof payload.bytedToken !== 'string') {
+        return jsonError('portrait session returned an unexpected payload', 502);
     }
+    return Response.json({ h5Link: h5LinkWithEnglish(payload.h5Link), bytedToken: payload.bytedToken });
 }

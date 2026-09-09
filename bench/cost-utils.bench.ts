@@ -2,7 +2,7 @@
  * Cost math runs per history row on every render of the history panel, and on
  * every keystroke in the create form (live price estimate).
  */
-import { calculateVideoCost } from '@/lib/cost-utils';
+import { calculateVideoCost } from '@/features/generation/utils/cost';
 import {
     RATIOS,
     RESOLUTIONS,
@@ -11,7 +11,7 @@ import {
     formatSize,
     parseSize,
     pixelDimensions
-} from '@/lib/seedance';
+} from '@/shared/config/seedance';
 import { bench, describe } from 'vitest';
 
 const singleUsage = {
