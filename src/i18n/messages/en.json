@@ -516,6 +516,8 @@
     "No description yet": "No description yet",
     "Add reference": "Add reference",
     "Already referenced": "Already referenced",
+    "Edit description": "Edit description",
+    "Save description": "Save description",
     "Asset ID is required": "Asset ID is required",
     "Asset ID attached<dot> Authorization is still required before generation": "Asset ID attached. Authorization is still required before generation.",
     "Asset ID attached to the video form": "Asset ID attached to the video form.",

@@ -17,6 +17,7 @@ type AssetLibraryProps = Omit<AssetGridProps, 'items'> & {
     providerAssets: ProviderLibraryAsset[];
     declarations: Record<string, ReferenceDeclaration>;
     referenceImageUrls: string[];
+    onUpdateOfficialAssetNote: (key: string, note: string) => void;
     isLoading: boolean;
 };
 
@@ -30,6 +31,7 @@ type AssetLibraryBodyProps = {
     kindFilter: AssetKind;
     onAvailableOnlyChange: (active: boolean) => void;
     onKindFilterChange: (kind: AssetKind) => void;
+    onUpdateOfficialAssetNote: (key: string, note: string) => void;
     source: AssetSource;
     visible: AssetListItem[];
 };
@@ -65,6 +67,27 @@ function AssetMetrics({
     );
 }
 
+function AssetLibraryEmpty({ hasItems, isLoading }: { hasItems: boolean; isLoading: boolean }) {
+    const t = useTranslations();
+    if (isLoading && !hasItems) {
+        return (
+            <div className={styles.empty}>
+                <Loader2 className={styles.spinner} />
+                {t('Loading assets')}
+            </div>
+        );
+    }
+    return (
+        <div className={styles.empty}>
+            <p>
+                {hasItems
+                    ? t('No assets match the current filter')
+                    : t('Nothing stored yet<dot> Uploaded references and archived videos will appear here')}
+            </p>
+        </div>
+    );
+}
+
 function AssetLibraryBody({
     availableOnly,
     referenceImageUrls,
@@ -75,18 +98,20 @@ function AssetLibraryBody({
     kindFilter,
     onAvailableOnlyChange,
     onKindFilterChange,
+    onUpdateOfficialAssetNote,
     source,
     visible
 }: AssetLibraryBodyProps) {
-    const t = useTranslations();
-    if (source === 'seedance')
+    if (source === 'seedance') {
         return (
             <OfficialAssetLibrary
                 declarations={declarations}
                 onUseImage={gridProps.onUseImage}
+                onUpdateNote={onUpdateOfficialAssetNote}
                 referenceImageUrls={referenceImageUrls}
             />
         );
+    }
     return (
         <>
             <AssetFilters
@@ -95,19 +120,8 @@ function AssetLibraryBody({
                 onAvailableOnlyChange={onAvailableOnlyChange}
                 onChange={onKindFilterChange}
             />
-            {items.length === 0 && isLoading ? (
-                <div className={styles.empty}>
-                    <Loader2 className={styles.spinner} />
-                    {t('Loading assets')}
-                </div>
-            ) : visible.length === 0 ? (
-                <div className={styles.empty}>
-                    <p>
-                        {items.length > 0
-                            ? t('No assets match the current filter')
-                            : t('Nothing stored yet<dot> Uploaded references and archived videos will appear here')}
-                    </p>
-                </div>
+            {visible.length === 0 ? (
+                <AssetLibraryEmpty hasItems={items.length > 0} isLoading={isLoading} />
             ) : (
                 <AssetGrid items={visible} {...gridProps} />
             )}
@@ -115,14 +129,9 @@ function AssetLibraryBody({
     );
 }
 
-export function AssetLibrary({
-    items,
-    providerAssets,
-    declarations,
-    isLoading,
-    referenceImageUrls,
-    ...gridProps
-}: AssetLibraryProps) {
+export function AssetLibrary(props: AssetLibraryProps) {
+    const { items, providerAssets, declarations, isLoading, referenceImageUrls, onUpdateOfficialAssetNote, ...gridProps } =
+        props;
     const t = useTranslations();
     const [kindFilter, setKindFilter] = React.useState<AssetKind>('all');
     const [availableOnly, setAvailableOnly] = React.useState(false);
@@ -151,14 +160,15 @@ export function AssetLibrary({
 
             <AssetLibraryBody
                 availableOnly={availableOnly}
-                referenceImageUrls={referenceImageUrls}
+                declarations={declarations}
                 gridProps={gridProps}
                 isLoading={isLoading}
                 items={items}
-                declarations={declarations}
                 kindFilter={kindFilter}
                 onAvailableOnlyChange={setAvailableOnly}
                 onKindFilterChange={setKindFilter}
+                onUpdateOfficialAssetNote={onUpdateOfficialAssetNote}
+                referenceImageUrls={referenceImageUrls}
                 source={source}
                 visible={visible}
             />

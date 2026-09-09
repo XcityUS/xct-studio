@@ -50,6 +50,7 @@ export type AssetsPanelProps = {
     /** Loads a video asset into the video form's reference video list. */
     onUseAsReferenceVideo: (sourceUrl: string, providerReferenceUrl?: string) => void;
     onAttachAssetId: (input: { assetId: string; origin: ReferenceOrigin; note?: string }) => boolean;
+    onUpdateOfficialAssetNote: (key: string, note: string) => void;
     /** The panel fetches lazily — only once it has actually been shown. */
     active: boolean;
 };

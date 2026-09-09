@@ -519,6 +519,8 @@
     "No description yet": "暂无描述",
     "Add reference": "添加引用",
     "Already referenced": "已添加引用",
+    "Edit description": "修改描述",
+    "Save description": "保存描述",
     "Asset ID is required": "请输入 Asset ID",
     "Asset ID attached<dot> Authorization is still required before generation": "Asset ID 已绑定，生成前仍需完成授权审核。",
     "Asset ID attached to the video form": "Asset ID 已绑定到视频创作表单。",

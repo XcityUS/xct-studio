@@ -358,6 +358,19 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         setError
     });
 
+    const handleUpdateOfficialAssetNote = React.useCallback(
+        (key: string, note: string) => {
+            const existing = declarations[key];
+            if (!existing || existing.origin !== 'official-asset') return;
+            const nextNote = note.trim();
+            const nextDeclaration = { ...existing };
+            if (nextNote) nextDeclaration.note = nextNote;
+            else delete nextDeclaration.note;
+            setDeclaration(key, nextDeclaration);
+        },
+        [declarations, setDeclaration]
+    );
+
     // Showcase → creation form. Settings are reconciled against the target
     // model first (see gallery-preset), because programmatic setState skips
     // the form's own Select-driven correction.
@@ -3539,6 +3552,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                                         onUseAsReference={handleUseAssetAsReference}
                                         onUseAsReferenceVideo={handleUseAssetAsReferenceVideo}
                                         onAttachAssetId={handleAttachAssetId}
+                                        onUpdateOfficialAssetNote={handleUpdateOfficialAssetNote}
                                         active={activeTab === 'assets'}
                                     />
                                 </div>

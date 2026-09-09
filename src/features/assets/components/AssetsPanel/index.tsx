@@ -52,6 +52,7 @@ export function AssetsPanel({
     onUseAsReference,
     onUseAsReferenceVideo,
     onAttachAssetId,
+    onUpdateOfficialAssetNote,
     active
 }: AssetsPanelProps) {
     const t = useTranslations();
@@ -488,6 +489,7 @@ export function AssetsPanel({
                     onSaveCharacter={openCharacterDialog}
                     onUseImage={onUseAsReference}
                     onUseVideo={onUseAsReferenceVideo}
+                    onUpdateOfficialAssetNote={onUpdateOfficialAssetNote}
                 />
 
                 {!portraitEnabled && (

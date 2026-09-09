@@ -2,8 +2,9 @@ import styles from './index.module.scss';
 import { CopyUrlButton } from '../CopyUrlButton';
 import type { ReferenceDeclaration } from '@/features/assets/reference/origin';
 import type { ReferenceUseOptions } from '@/features/assets/components/AssetsPanel/types';
-import { ExternalLink, ImagePlus, Library } from 'lucide-react';
+import { Check, ExternalLink, ImagePlus, Library, Pencil, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import * as React from 'react';
 
 const MODELARK_PLAYGROUND_GUIDE = 'https://docs.byteplus.com/en/docs/modelark/2105966';
 const BYTEPLUS_ASSET_TERMS = 'https://docs.byteplus.com/en/docs/ModelArk/2275639';
@@ -12,6 +13,7 @@ type OfficialAssetLibraryProps = {
     declarations: Record<string, ReferenceDeclaration>;
     referenceImageUrls: string[];
     onUseImage: (sourceUrl: string, providerReferenceUrl?: string, options?: ReferenceUseOptions) => void;
+    onUpdateNote: (key: string, note: string) => void;
 };
 
 type OfficialAsset = ReferenceDeclaration & {
@@ -22,18 +24,139 @@ type SavedOfficialAsset = OfficialAsset & {
     assetId: string;
 };
 
+type UseOfficialAssetReference = (
+    sourceUrl: string,
+    providerReferenceUrl?: string,
+    options?: ReferenceUseOptions
+) => void;
+
 function isSavedOfficialAsset(asset: OfficialAsset): asset is SavedOfficialAsset {
     return asset.origin === 'official-asset' && Boolean(asset.assetId);
+}
+
+function NoteEditor({
+    draftNote,
+    onDraftNoteChange,
+    onCancel,
+    onSave
+}: {
+    draftNote: string;
+    onDraftNoteChange: (note: string) => void;
+    onCancel: () => void;
+    onSave: () => void;
+}) {
+    const t = useTranslations();
+    return (
+        <div className={styles.noteEditor}>
+            <input
+                value={draftNote}
+                onChange={(event) => onDraftNoteChange(event.target.value)}
+                placeholder={t('Describe this official asset')}
+                autoFocus
+            />
+            <div className={styles.noteActions}>
+                <button type='button' onClick={onSave}>
+                    <Check aria-hidden='true' />
+                    {t('Save description')}
+                </button>
+                <button type='button' onClick={onCancel}>
+                    <X aria-hidden='true' />
+                    {t('Cancel')}
+                </button>
+            </div>
+        </div>
+    );
+}
+
+function OfficialAssetActions({
+    assetUrl,
+    isAttached,
+    onEdit,
+    onUseImage
+}: {
+    assetUrl: string;
+    isAttached: boolean;
+    onEdit: () => void;
+    onUseImage: UseOfficialAssetReference;
+}) {
+    const t = useTranslations();
+    return (
+        <div className={styles.cardActions}>
+            <button type='button' className={styles.editButton} onClick={onEdit}>
+                <Pencil aria-hidden='true' />
+                {t('Edit description')}
+            </button>
+            <CopyUrlButton url={assetUrl} className={styles.copyButton} />
+            <button
+                type='button'
+                className={styles.referenceButton}
+                disabled={isAttached}
+                onClick={() => onUseImage(assetUrl, assetUrl, { stayOnAssets: true })}>
+                <ImagePlus aria-hidden='true' />
+                {isAttached ? t('Already referenced') : t('Add reference')}
+            </button>
+        </div>
+    );
+}
+
+function OfficialAssetCard({
+    asset,
+    referenceImageUrls,
+    onUseImage,
+    onUpdateNote
+}: {
+    asset: SavedOfficialAsset;
+    referenceImageUrls: string[];
+    onUseImage: UseOfficialAssetReference;
+    onUpdateNote: (key: string, note: string) => void;
+}) {
+    const t = useTranslations();
+    const [isEditing, setIsEditing] = React.useState(false);
+    const [draftNote, setDraftNote] = React.useState('');
+    const assetUrl = `asset://${asset.assetId}`;
+
+    return (
+        <article className={styles.assetCard}>
+            <div>
+                <strong>{asset.assetId}</strong>
+                <span>{t('Seedance official reference asset')}</span>
+                {isEditing ? (
+                    <NoteEditor
+                        draftNote={draftNote}
+                        onDraftNoteChange={setDraftNote}
+                        onCancel={() => setIsEditing(false)}
+                        onSave={() => {
+                            onUpdateNote(asset.key, draftNote);
+                            setIsEditing(false);
+                        }}
+                    />
+                ) : (
+                    <p>{asset.note || t('No description yet')}</p>
+                )}
+            </div>
+            <OfficialAssetActions
+                assetUrl={assetUrl}
+                isAttached={referenceImageUrls.includes(assetUrl)}
+                onEdit={() => {
+                    setDraftNote(asset.note ?? '');
+                    setIsEditing(true);
+                }}
+                onUseImage={onUseImage}
+            />
+        </article>
+    );
 }
 
 function SavedOfficialAssets({
     assets,
     referenceImageUrls,
-    onUseImage
+    onUseImage,
+    onUpdateNote
 }: {
     assets: SavedOfficialAsset[];
     referenceImageUrls: string[];
-    onUseImage: (sourceUrl: string, providerReferenceUrl?: string, options?: ReferenceUseOptions) => void;
+    onUseImage: UseOfficialAssetReference;
+    onUpdateNote: (key: string, note: string) => void;
 }) {
     const t = useTranslations();
     if (assets.length === 0) return <p className={styles.empty}>{t('No saved official assets yet')}</p>;
@@ -42,36 +165,26 @@ function SavedOfficialAssets({
         <div className={styles.savedAssets}>
             <h5>{t('Saved official assets')}</h5>
             <div className={styles.assetList}>
-                {assets.map((asset) => {
-                    const assetUrl = `asset://${asset.assetId}`;
-                    const isAttached = referenceImageUrls.includes(assetUrl);
-                    return (
-                        <article key={asset.key} className={styles.assetCard}>
-                            <div>
-                                <strong>{asset.assetId}</strong>
-                                <span>{t('Seedance official reference asset')}</span>
-                                <p>{asset.note || t('No description yet')}</p>
-                            </div>
-                            <div className={styles.cardActions}>
-                                <CopyUrlButton url={assetUrl} className={styles.copyButton} />
-                                <button
-                                    type='button'
-                                    className={styles.referenceButton}
-                                    disabled={isAttached}
-                                    onClick={() => onUseImage(assetUrl, assetUrl, { stayOnAssets: true })}>
-                                    <ImagePlus aria-hidden='true' />
-                                    {isAttached ? t('Already referenced') : t('Add reference')}
-                                </button>
-                            </div>
-                        </article>
-                    );
-                })}
+                {assets.map((asset) => (
+                    <OfficialAssetCard
+                        key={asset.key}
+                        asset={asset}
+                        referenceImageUrls={referenceImageUrls}
+                        onUseImage={onUseImage}
+                        onUpdateNote={onUpdateNote}
+                    />
+                ))}
             </div>
         </div>
     );
 }
 
-export function OfficialAssetLibrary({ declarations, referenceImageUrls, onUseImage }: OfficialAssetLibraryProps) {
+export function OfficialAssetLibrary({
+    declarations,
+    referenceImageUrls,
+    onUseImage,
+    onUpdateNote
+}: OfficialAssetLibraryProps) {
     const t = useTranslations();
     const officialAssets = Object.entries(declarations)
         .map(([key, declaration]) => ({ key, ...declaration }))
@@ -95,6 +208,7 @@ export function OfficialAssetLibrary({ declarations, referenceImageUrls, onUseIm
                     assets={officialAssets}
                     referenceImageUrls={referenceImageUrls}
                     onUseImage={onUseImage}
+                    onUpdateNote={onUpdateNote}
                 />
                 <div className={styles.actions}>
                     <a href={MODELARK_PLAYGROUND_GUIDE} target='_blank' rel='noreferrer'>
