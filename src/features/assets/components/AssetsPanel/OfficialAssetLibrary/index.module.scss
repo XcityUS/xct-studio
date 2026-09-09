@@ -17,15 +17,23 @@
 }
 
 .content {
+    width: 100%;
     max-width: 700px;
 
     h4,
+    h5,
     p {
         margin: 0;
     }
 
     h4 {
         font-size: 14px;
+        font-weight: 600;
+    }
+
+    h5 {
+        color: var(--studio-foreground);
+        font-size: 12px;
         font-weight: 600;
     }
 
@@ -39,6 +47,70 @@
     .notice {
         color: var(--studio-muted-soft);
     }
+}
+
+.savedAssets {
+    margin-top: 16px;
+}
+
+.assetList {
+    display: grid;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.assetCard {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: center;
+    padding: 10px 12px;
+    border: 1px solid var(--studio-border);
+    border-radius: 7px;
+    background: var(--studio-surface-strong);
+
+    strong,
+    span {
+        display: block;
+    }
+
+    strong {
+        overflow-wrap: anywhere;
+        color: var(--studio-foreground);
+        font-size: 13px;
+        font-weight: 600;
+    }
+
+    span {
+        margin-top: 2px;
+        color: var(--studio-muted-soft);
+        font-size: 11px;
+    }
+
+    p {
+        margin-top: 6px;
+        color: var(--studio-muted);
+    }
+}
+
+.copyButton {
+    display: inline-flex;
+    height: 32px;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 0 10px;
+    border: 1px solid var(--studio-border-strong);
+    border-radius: 6px;
+    background: var(--studio-surface);
+    color: var(--studio-foreground);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.empty {
+    color: var(--studio-muted-soft);
 }
 
 .actions {

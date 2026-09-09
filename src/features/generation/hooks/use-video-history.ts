@@ -106,10 +106,12 @@ function parseDeclarations(value: unknown): Record<string, ReferenceDeclaration>
         const assetId = optionalString(item.assetId);
         const groupId = optionalString(item.groupId);
         const authorizationId = optionalString(item.authorizationId);
+        const note = optionalString(item.note);
         if (model) declaration.model = model;
         if (assetId) declaration.assetId = assetId;
         if (groupId) declaration.groupId = groupId;
         if (authorizationId) declaration.authorizationId = authorizationId;
+        if (note) declaration.note = note;
         declarations[key] = declaration;
     }
 

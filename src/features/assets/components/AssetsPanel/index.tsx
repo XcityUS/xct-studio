@@ -478,6 +478,7 @@ export function AssetsPanel({
                     checkingAssetId={checkingAssetId}
                     items={assetList}
                     providerAssets={visibleProviderAssets}
+                    declarations={declarations}
                     isLoading={isLoading || isLoadingProviderAssets}
                     onCheckReviewStatus={handleCheckReviewStatus}
                     onDelete={handleDelete}

@@ -19,6 +19,7 @@ export type ReferenceDeclaration = {
     assetId?: string;
     groupId?: string;
     authorizationId?: string;
+    note?: string;
 };
 
 /** Display order mirrors the compliance path from immediately usable to blocked. */

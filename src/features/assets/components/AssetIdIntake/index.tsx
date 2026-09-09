@@ -17,13 +17,14 @@ const SOURCE_OPTIONS: ReferenceOrigin[] = [
 ];
 
 type AssetIdIntakeProps = {
-    onAttachAssetId: (input: { assetId: string; origin: ReferenceOrigin }) => boolean;
+    onAttachAssetId: (input: { assetId: string; origin: ReferenceOrigin; note?: string }) => boolean;
 };
 
 function useAssetIdIntakeForm(onAttachAssetId: AssetIdIntakeProps['onAttachAssetId']) {
     const t = useTranslations();
     const [assetId, setAssetId] = React.useState('');
     const [origin, setOrigin] = React.useState<ReferenceOrigin>('no-person');
+    const [note, setNote] = React.useState('');
     const [notice, setNotice] = React.useState('');
     const sourceLabels: Record<ReferenceOrigin, string> = {
         'no-person': t('Reviewed material without a person or protected IP'),
@@ -41,18 +42,28 @@ function useAssetIdIntakeForm(onAttachAssetId: AssetIdIntakeProps['onAttachAsset
             setNotice(t('Asset ID is required'));
             return;
         }
-        if (!onAttachAssetId({ assetId: normalized, origin })) return;
+        if (!onAttachAssetId({ assetId: normalized, origin, note: note.trim() || undefined })) return;
 
         setAssetId('');
+        setNote('');
         setNotice(t('Asset ID attached to the video form'));
     };
 
-    return { assetId, handleSubmit, notice, origin, setAssetId, setOrigin, sourceLabels };
+    return { assetId, handleSubmit, note, notice, origin, setAssetId, setNote, setOrigin, sourceLabels };
 }
 
 type AssetIdFormProps = ReturnType<typeof useAssetIdIntakeForm>;
 
-function AssetIdForm({ assetId, handleSubmit, origin, setAssetId, setOrigin, sourceLabels }: AssetIdFormProps) {
+function AssetIdForm({
+    assetId,
+    handleSubmit,
+    note,
+    origin,
+    setAssetId,
+    setNote,
+    setOrigin,
+    sourceLabels
+}: AssetIdFormProps) {
     const t = useTranslations();
     return (
         <form className={styles.form} onSubmit={handleSubmit}>
@@ -70,6 +81,15 @@ function AssetIdForm({ assetId, handleSubmit, origin, setAssetId, setOrigin, sou
                     value={assetId}
                     onChange={(event) => setAssetId(event.target.value)}
                     placeholder={t('Paste an Asset ID or asset<colon><slash><slash> reference')}
+                    autoComplete='off'
+                />
+            </label>
+            <label className={styles.field}>
+                <span>{t('Asset note <lpar>optional<rpar>')}</span>
+                <input
+                    value={note}
+                    onChange={(event) => setNote(event.target.value)}
+                    placeholder={t('Describe this official asset')}
                     autoComplete='off'
                 />
             </label>

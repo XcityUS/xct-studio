@@ -7,6 +7,7 @@ import { OfficialAssetLibrary } from '../OfficialAssetLibrary';
 import type { AssetListItem } from '../asset-list';
 import styles from './index.module.scss';
 import type { ProviderLibraryAsset } from '@/features/assets/portrait/api';
+import type { ReferenceDeclaration } from '@/features/assets/reference/origin';
 import { Loader2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import * as React from 'react';
@@ -14,6 +15,7 @@ import * as React from 'react';
 type AssetLibraryProps = Omit<AssetGridProps, 'items'> & {
     items: AssetListItem[];
     providerAssets: ProviderLibraryAsset[];
+    declarations: Record<string, ReferenceDeclaration>;
     isLoading: boolean;
 };
 
@@ -22,6 +24,7 @@ type AssetLibraryBodyProps = {
     gridProps: Omit<AssetGridProps, 'items'>;
     isLoading: boolean;
     items: AssetListItem[];
+    declarations: Record<string, ReferenceDeclaration>;
     kindFilter: AssetKind;
     onAvailableOnlyChange: (active: boolean) => void;
     onKindFilterChange: (kind: AssetKind) => void;
@@ -65,6 +68,7 @@ function AssetLibraryBody({
     gridProps,
     isLoading,
     items,
+    declarations,
     kindFilter,
     onAvailableOnlyChange,
     onKindFilterChange,
@@ -72,7 +76,7 @@ function AssetLibraryBody({
     visible
 }: AssetLibraryBodyProps) {
     const t = useTranslations();
-    if (source === 'seedance') return <OfficialAssetLibrary />;
+    if (source === 'seedance') return <OfficialAssetLibrary declarations={declarations} />;
     return (
         <>
             <AssetFilters
@@ -101,7 +105,7 @@ function AssetLibraryBody({
     );
 }
 
-export function AssetLibrary({ items, providerAssets, isLoading, ...gridProps }: AssetLibraryProps) {
+export function AssetLibrary({ items, providerAssets, declarations, isLoading, ...gridProps }: AssetLibraryProps) {
     const t = useTranslations();
     const [kindFilter, setKindFilter] = React.useState<AssetKind>('all');
     const [availableOnly, setAvailableOnly] = React.useState(false);
@@ -133,6 +137,7 @@ export function AssetLibrary({ items, providerAssets, isLoading, ...gridProps }:
                 gridProps={gridProps}
                 isLoading={isLoading}
                 items={items}
+                declarations={declarations}
                 kindFilter={kindFilter}
                 onAvailableOnlyChange={setAvailableOnly}
                 onKindFilterChange={setKindFilter}

@@ -21,7 +21,7 @@ type AssetIdIntakeOptions = {
 
 export function useAssetIdIntake(options: AssetIdIntakeOptions) {
     return React.useCallback(
-        (input: { assetId: string; origin: ReferenceOrigin }) => {
+        (input: { assetId: string; origin: ReferenceOrigin; note?: string }) => {
             const assetId = normalizeAssetId(input.assetId);
             if (!assetId) return false;
             const url = `asset://${assetId}`;
@@ -43,7 +43,8 @@ export function useAssetIdIntake(options: AssetIdIntakeOptions) {
                 ...(options.declarations[key] ?? {}),
                 origin: input.origin,
                 declaredAt: Date.now(),
-                assetId
+                assetId,
+                ...(input.note ? { note: input.note } : {})
             });
             options.setNotice('Asset ID attached as a reference image.');
             options.setError(null, 'create');
