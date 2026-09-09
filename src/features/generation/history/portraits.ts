@@ -1,5 +1,10 @@
 import { REFERENCE_ORIGINS, type ReferenceOrigin } from '@/features/assets/reference/origin';
-import type { VideoPortrait, VideoPortraitGroupType, VideoPortraitStatus } from '@/features/generation/history/merge';
+import type {
+    VideoPortrait,
+    VideoPortraitAssetType,
+    VideoPortraitGroupType,
+    VideoPortraitStatus
+} from '@/features/generation/history/merge';
 
 const REFERENCE_ORIGIN_SET: ReadonlySet<string> = new Set(REFERENCE_ORIGINS);
 
@@ -15,6 +20,11 @@ function status(value: unknown): VideoPortraitStatus {
     if (value === undefined) return 'Active';
     if (value === 'Active' || value === 'Failed') return value;
     return 'Processing';
+}
+
+function assetType(value: unknown): VideoPortraitAssetType | undefined {
+    if (value === 'Image' || value === 'Video' || value === 'Audio') return value;
+    return undefined;
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -45,6 +55,7 @@ export function parsePortraits(value: unknown): VideoPortrait[] {
                 name,
                 thumbUrl,
                 status: status(item.status),
+                ...(assetType(item.assetType) ? { assetType: assetType(item.assetType) } : {}),
                 ...(referenceOrigin(item.referenceOrigin)
                     ? { referenceOrigin: referenceOrigin(item.referenceOrigin) }
                     : {}),
@@ -69,6 +80,7 @@ export function normalizePortrait(portrait: VideoPortrait): VideoPortrait | null
         name,
         thumbUrl,
         status: status(portrait.status),
+        ...(assetType(portrait.assetType) ? { assetType: assetType(portrait.assetType) } : {}),
         ...(referenceOrigin(portrait.referenceOrigin)
             ? { referenceOrigin: referenceOrigin(portrait.referenceOrigin) }
             : {}),

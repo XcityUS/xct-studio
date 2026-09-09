@@ -2,7 +2,6 @@
 
 import styles from './index.module.scss';
 import { routing } from '@/i18n/routing';
-import { Languages } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useTransition } from 'react';
@@ -23,7 +22,7 @@ export function LocaleSwitcher() {
     const router = useRouter();
     const [isPending, startTransition] = useTransition();
     const nextLocale = locale === 'zh' ? 'en' : 'zh';
-    const nextLabel = nextLocale === 'zh' ? '中文' : 'English';
+    const nextLabel = nextLocale === 'zh' ? '中' : 'EN';
     const accessibleLabel = nextLocale === 'zh' ? t('Switch to Chinese') : t('Switch to English');
 
     useEffect(() => {
@@ -46,7 +45,6 @@ export function LocaleSwitcher() {
                     const href = `${localizedPath}${window.location.search}${window.location.hash}`;
                     startTransition(() => router.replace(href, { scroll: false }));
                 }}>
-                <Languages size={16} aria-hidden='true' />
                 <span>{nextLabel}</span>
             </button>
             <span role='status' className={styles.status}>

@@ -6,7 +6,7 @@
 .trigger {
     height: 40px;
     padding-inline: 10px 12px;
-    background: #0b0b0b;
+    background: var(--studio-surface);
 }
 
 .menu {
@@ -24,10 +24,10 @@
     align-items: center;
     justify-content: center;
     overflow: hidden;
-    border: 1px solid rgb(255 255 255 / 14%);
+    border: 1px solid var(--studio-border);
     border-radius: 5px;
-    background: #191919;
-    color: rgb(255 255 255 / 52%);
+    background: var(--studio-surface-soft);
+    color: var(--studio-muted);
     object-fit: cover;
 }
 
@@ -40,7 +40,7 @@
 
 .preview[data-inline],
 .videoPreview[data-inline] {
-    border-color: rgb(255 255 255 / 18%);
+    border-color: var(--studio-border-strong);
     border-radius: 4px;
 }
 
@@ -61,7 +61,7 @@
 .selectedTitle {
     min-width: 0;
     overflow: hidden;
-    color: #f5f5f5;
+    color: var(--studio-foreground);
     font-size: 13px;
     font-weight: 500;
     line-height: 18px;
@@ -83,14 +83,14 @@
 }
 
 .optionTitle {
-    color: #f5f5f5;
+    color: var(--studio-foreground);
     font-size: 13px;
     font-weight: 500;
     line-height: 18px;
 }
 
 .optionMeta {
-    color: rgb(255 255 255 / 44%);
+    color: var(--studio-muted-soft);
     font-size: 11px;
     line-height: 16px;
 }

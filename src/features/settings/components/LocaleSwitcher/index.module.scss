@@ -7,18 +7,17 @@
 
 .button {
     display: inline-flex;
-    min-width: 92px;
-    height: 36px;
+    width: 42px;
+    height: 32px;
     align-items: center;
     justify-content: center;
-    gap: 7px;
-    padding: 0 12px;
+    padding: 0;
     border: 1px solid var(--studio-border);
     border-radius: 6px;
-    background: var(--studio-background);
+    background: transparent;
     color: var(--studio-foreground);
     font: inherit;
-    font-size: 13px;
+    font-size: 11px;
     font-weight: 600;
     cursor: pointer;
     transition:
@@ -27,8 +26,8 @@
 }
 
 .button:hover {
-    border-color: color-mix(in srgb, var(--studio-foreground) 35%, transparent);
-    background: color-mix(in srgb, var(--studio-foreground) 7%, var(--studio-background));
+    border-color: var(--studio-border-strong);
+    background: var(--studio-hover);
 }
 
 .button:focus-visible {

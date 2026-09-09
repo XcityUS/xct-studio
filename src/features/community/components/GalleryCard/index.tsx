@@ -82,9 +82,11 @@ export function GalleryCard({
                 />
             )}
 
-            <div className='pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/70 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100'>
-                <span className='truncate text-left text-xs font-medium text-white'>{item.title}</span>
-                <span className='flex shrink-0 items-center gap-1 text-[11px] text-white/70'>
+            <div className='pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-[var(--studio-media-overlay)] to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100'>
+                <span className='truncate text-left text-xs font-medium text-[var(--studio-media-foreground)]'>
+                    {item.title}
+                </span>
+                <span className='flex shrink-0 items-center gap-1 text-[11px] text-[var(--studio-media-muted)]'>
                     {item.params.generate_audio && <Volume2 className='h-3 w-3' aria-label={t('Has audio')} />}
                     {formatDuration(item.params.seconds)}
                 </span>

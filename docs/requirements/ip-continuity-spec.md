@@ -58,15 +58,17 @@ An Admitted Asset records the provider review result independently from the IP o
 - provider and provider Asset ID
 - source class: official, Studio-generated, external AI, ordinary material, ordinary person, public figure, or protected IP
 - review state: uploaded, reviewing, approved, active, rejected, revoked, or exempt
-- authorization ids and recognizable-subject coverage
+- provider moderation state and failure reason
 - provider account/workspace and entitlement used for review
 - created, reviewed, activated, expired, and revoked timestamps
 
 Only `active` or explicitly `exempt` assets can enter a generation Reference Pack. Studio/Seedream provenance is the only current automatic exemption. All other source classes require an Asset ID, including material with no recognizable person or protected IP.
 
+The Assets view presents virtual-character groups as a browsable list with a cover and asset count. Opening a group scopes the detail view and editing controls to assets whose provider `groupId` matches that group. Generation forms present one virtual-character choice per provider group; the selected group member remains stable while attached, otherwise the newest active member represents the group.
+
 ### Rights Coverage
 
-Rights records are attached to subjects, not only to files. A public figure or protected IP needs an approved offline authorization record in addition to its Asset ID. An ordinary person needs explicit consent and face verification. When one asset contains multiple recognizable people, every subject must be covered before the asset becomes active.
+Public-figure and protected-IP references require completed offline rights authorization/OA and provider account allowlisting before they are submitted to the provider asset library. Studio does not collect a duplicate authorization document or run an internal admin review. An ordinary person needs explicit consent and the provider face-verification flow; every recognizable person in a multi-person asset must be verified.
 
 Authorization, provider review, and generation moderation are different decisions. Store and display them separately; approval at one layer must not be represented as a guarantee at another.
 
@@ -136,6 +138,6 @@ When introduced, it should:
 5. A creator can reject a candidate for a continuity reason and request another candidate.
 6. Existing selected takes retain their original asset snapshot even after a new Character Version is created.
 7. Every non-exempt reference has an active provider Asset ID before generation.
-8. Public-figure and protected-IP references have both an active Asset ID and approved rights evidence.
-9. Multi-person references cannot become active until every recognizable person has authorization coverage.
+8. Public-figure and protected-IP references have completed offline rights authorization/account allowlisting and have an active provider Asset ID before generation.
+9. Every recognizable ordinary person completes provider face verification before generation.
 10. Revocation blocks new generation without mutating prior Candidate or export snapshots.

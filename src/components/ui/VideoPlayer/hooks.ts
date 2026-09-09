@@ -20,13 +20,14 @@ export function useLatestPlayerProps(props: PlayerCallbacks) {
 function createPlayer(ArtplayerConstructor: typeof Artplayer, setup: PlayerSetup) {
     const container = setup.containerRef.current;
     if (!container) return null;
+    const theme = getComputedStyle(container).getPropertyValue('--studio-media-foreground').trim();
 
     return new ArtplayerConstructor({
         container,
         url: setup.latestRef.current.src,
         poster: setup.latestRef.current.poster || '',
         lang: setup.locale === 'zh' ? 'zh-cn' : 'en',
-        theme: '#a3e635',
+        theme,
         autoplay: setup.autoPlay,
         loop: setup.loop,
         muted: setup.muted,

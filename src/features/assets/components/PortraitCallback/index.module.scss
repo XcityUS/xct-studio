@@ -31,14 +31,14 @@
     overflow-wrap: anywhere;
 }
 .result .error {
-    color: #fca5a5;
+    color: var(--studio-danger);
 }
 .result .identifier {
     font-family: var(--font-geist-mono), monospace;
     font-size: 12px;
 }
 .success {
-    color: #6ee7b7;
+    color: var(--studio-success);
 }
 .spinner {
     animation: spin 1s linear infinite;

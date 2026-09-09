@@ -66,7 +66,7 @@ export function AuthorizationQueueCard({
                     size='sm'
                     disabled={Boolean(reviewingId)}
                     onClick={() => onReview(item, 'reject')}
-                    className='h-7 bg-red-600/70 px-2 text-xs text-white hover:bg-red-500/80'>
+                    className='h-7 bg-red-600/70 px-2 text-xs text-[var(--studio-status-foreground)] hover:bg-red-500/80'>
                     {rejecting ? <Loader2 className='h-3 w-3 animate-spin' /> : <X className='h-3 w-3' />}
                     {t('Reject')}
                 </Button>

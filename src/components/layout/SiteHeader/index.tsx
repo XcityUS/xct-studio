@@ -1,6 +1,8 @@
 import styles from './index.module.scss';
 import { LocaleSwitcher } from '@/features/settings/components/LocaleSwitcher';
+import { ThemeToggle } from '@/features/settings/components/ThemeToggle';
 import type { AppLocale } from '@/i18n/routing';
+import { UserRound } from 'lucide-react';
 import { getTranslations } from 'next-intl/server';
 import Image from 'next/image';
 
@@ -26,10 +28,14 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
                             {link.label}
                         </a>
                     ))}
-                    <LocaleSwitcher />
-                    <a href='https://xcity.ai/dashboard' rel='noopener' className={styles.account}>
-                        {t('My Account')}
-                    </a>
+                    <div className={styles.utilities}>
+                        <LocaleSwitcher />
+                        <ThemeToggle />
+                        <a href='https://xcity.ai/dashboard' rel='noopener' className={styles.account}>
+                            <UserRound size={15} aria-hidden='true' />
+                            <span>{t('My Account')}</span>
+                        </a>
+                    </div>
                 </nav>
             </div>
         </header>

@@ -16,6 +16,10 @@ describe('legacy output error localization', () => {
         ['received a 200x100px image', '当前图片为 200 x 100 像素。'],
         ['height to be at least 300px', '参考图片的宽高均须在 300 至 6000 像素之间。'],
         ['ratio adaptive', '此参考视频任务需要自适应画幅和原视频时长'],
+        [
+            'OutputVideoSensitiveContentDetected.PolicyViolation: output video may be related to copyright restrictions. Request id: hidden',
+            '生成的视频可能包含受版权保护的角色或内容'
+        ],
         ['resource download failed', '工作台无法加载参考视频'],
         ['InvalidParameter image_url', '工作台无法使用参考图片'],
         ['BytePlus provider request id internal-debug', '工作台无法完成此请求'],

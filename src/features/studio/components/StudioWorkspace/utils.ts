@@ -115,3 +115,9 @@ export function withPortraitDeclarations(
     }
     return next;
 }
+
+export function providerReferenceUrl(sourceUrl: string, declarations: Record<string, ReferenceDeclaration>): string {
+    if (sourceUrl.startsWith('asset://')) return sourceUrl;
+    const assetId = declarations[refKey(sourceUrl)]?.assetId?.trim();
+    return assetId ? portraitReferenceUrl(assetId) : sourceUrl;
+}

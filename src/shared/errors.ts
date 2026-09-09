@@ -50,6 +50,10 @@ export function sanitizeStudioErrorMessage(message?: string | null): string {
         return 'This reference video task requires adaptive ratio and source duration. Please retry from the Studio reference-video action.';
     }
 
+    if (/OutputVideoSensitiveContentDetected|copyright restrictions/i.test(message)) {
+        return 'The generated video may contain copyrighted characters or content. Use original reference media and try again.';
+    }
+
     if (
         /reference_video.*web url|video_url.*download|resource download failed|download the draft video/i.test(message)
     ) {

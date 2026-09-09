@@ -23,6 +23,14 @@ export type PortraitAsset = {
     failureReason: string;
 };
 
+export type ProviderLibraryAsset = PortraitAsset & {
+    groupType: PortraitGroupType;
+    name: string;
+    assetType: PortraitAssetType;
+    createdAt: string;
+    updatedAt: string;
+};
+
 export function storedPortraitAssetStatus(status: PortraitAssetStatus): StoredPortraitAssetStatus {
     if (status === 'Active' || status === 'Failed') return status;
     return 'Processing';
@@ -77,6 +85,16 @@ export function listPortraitGroups(
     );
 }
 
+export function listPortraitAssets(
+    apiKey: string,
+    type: PortraitGroupQueryType = 'all'
+): Promise<{ assets: ProviderLibraryAsset[] }> {
+    return portraitRequest<{ assets: ProviderLibraryAsset[] }>(
+        `/api/portrait/assets?type=${encodeURIComponent(type)}`,
+        apiKey
+    );
+}
+
 export function createPortraitGroup(
     name: string,
     apiKey: string
@@ -85,6 +103,14 @@ export function createPortraitGroup(
         method: 'POST',
         body: JSON.stringify({ name })
     });
+}
+
+export async function deletePortraitGroup(groupId: string, apiKey: string): Promise<void> {
+    await portraitRequest<Record<string, never>>(
+        `/api/portrait/groups?id=${encodeURIComponent(groupId)}`,
+        apiKey,
+        { method: 'DELETE' }
+    );
 }
 
 export function createPortraitAsset(

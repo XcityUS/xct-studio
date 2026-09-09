@@ -2,11 +2,7 @@
 
 import styles from './index.module.scss';
 import { Dropdown } from '@/components/ui/Dropdown';
-import {
-    normalizeAssetId,
-    originRequiresAuthorization,
-    type ReferenceOrigin
-} from '@/features/assets/reference/origin';
+import { normalizeAssetId, type ReferenceOrigin } from '@/features/assets/reference/origin';
 import { ExternalLink, Link2, ShieldCheck } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import * as React from 'react';
@@ -31,8 +27,8 @@ function useAssetIdIntakeForm(onAttachAssetId: AssetIdIntakeProps['onAttachAsset
     const [notice, setNotice] = React.useState('');
     const sourceLabels: Record<ReferenceOrigin, string> = {
         'no-person': t('Reviewed material without a person or protected IP'),
-        'official-asset': t('Official ModelArk material'),
-        'byteplus-ai': t('Studio or Seedream output'),
+        'official-asset': t('Seedance official reference asset'),
+        'byteplus-ai': t('Seedream output'),
         'thirdparty-ai': t('External AI material'),
         'real-person': t('Verified ordinary person'),
         'public-figure': t('Authorized public figure'),
@@ -48,11 +44,7 @@ function useAssetIdIntakeForm(onAttachAssetId: AssetIdIntakeProps['onAttachAsset
         if (!onAttachAssetId({ assetId: normalized, origin })) return;
 
         setAssetId('');
-        setNotice(
-            originRequiresAuthorization(origin)
-                ? t('Asset ID attached<dot> Authorization is still required before generation')
-                : t('Asset ID attached to the video form')
-        );
+        setNotice(t('Asset ID attached to the video form'));
     };
 
     return { assetId, handleSubmit, notice, origin, setAssetId, setOrigin, sourceLabels };
@@ -103,7 +95,7 @@ export function AssetIdIntake({ onAttachAssetId }: AssetIdIntakeProps) {
                     <h3 id='asset-id-intake-title'>{t('Asset approval and ID')}</h3>
                     <p>
                         {t(
-                            'Studio or Seedream output can be used directly<dot> Every other material must be reviewed and bound to an Asset ID'
+                            'Seedream output can be used directly<dot> Every other material must be reviewed and bound to an Asset ID'
                         )}
                     </p>
                 </div>

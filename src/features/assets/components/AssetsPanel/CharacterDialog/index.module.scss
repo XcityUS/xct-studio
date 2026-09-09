@@ -1,8 +1,8 @@
 .dialog {
     max-width: 25rem;
-    border-color: rgb(255 255 255 / 20%);
-    background: #000;
-    color: #fff;
+    border-color: var(--studio-border-strong);
+    background: var(--studio-overlay);
+    color: var(--studio-foreground);
 }
 
 .form {
@@ -15,12 +15,12 @@
     gap: 0.5rem;
 
     label {
-        color: rgb(255 255 255 / 80%);
+        color: var(--studio-muted);
     }
 
     input {
-        border-color: rgb(255 255 255 / 20%);
-        background: #000;
-        color: #fff;
+        border-color: var(--studio-border-strong);
+        background: var(--studio-surface);
+        color: var(--studio-foreground);
     }
 }

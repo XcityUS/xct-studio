@@ -11,18 +11,18 @@
     gap: 8px;
     align-items: center;
     padding: 6px 8px;
-    background: rgb(103 232 249 / 6%);
-    border: 1px solid rgb(103 232 249 / 25%);
+    background: var(--studio-info-soft);
+    border: 1px solid var(--studio-info-border);
     border-radius: 6px;
 
     &[data-kind='reviewed'] {
-        background: rgb(110 231 183 / 6%);
-        border-color: rgb(110 231 183 / 25%);
+        background: var(--studio-success-soft);
+        border-color: var(--studio-success-border);
     }
 
     &[data-kind='verified'] {
-        background: rgb(52 211 153 / 6%);
-        border-color: rgb(52 211 153 / 25%);
+        background: var(--studio-success-soft);
+        border-color: var(--studio-success-border);
     }
 }
 
@@ -30,8 +30,8 @@
     width: 28px;
     height: 28px;
     overflow: hidden;
-    background: rgb(255 255 255 / 5%);
-    border: 1px solid rgb(255 255 255 / 15%);
+    background: var(--studio-hover);
+    border: 1px solid var(--studio-border);
     border-radius: 4px;
 
     img {
@@ -48,7 +48,7 @@
 .name {
     max-width: 128px;
     overflow: hidden;
-    color: rgb(255 255 255 / 85%);
+    color: var(--studio-foreground);
     font-size: 12px;
     white-space: nowrap;
     text-overflow: ellipsis;
@@ -61,7 +61,7 @@
     width: 24px;
     height: 24px;
     padding: 0;
-    color: rgb(255 255 255 / 45%);
+    color: var(--studio-muted-soft);
     background: transparent;
     border: 0;
     border-radius: 4px;
@@ -73,7 +73,7 @@
     }
 
     &:hover {
-        color: #fff;
-        background: rgb(255 255 255 / 10%);
+        color: var(--studio-foreground);
+        background: var(--studio-hover);
     }
 }

@@ -73,7 +73,8 @@ function parseCharacters(value: unknown): VideoCharacter[] {
         const name = item.name.trim();
         const url = item.url.trim();
         if (!id || !name || !url) return [];
-        return [{ id, name, url }];
+        const previewUrl = optionalString(item.previewUrl);
+        return [{ id, name, url, ...(previewUrl ? { previewUrl } : {}) }];
     });
 }
 
@@ -225,6 +226,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>, optio
     const [characters, setCharacters] = React.useState<VideoCharacter[]>([]);
     const [portraits, setPortraits] = React.useState<VideoPortrait[]>([]);
     const [declarations, setDeclarations] = React.useState<Record<string, ReferenceDeclaration>>({});
+    const [deletedIds, setDeletedIds] = React.useState<string[]>([]);
     const [isInitialLoad, setIsInitialLoad] = React.useState(true);
     const [cloudReadyVersion, setCloudReadyVersion] = React.useState(0);
 
@@ -296,6 +298,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>, optio
             setCharacters(doc.characters);
             setPortraits(doc.portraits);
             setDeclarations(doc.declarations);
+            setDeletedIds(doc.deletedIds);
         } catch (e) {
             console.error('Failed to load or parse history from localStorage:', e);
             localStorage.removeItem(STORAGE_KEY);
@@ -325,7 +328,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>, optio
                 reportPersistenceError(e);
             }
         }
-    }, [characters, declarations, history, isInitialLoad, portraits, reportPersistenceError]);
+    }, [characters, declarations, deletedIds, history, isInitialLoad, portraits, reportPersistenceError]);
 
     const applyCloudDoc = React.useCallback(
         (doc: HistoryDoc) => {
@@ -340,6 +343,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>, optio
             setCharacters(doc.characters);
             setPortraits(doc.portraits);
             setDeclarations(doc.declarations);
+            setDeletedIds(doc.deletedIds);
             try {
                 writeLocalHistory(doc);
             } catch (e) {
@@ -562,6 +566,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>, optio
         characters,
         cloudReadyVersion,
         declarations,
+        deletedIds,
         history,
         isInitialLoad,
         localDoc,
@@ -618,7 +623,10 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>, optio
 
     /** Records ids as deleted so the removal survives a merge with another device. */
     const tombstone = React.useCallback((ids: string[]) => {
-        if (ids.length) deletedIdsRef.current = withTombstones(deletedIdsRef.current, ids);
+        if (!ids.length) return;
+        const next = withTombstones(deletedIdsRef.current, ids);
+        deletedIdsRef.current = next;
+        setDeletedIds(next);
     }, []);
 
     const mutateHistory = React.useCallback(
@@ -648,6 +656,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>, optio
             // Re-adding an id the user once deleted must clear its tombstone,
             // or the next merge would delete it again.
             deletedIdsRef.current = deletedIdsRef.current.filter((id) => id !== item.id);
+            setDeletedIds(deletedIdsRef.current);
             const now = Date.now();
             mutateHistory((prev) => [{ ...item, updatedAt: item.updatedAt ?? now }, ...prev]);
         },
@@ -660,6 +669,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>, optio
             // Re-adding an id the user once deleted must clear its tombstone,
             // or the next merge would delete it again.
             deletedIdsRef.current = deletedIdsRef.current.filter((id) => id !== item.id);
+            setDeletedIds(deletedIdsRef.current);
             const now = Date.now();
             mutateHistory((prev) => [
                 { ...item, updatedAt: item.updatedAt ?? now },
@@ -711,6 +721,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>, optio
         (character: VideoCharacter) => {
             const name = character.name.trim();
             const url = character.url.trim();
+            const previewUrl = character.previewUrl?.trim();
             if (!character.id || !name || !url) return;
             mutateDoc((prev) => ({
                 history: prev.history,
@@ -718,7 +729,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>, optio
                 declarations: prev.declarations,
                 characters: [
                     ...prev.characters.filter((existing) => existing.id !== character.id),
-                    { id: character.id, name, url }
+                    { id: character.id, name, url, ...(previewUrl ? { previewUrl } : {}) }
                 ]
             }));
         },
@@ -795,6 +806,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>, optio
         characters,
         portraits,
         declarations,
+        deletedIds,
         isInitialLoad,
         addItem,
         replaceItem,

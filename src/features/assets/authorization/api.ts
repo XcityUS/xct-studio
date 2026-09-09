@@ -7,6 +7,7 @@ export interface AuthorizationItem {
     id: string;
     subject_name: string;
     reference_key: string;
+    reference_url: string;
     note: string;
     status: AuthorizationStatus;
     created_at: string;
@@ -51,7 +52,7 @@ async function errorDetail(res: Response, fallback: string): Promise<string> {
 }
 
 export async function createAuthorization(
-    input: { subjectName: string; referenceKey: string; note: string },
+    input: { subjectName: string; referenceKey: string; referenceUrl: string; note: string },
     apiKey: string
 ): Promise<CreatedAuthorization> {
     const workerUrl = await loadConfiguredWorkerUrl('Authorization submission is not configured on this deployment.');
@@ -64,6 +65,7 @@ export async function createAuthorization(
         body: JSON.stringify({
             subject_name: input.subjectName,
             reference_key: input.referenceKey,
+            reference_url: input.referenceUrl,
             note: input.note
         })
     });

@@ -10,11 +10,15 @@ import type { VideoMetadata } from '@/shared/contracts/video';
 export type VideoCharacter = {
     id: string;
     name: string;
+    /** Provider reference used when submitting generation, including asset:// IDs. */
     url: string;
+    /** Browser-playable source URL used only for thumbnails and previews. */
+    previewUrl?: string;
 };
 
 export type VideoPortraitGroupType = 'LivenessFace' | 'AIGC';
 export type VideoPortraitStatus = 'Processing' | 'Active' | 'Failed';
+export type VideoPortraitAssetType = 'Image' | 'Video' | 'Audio';
 
 export type VideoPortrait = {
     assetId: string;
@@ -23,6 +27,7 @@ export type VideoPortrait = {
     name: string;
     thumbUrl: string;
     status: VideoPortraitStatus;
+    assetType?: VideoPortraitAssetType;
     referenceOrigin?: ReferenceOrigin;
     failureReason?: string;
     updatedAt: number;

@@ -1,6 +1,5 @@
 import {
     normalizeAssetId,
-    originRequiresAuthorization,
     refKey,
     type ReferenceDeclaration,
     type ReferenceOrigin
@@ -16,7 +15,6 @@ type AssetIdIntakeOptions = {
     setReferenceUrls: React.Dispatch<React.SetStateAction<string[]>>;
     declarations: Record<string, ReferenceDeclaration>;
     setDeclaration: (key: string, declaration: ReferenceDeclaration) => void;
-    setAuthorizationReferenceKey: React.Dispatch<React.SetStateAction<string | null>>;
     setNotice: React.Dispatch<React.SetStateAction<string | null>>;
     setError: (message: string | null, scope?: ErrorScope) => void;
 };
@@ -47,7 +45,6 @@ export function useAssetIdIntake(options: AssetIdIntakeOptions) {
                 declaredAt: Date.now(),
                 assetId
             });
-            if (originRequiresAuthorization(input.origin)) options.setAuthorizationReferenceKey(key);
             options.setNotice('Asset ID attached as a reference image.');
             options.setError(null, 'create');
             return true;

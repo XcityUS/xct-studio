@@ -499,7 +499,7 @@ export function VideoHistoryPanel({
                                     return (
                                         <div
                                             key={item.id}
-                                            className='flex flex-col'
+                                            className={cn('flex flex-col', styles.card)}
                                             data-finalize-flag={item.finalizeFlag ?? undefined}>
                                             <div className='group relative'>
                                                 <button
@@ -521,13 +521,14 @@ export function VideoHistoryPanel({
                                                         );
                                                     }}
                                                     className={cn(
-                                                        'relative block aspect-square w-full overflow-hidden rounded-t-md border border-white/20 transition-all duration-150 group-hover:border-white/40 focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-black focus:outline-none',
-                                                        isExpired && 'border-white/10 opacity-75',
+                                                        styles.mediaButton,
+                                                        'aspect-square transition-opacity duration-150',
+                                                        isExpired && 'opacity-75',
                                                         isAssembleMode && canSelectForAssembly && 'cursor-pointer',
                                                         isAssembleMode &&
                                                             !canSelectForAssembly &&
                                                             'cursor-not-allowed opacity-60',
-                                                        isSelectedForAssembly && 'border-white ring-2 ring-white/40'
+                                                        isSelectedForAssembly && styles.selectedMedia
                                                     )}
                                                     aria-label={
                                                         isAssembleMode
@@ -625,17 +626,15 @@ export function VideoHistoryPanel({
                                                         </div>
                                                     )}
                                                     {isAssembleMode && canSelectForAssembly ? (
-                                                        <div className='pointer-events-none absolute top-1 left-1 z-30 flex h-6 w-6 items-center justify-center rounded border border-white/60 bg-black/70 text-[11px] font-medium text-white backdrop-blur'>
+                                                        <div className='pointer-events-none absolute top-1 left-1 z-30 flex h-6 w-6 items-center justify-center rounded border border-[var(--studio-media-border)] bg-[var(--studio-media-overlay)] text-[11px] font-medium text-[var(--studio-media-foreground)] backdrop-blur'>
                                                             {isSelectedForAssembly ? selectionOrder : null}
                                                         </div>
                                                     ) : (
                                                         <div className='pointer-events-none absolute top-1 left-1 z-10 flex flex-wrap items-center gap-1'>
                                                             <div
                                                                 className={cn(
-                                                                    'flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] text-white',
-                                                                    item.mode === 'remix'
-                                                                        ? 'bg-orange-600/80'
-                                                                        : 'bg-blue-600/80'
+                                                                    styles.modeBadge,
+                                                                    'flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px]'
                                                                 )}>
                                                                 {item.mode === 'remix' ? (
                                                                     <RefreshCw size={12} />
@@ -645,13 +644,20 @@ export function VideoHistoryPanel({
                                                                 {item.mode === 'remix' ? t('Remix') : t('Create')}
                                                             </div>
                                                             {isDraft && (
-                                                                <div className='rounded-full bg-cyan-600/85 px-1.5 py-0.5 text-[11px] text-white'>
+                                                                <div
+                                                                    className={cn(
+                                                                        styles.draftBadge,
+                                                                        'rounded-full px-1.5 py-0.5 text-[11px]'
+                                                                    )}>
                                                                     {t('Draft')}
                                                                 </div>
                                                             )}
                                                             {hasBrandingWatermark && (
                                                                 <div
-                                                                    className='flex items-center gap-1 rounded-full bg-white/85 px-1.5 py-0.5 text-[11px] text-black'
+                                                                    className={cn(
+                                                                        styles.watermarkBadge,
+                                                                        'flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px]'
+                                                                    )}
                                                                     title={t(
                                                                         'Current version has a visible watermark'
                                                                     )}>
@@ -661,7 +667,10 @@ export function VideoHistoryPanel({
                                                             )}
                                                             {needsCloudArchive && (
                                                                 <div
-                                                                    className='flex items-center gap-1 rounded-full bg-amber-600/85 px-1.5 py-0.5 text-[11px] text-white'
+                                                                    className={cn(
+                                                                        styles.archiveBadge,
+                                                                        'flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px]'
+                                                                    )}
                                                                     title={t(
                                                                         'Not archived to cloud yet <mdash> the provider link expires 24h after completion'
                                                                     )}>
@@ -671,11 +680,19 @@ export function VideoHistoryPanel({
                                                         </div>
                                                     )}
                                                     <div className='pointer-events-none absolute bottom-1 left-1 z-10 flex items-center gap-1'>
-                                                        <div className='flex items-center gap-1 rounded-full border border-white/10 bg-neutral-900/80 px-1 py-0.5 text-[11px] text-white/70'>
+                                                        <div
+                                                            className={cn(
+                                                                styles.mediaMeta,
+                                                                'flex items-center gap-1 rounded-full px-1 py-0.5 text-[11px]'
+                                                            )}>
                                                             <span>{item.seconds}s</span>
                                                         </div>
                                                         {videoSizeLabel && (
-                                                            <div className='rounded-full border border-white/10 bg-neutral-900/80 px-1 py-0.5 text-[11px] text-white/70'>
+                                                            <div
+                                                                className={cn(
+                                                                    styles.mediaMeta,
+                                                                    'rounded-full px-1 py-0.5 text-[11px]'
+                                                                )}>
                                                                 {videoSizeLabel}
                                                             </div>
                                                         )}
@@ -683,7 +700,10 @@ export function VideoHistoryPanel({
                                                 </button>
                                                 {!isAssembleMode && isFailed && (
                                                     <div
-                                                        className='absolute top-1 right-1 z-20 flex items-center gap-0.5 rounded-full bg-neutral-700/90 px-1.5 py-0.5 text-[11px] text-white'
+                                                        className={cn(
+                                                            styles.costBadge,
+                                                            'absolute top-1 right-1 z-20 flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px]'
+                                                        )}
                                                         title={t('Failed generations are free')}>
                                                         <DollarSign size={12} />
                                                         {t('Free')}
@@ -700,10 +720,8 @@ export function VideoHistoryPanel({
                                                                     setOpenCostDialogId(item.id);
                                                                 }}
                                                                 className={cn(
-                                                                    'absolute top-1 right-1 z-20 flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] text-white transition-colors',
-                                                                    isFailed
-                                                                        ? 'bg-amber-600/90 hover:bg-amber-500/90'
-                                                                        : 'bg-green-600/80 hover:bg-green-500/90'
+                                                                    styles.costBadge,
+                                                                    'absolute top-1 right-1 z-20 flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] transition-opacity hover:opacity-80'
                                                                 )}
                                                                 aria-label={t('Show cost breakdown')}>
                                                                 <DollarSign size={12} />
@@ -827,13 +845,16 @@ export function VideoHistoryPanel({
                                                                 onDeleteItem(item);
                                                             }
                                                         }}
-                                                        className='absolute right-1 bottom-1 z-20 flex items-center gap-0.5 rounded-full bg-red-600/80 p-1 text-white transition-colors hover:bg-red-500/90'
+                                                        className={cn(
+                                                            styles.deleteButton,
+                                                            'absolute right-1 bottom-1 z-20 flex items-center gap-0.5 rounded-full p-1 transition-colors'
+                                                        )}
                                                         aria-label={t('Delete video')}>
                                                         <Trash2 size={12} />
                                                     </button>
                                                 )}
                                             </div>
-                                            <div className='rounded-b-md border border-t-0 border-white/20 bg-neutral-900/50 p-2'>
+                                            <div className={styles.details}>
                                                 <TileTitle
                                                     prompt={item.prompt}
                                                     title={item.title}
@@ -841,7 +862,7 @@ export function VideoHistoryPanel({
                                                         onRenameItem ? (title) => onRenameItem(item, title) : undefined
                                                     }
                                                 />
-                                                <div className='mt-1 flex items-center justify-between text-[10px] text-white/40'>
+                                                <div className={styles.metadata}>
                                                     <span>{item.model}</span>
                                                     <span>{item.size}</span>
                                                 </div>
@@ -863,10 +884,7 @@ export function VideoHistoryPanel({
                                                                     title={t(
                                                                         'Fill the create form with these settings'
                                                                     )}
-                                                                    className={cn(
-                                                                        styles.actionButton,
-                                                                        'flex items-center justify-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white'
-                                                                    )}>
+                                                                    className={styles.actionButton}>
                                                                     <PencilLine size={11} />
                                                                     {t('Reuse')}
                                                                 </button>
@@ -881,12 +899,7 @@ export function VideoHistoryPanel({
                                                                             ? t('Archiving to cloud<hellip>')
                                                                             : t('Archive now')
                                                                     }
-                                                                    className={cn(
-                                                                        styles.actionButton,
-                                                                        'flex items-center justify-center gap-1 rounded bg-amber-500/15 px-1.5 py-1 text-[10px] text-amber-100 transition-colors hover:bg-amber-500/25 hover:text-white',
-                                                                        isArchivePending &&
-                                                                            'cursor-wait opacity-70 hover:bg-amber-500/15 hover:text-amber-100'
-                                                                    )}>
+                                                                    className={styles.actionButton}>
                                                                     {isArchivePending ? (
                                                                         <Loader2 size={11} className='animate-spin' />
                                                                     ) : (
@@ -913,15 +926,7 @@ export function VideoHistoryPanel({
                                                                                 )
                                                                               : t('Add Xcity branding watermark')
                                                                     }
-                                                                    className={cn(
-                                                                        styles.actionButton,
-                                                                        'flex items-center justify-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white',
-                                                                        isWatermarkPending &&
-                                                                            'cursor-wait opacity-70 hover:bg-white/10 hover:text-white/70',
-                                                                        !isWatermarkPending &&
-                                                                            watermarkSlotsFull &&
-                                                                            'cursor-not-allowed opacity-40 hover:bg-white/10 hover:text-white/70'
-                                                                    )}>
+                                                                    className={styles.actionButton}>
                                                                     {isWatermarkActive ? (
                                                                         <Loader2 size={11} className='animate-spin' />
                                                                     ) : (
@@ -948,12 +953,7 @@ export function VideoHistoryPanel({
                                                                                   'Original unwatermarked video is unavailable'
                                                                               )
                                                                     }
-                                                                    className={cn(
-                                                                        styles.actionButton,
-                                                                        'flex items-center justify-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white',
-                                                                        (isWatermarkPending || !canRestoreOriginal) &&
-                                                                            'cursor-not-allowed opacity-40 hover:bg-white/10 hover:text-white/70'
-                                                                    )}>
+                                                                    className={styles.actionButton}>
                                                                     <X size={11} className='shrink-0' />
                                                                     {t('Original')}
                                                                 </button>
@@ -970,12 +970,7 @@ export function VideoHistoryPanel({
                                                                                   'Archive to cloud first <mdash> wait a moment'
                                                                               )
                                                                     }
-                                                                    className={cn(
-                                                                        styles.actionButton,
-                                                                        'flex items-center justify-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white',
-                                                                        (!item.storedUrl || isSharePending) &&
-                                                                            'cursor-not-allowed opacity-40 hover:bg-white/10 hover:text-white/70'
-                                                                    )}>
+                                                                    className={styles.actionButton}>
                                                                     {isSharePending ? (
                                                                         <Loader2 size={11} className='animate-spin' />
                                                                     ) : (
@@ -990,12 +985,7 @@ export function VideoHistoryPanel({
                                                                     onClick={() => onExtendItem(item)}
                                                                     disabled={extendPendingIds?.has(item.id)}
                                                                     title={t('Continue from the last frame')}
-                                                                    className={cn(
-                                                                        styles.actionButton,
-                                                                        'flex items-center justify-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white',
-                                                                        extendPendingIds?.has(item.id) &&
-                                                                            'cursor-wait opacity-60 hover:bg-white/10 hover:text-white/70'
-                                                                    )}>
+                                                                    className={styles.actionButton}>
                                                                     {extendPendingIds?.has(item.id) ? (
                                                                         <Loader2 size={11} className='animate-spin' />
                                                                     ) : (
@@ -1021,12 +1011,7 @@ export function VideoHistoryPanel({
                                                                             'Review settings and generate a paid final version'
                                                                         )
                                                                     }
-                                                                    className={cn(
-                                                                        styles.actionButton,
-                                                                        'flex items-center justify-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white',
-                                                                        finalizeDisabledReason &&
-                                                                            'cursor-not-allowed opacity-40 hover:bg-white/10 hover:text-white/70'
-                                                                    )}>
+                                                                    className={styles.actionButton}>
                                                                     <Rocket size={11} />
                                                                     {t('Finalize')}
                                                                 </button>
@@ -1038,10 +1023,7 @@ export function VideoHistoryPanel({
                                                                     title={t(
                                                                         'Generate again with the same settings <lpar>new cost<rpar>'
                                                                     )}
-                                                                    className={cn(
-                                                                        styles.actionButton,
-                                                                        'flex items-center justify-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/20 hover:text-white'
-                                                                    )}>
+                                                                    className={styles.actionButton}>
                                                                     <RotateCcw size={11} />
                                                                     {t('Regenerate')}
                                                                 </button>

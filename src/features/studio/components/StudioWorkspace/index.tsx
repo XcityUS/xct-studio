@@ -15,12 +15,13 @@ import {
     summarizeWebUrl
 } from './references';
 import { captionModeFromLanguages, shareParamsToForm, sharePromptWithinLimit, shareTitleFromItem } from './share';
-import type { AuthorizationTarget, ErrorScope, SocialShareTarget, StudioTab, WatermarkQueueItem } from './types';
+import type { ErrorScope, SocialShareTarget, StudioTab, WatermarkQueueItem } from './types';
 import {
     fileNameWithoutExtension,
     imageReferenceUrlsFromParams,
     legacyWatermarkedVideoId,
     normalizeWatermarkText,
+    providerReferenceUrl,
     realPersonReferenceErrorMessage,
     voiceoverAssetName,
     watermarkedVideoId,
@@ -38,16 +39,6 @@ import {
 } from '@/components/ui/Dialog';
 import { Input } from '@/components/ui/Input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs';
-import {
-    createAuthorization,
-    fetchAuthorizationDoc,
-    fetchAuthorizationQueue,
-    listAuthorizations,
-    reviewAuthorization,
-    uploadAuthorizationDoc,
-    type AuthorizationItem,
-    type AuthorizationReviewAction
-} from '@/features/assets/authorization/api';
 import { AssetsPanel } from '@/features/assets/components/AssetsPanel';
 import { useMediaArchive } from '@/features/assets/hooks/use-media-archive';
 import { usePosterBackfill } from '@/features/assets/hooks/use-poster-backfill';
@@ -60,8 +51,10 @@ import {
     createPortraitAsset,
     createPortraitGroup,
     createPortraitSession,
+    deletePortraitGroup,
     fetchPortraitStatus,
     getPortraitAsset,
+    listPortraitAssets,
     listPortraitGroups,
     type PortraitGroupQueryType
 } from '@/features/assets/portrait/api';
@@ -71,7 +64,6 @@ import {
     declarationBlockReason,
     declarationSatisfied,
     isAssetReferenceUrl,
-    originRequiresAuthorization,
     originForGeneratedImage,
     refKey,
     referenceRequiresAssetLibrary,
@@ -113,7 +105,6 @@ import { ApiKeyDialog } from '@/features/settings/components/ApiKeyDialog';
 import { ApiKeyGate } from '@/features/settings/components/ApiKeyGate';
 import { useXcityKey } from '@/features/settings/hooks/use-xcity-key';
 import { XCITY_SSO_ENABLED } from '@/features/settings/sso';
-import { buildAuthorizationTargets } from '@/features/studio/authorization-targets';
 import { useAssetIdIntake } from '@/features/studio/hooks/use-asset-id-intake';
 import { useStudioTabRouting } from '@/features/studio/hooks/use-studio-tab-routing';
 import type { AppLocale } from '@/i18n/routing';
@@ -153,7 +144,6 @@ import {
     type CommunityReviewAction,
     type UserAsset
 } from '@/lib/media-archive';
-import { BudgetExceededError, RateLimitError } from '@/lib/openai-client';
 import { optimizePrompt } from '@/lib/prompt-optimizer';
 import { breakdownScript } from '@/lib/script-breakdown';
 import { synthesizeSpeech, type TtsVoice } from '@/lib/tts';
@@ -239,12 +229,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
     const [isApiKeyDialogOpen, setIsApiKeyDialogOpen] = React.useState(false);
     const [currentJobId, setCurrentJobId] = React.useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = React.useState(false);
-    const [approvedAuthorizationIds, setApprovedAuthorizationIds] = React.useState<ReadonlySet<string>>(
-        () => new Set()
-    );
-    const [selectedAuthorizationReferenceKey, setSelectedAuthorizationReferenceKey] = React.useState<string | null>(
-        null
-    );
+    const approvedAuthorizationIds = React.useMemo<ReadonlySet<string>>(() => new Set(), []);
     const [createNotice, setCreateNotice] = React.useState<string | null>(null);
     const [shareNotice, setShareNotice] = React.useState<string | null>(null);
     const [isShareDialogOpen, setIsShareDialogOpen] = React.useState(false);
@@ -301,6 +286,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         characters,
         portraits,
         declarations,
+        deletedIds,
         isInitialLoad,
         addItem,
         replaceItem,
@@ -327,13 +313,6 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
     const effectiveDeclarations = React.useMemo(
         () => withPortraitDeclarations(declarations, activePortraits),
         [activePortraits, declarations]
-    );
-    const applyAuthorizationItems = React.useCallback((items: AuthorizationItem[]) => {
-        setApprovedAuthorizationIds(new Set(items.filter((item) => item.status === 'approved').map((item) => item.id)));
-    }, []);
-    const authorizationTargets = React.useMemo<AuthorizationTarget[]>(
-        () => buildAuthorizationTargets(createReferenceUrls, createLastFrameUrl, effectiveDeclarations),
-        [createLastFrameUrl, createReferenceUrls, effectiveDeclarations]
     );
 
     const declareGeneratedReference = React.useCallback(
@@ -373,7 +352,6 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         setReferenceUrls: setCreateReferenceUrls,
         declarations,
         setDeclaration,
-        setAuthorizationReferenceKey: setSelectedAuthorizationReferenceKey,
         setNotice: setCreateNotice,
         setError
     });
@@ -576,23 +554,6 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         };
     }, [apiKey, isPortraitEnabled]);
 
-    React.useEffect(() => {
-        if (!uploadEnabled || !apiKey) {
-            setApprovedAuthorizationIds(new Set());
-            return;
-        }
-
-        let cancelled = false;
-        void listAuthorizations(apiKey)
-            .then((items) => {
-                if (!cancelled) applyAuthorizationItems(items);
-            })
-            .catch((err) => console.warn('Could not load authorizations:', err));
-        return () => {
-            cancelled = true;
-        };
-    }, [apiKey, applyAuthorizationItems, uploadEnabled]);
-
     const handleUploadImage = React.useCallback(
         async (file: File): Promise<string> => {
             const validation = await validateAssetImage(file);
@@ -734,83 +695,6 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         void refreshImageAssets();
     }, [finalizeDialogItem, refreshImageAssets]);
 
-    const handleLoadAuthorizations = React.useCallback(async () => {
-        if (!uploadEnabled) return [];
-        const key = await resolveKey();
-        if (!key) {
-            throw new Error('Sign in at xcity.ai (or set an API key) to view your authorizations.');
-        }
-        const items = await listAuthorizations(key);
-        applyAuthorizationItems(items);
-        return items;
-    }, [applyAuthorizationItems, resolveKey, uploadEnabled]);
-
-    const handleSubmitAuthorization = React.useCallback(
-        async (input: { subjectName: string; referenceKey: string; note: string; file: File }) => {
-            const key = await resolveKey();
-            if (!key) {
-                throw new Error('Sign in at xcity.ai (or set an API key) before submitting authorization.');
-            }
-            const created = await createAuthorization(
-                {
-                    subjectName: input.subjectName,
-                    referenceKey: input.referenceKey,
-                    note: input.note
-                },
-                key
-            );
-            await uploadAuthorizationDoc(created.id, input.file, key);
-            return created;
-        },
-        [resolveKey]
-    );
-
-    const handleLoadAuthorizationQueue = React.useCallback(async () => {
-        const key = await resolveKey();
-        if (!key) return null;
-        return fetchAuthorizationQueue(key);
-    }, [resolveKey]);
-
-    const handleReviewAuthorization = React.useCallback(
-        async (id: string, action: AuthorizationReviewAction, note: string) => {
-            const key = await resolveKey();
-            if (!key) {
-                throw new Error('Sign in at xcity.ai (or set an API key) to review authorizations.');
-            }
-            await reviewAuthorization(id, action, note, key);
-            const items = await listAuthorizations(key).catch((err) => {
-                console.warn('Could not refresh authorizations after review:', err);
-                return null;
-            });
-            if (items) applyAuthorizationItems(items);
-        },
-        [applyAuthorizationItems, resolveKey]
-    );
-
-    const handleFetchAuthorizationDoc = React.useCallback(
-        async (id: string) => {
-            const key = await resolveKey();
-            if (!key) {
-                throw new Error('Sign in at xcity.ai (or set an API key) to view authorization documents.');
-            }
-            return fetchAuthorizationDoc(id, key);
-        },
-        [resolveKey]
-    );
-
-    const handleAuthorizationSubmitted = React.useCallback(
-        (referenceKey: string, authorizationId: string) => {
-            const existing = declarations[referenceKey] ?? effectiveDeclarations[referenceKey];
-            setDeclaration(referenceKey, {
-                ...(existing ?? {}),
-                origin: existing && originRequiresAuthorization(existing.origin) ? existing.origin : 'licensed-ip',
-                declaredAt: Date.now(),
-                authorizationId
-            });
-        },
-        [declarations, effectiveDeclarations, setDeclaration]
-    );
-
     const handleStartPortraitSession = React.useCallback(
         async (origin: string) => {
             const key = await resolveKey();
@@ -833,6 +717,17 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         [resolveKey]
     );
 
+    const handleLoadPortraitAssets = React.useCallback(
+        async (type?: PortraitGroupQueryType) => {
+            const key = await resolveKey();
+            if (!key) {
+                throw new Error('Sign in at xcity.ai (or set an API key) to view BytePlus assets.');
+            }
+            return (await listPortraitAssets(key, type)).assets;
+        },
+        [resolveKey]
+    );
+
     const handleCreatePortraitGroup = React.useCallback(
         async (name: string) => {
             const key = await resolveKey();
@@ -840,6 +735,17 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                 throw new Error('Sign in at xcity.ai (or set an API key) before creating a virtual character.');
             }
             return createPortraitGroup(name, key);
+        },
+        [resolveKey]
+    );
+
+    const handleDeletePortraitGroup = React.useCallback(
+        async (groupId: string) => {
+            const key = await resolveKey();
+            if (!key) {
+                throw new Error('Sign in at xcity.ai (or set an API key) before deleting a character group.');
+            }
+            await deletePortraitGroup(groupId, key);
         },
         [resolveKey]
     );
@@ -936,7 +842,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
 
     /** Assets tab → video form: append the image to the reference list. */
     const handleUseAssetAsReference = React.useCallback(
-        async (url: string) => {
+        async (url: string, approvedReferenceUrl?: string) => {
             const refCap = maxReferenceImages(createModel);
             if (createReferenceUrls.includes(url)) {
                 setCreateNotice(null);
@@ -954,18 +860,37 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                     return;
                 }
                 setCreateReferenceUrls((prev) => (prev.includes(url) ? prev : [...prev, url].slice(0, refCap)));
+                const assetId = approvedReferenceUrl ? assetIdFromReferenceUrl(approvedReferenceUrl) : undefined;
+                const key = refKey(url);
+                if (assetId && key) {
+                    const approvedDeclaration = effectiveDeclarations[refKey(approvedReferenceUrl ?? '')];
+                    setDeclaration(key, {
+                        ...(approvedDeclaration ??
+                            declarations[key] ?? { origin: 'no-person', declaredAt: Date.now() }),
+                        assetId
+                    });
+                }
                 setError(null, 'create');
                 setCreateNotice('Added as reference image.');
             }
             navigateToTab('video');
             void scrollToCreationForm();
         },
-        [createModel, createReferenceUrls, navigateToTab, scrollToCreationForm, setError]
+        [
+            createModel,
+            createReferenceUrls,
+            declarations,
+            effectiveDeclarations,
+            navigateToTab,
+            scrollToCreationForm,
+            setDeclaration,
+            setError
+        ]
     );
 
     /** Assets tab -> video form: append the video to the reference video list. */
     const handleUseAssetAsReferenceVideo = React.useCallback(
-        (url: string) => {
+        (url: string, approvedReferenceUrl?: string) => {
             const switchesModel = !modelSupportsReferenceVideo(createModel);
             if (createReferenceVideoUrls.includes(url)) {
                 setCreateNotice(null);
@@ -983,6 +908,16 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                 setCreateReferenceVideoUrls((prev) =>
                     prev.includes(url) ? prev : [...prev, url].slice(0, MAX_REFERENCE_VIDEOS)
                 );
+                const assetId = approvedReferenceUrl ? assetIdFromReferenceUrl(approvedReferenceUrl) : undefined;
+                const key = refKey(url);
+                if (assetId && key) {
+                    const approvedDeclaration = effectiveDeclarations[refKey(approvedReferenceUrl ?? '')];
+                    setDeclaration(key, {
+                        ...(approvedDeclaration ??
+                            declarations[key] ?? { origin: 'no-person', declaredAt: Date.now() }),
+                        assetId
+                    });
+                }
                 setError(null, 'create');
                 setCreateNotice(
                     switchesModel
@@ -993,7 +928,16 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
             navigateToTab('video');
             void scrollToCreationForm();
         },
-        [createModel, createReferenceVideoUrls, navigateToTab, scrollToCreationForm, setError]
+        [
+            createModel,
+            createReferenceVideoUrls,
+            declarations,
+            effectiveDeclarations,
+            navigateToTab,
+            scrollToCreationForm,
+            setDeclaration,
+            setError
+        ]
     );
 
     const handleOptimizePrompt = React.useCallback(
@@ -1803,7 +1747,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         if (refUrls.length) {
             const inlined: string[] = [];
             for (let i = 0; i < refUrls.length; i++) {
-                const url = refUrls[i];
+                const url = providerReferenceUrl(refUrls[i], effectiveDeclarations);
                 options.onSubmitStage?.(`Reading reference image ${i + 1}/${refUrls.length}...`);
                 if (isAssetReferenceUrl(url)) {
                     inlined.push(url);
@@ -1864,7 +1808,12 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
             }
         }
         if (formData.reference_video_urls?.length) {
-            const invalidIndex = formData.reference_video_urls.findIndex((url) => !isWebReferenceUrl(url));
+            const providerVideoUrls = formData.reference_video_urls.map((url) =>
+                providerReferenceUrl(url, effectiveDeclarations)
+            );
+            const invalidIndex = providerVideoUrls.findIndex(
+                (url) => !isAssetReferenceUrl(url) && !isWebReferenceUrl(url)
+            );
             if (invalidIndex !== -1) {
                 setError(
                     `Reference video ${invalidIndex + 1} must be a public http(s) URL. Remove it and upload the video again.`
@@ -1872,7 +1821,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                 setIsSubmitting(false);
                 return null;
             }
-            requestParams.reference_video_urls = formData.reference_video_urls.map(providerDownloadUrl);
+            requestParams.reference_video_urls = providerVideoUrls.map(providerDownloadUrl);
         }
         if (totalChars > 30_000_000) {
             setError('Reference media are too large to submit (over ~20 MB combined). Use fewer or smaller files.');
@@ -2025,16 +1974,13 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
             }
             return job.id;
         } catch (err: unknown) {
-            const isExpectedCreateError =
-                err instanceof InvalidApiKeyError ||
-                err instanceof RealPersonImageError ||
-                err instanceof BudgetExceededError ||
-                err instanceof RateLimitError;
-            if (isExpectedCreateError) {
-                console.warn('Video creation failed:', err.message);
-            } else {
-                console.error('Error creating video:', err);
-            }
+            // This failure is handled below and rendered in VideoOutput. Passing
+            // the Error object to console.error makes Next.js dev treat it as an
+            // unhandled exception and cover the Studio with its error overlay.
+            console.warn(
+                'Video creation failed:',
+                err instanceof Error ? sanitizeStudioErrorMessage(err.message) : 'An unexpected error occurred.'
+            );
             if (err instanceof InvalidApiKeyError) {
                 handleInvalidApiKey(err.message);
             } else if (err instanceof RealPersonImageError) {
@@ -3248,14 +3194,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                 onDeclareReference={handleDeclareReference}
                 onReviewReferenceAsset={isPortraitEnabled ? handleReviewReferenceAsset : undefined}
                 onUploadImage={uploadEnabled ? handleUploadImage : undefined}
-                onOpenAssets={
-                    uploadEnabled || isPortraitEnabled
-                        ? (referenceKey) => {
-                              if (referenceKey) setSelectedAuthorizationReferenceKey(referenceKey);
-                              navigateToTab('assets');
-                          }
-                        : undefined
-                }
+                onOpenAssets={uploadEnabled || isPortraitEnabled ? () => navigateToTab('assets') : undefined}
                 onOpenChange={handleFinalizeDialogOpenChange}
                 onConfirm={handleConfirmFinalize}
             />
@@ -3337,12 +3276,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                                 // Only offer the jump when the Assets tab actually exists —
                                 // it is gated on the media worker / portrait library.
                                 onOpenAssets={
-                                    uploadEnabled || isPortraitEnabled
-                                        ? (referenceKey) => {
-                                              if (referenceKey) setSelectedAuthorizationReferenceKey(referenceKey);
-                                              navigateToTab('assets');
-                                          }
-                                        : undefined
+                                    uploadEnabled || isPortraitEnabled ? () => navigateToTab('assets') : undefined
                                 }
                                 notice={createNotice}
                                 onClearNotice={() => setCreateNotice(null)}
@@ -3555,33 +3489,28 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                                     <AssetsPanel
                                         loadAssets={handleLoadAssets}
                                         deleteAsset={handleDeleteAsset}
-                                        loadAuthorizations={handleLoadAuthorizations}
-                                        submitAuthorization={handleSubmitAuthorization}
-                                        loadAuthorizationQueue={handleLoadAuthorizationQueue}
-                                        reviewAuthorization={handleReviewAuthorization}
-                                        fetchAuthorizationDoc={handleFetchAuthorizationDoc}
-                                        authorizationTargets={authorizationTargets}
-                                        selectedAuthorizationReferenceKey={selectedAuthorizationReferenceKey}
-                                        onAuthorizationSubmitted={handleAuthorizationSubmitted}
                                         characters={characters}
                                         addCharacter={addCharacter}
                                         removeCharacter={removeCharacter}
                                         portraitEnabled={isPortraitEnabled}
                                         portraits={portraits}
+                                        deletedIds={deletedIds}
                                         declarations={effectiveDeclarations}
                                         addPortrait={addPortrait}
                                         syncPortraitState={syncNow}
                                         removePortrait={removePortrait}
                                         startPortraitSession={handleStartPortraitSession}
                                         loadPortraitGroups={handleLoadPortraitGroups}
+                                        loadPortraitAssets={handleLoadPortraitAssets}
                                         createPortraitGroup={handleCreatePortraitGroup}
+                                        deletePortraitGroup={handleDeletePortraitGroup}
                                         createPortraitAsset={handleCreatePortraitAsset}
                                         getPortraitAsset={handleGetPortraitAsset}
                                         getPortraitStatus={handleGetPortraitStatus}
+                                        reviewAsset={handleReviewReferenceAsset}
                                         onUseAsReference={handleUseAssetAsReference}
                                         onUseAsReferenceVideo={handleUseAssetAsReferenceVideo}
                                         onAttachAssetId={handleAttachAssetId}
-                                        onMarkReferenceForAuthorization={() => navigateToTab('video')}
                                         active={activeTab === 'assets'}
                                     />
                                 </div>

@@ -32,6 +32,7 @@ const AUTHZ_INDEX_KEY = 'authz/index.json';
 const MAX_AUTHZ_NOTE_CHARS = 4000;
 const MAX_AUTHZ_SUBJECT_CHARS = 160;
 const MAX_AUTHZ_REFERENCE_KEY_CHARS = 512;
+const MAX_AUTHZ_REFERENCE_URL_CHARS = 2048;
 const MAX_AUTHZ_DOC_BYTES = 5 * 1024 * 1024;
 const PRIVATE_REFERENCE_PARAM_KEYS = [
     'input_reference_url',
@@ -558,16 +559,22 @@ function normalizeAuthzIndex(value) {
 }
 
 async function readAuthzIndex(env) {
-    const object = await getMedia(env, AUTHZ_INDEX_KEY);
-    if (!object) {
+    const object = await env.XCITY_MEDIA.get(AUTHZ_INDEX_KEY);
+    if (object) {
+        const parsed = await object.json().catch(() => []);
+        return { entries: normalizeAuthzIndex(parsed), etag: etagFromIfMatch(object.httpEtag || '') };
+    }
+
+    const legacyObject = env.LEGACY_XCITY_MEDIA ? await env.LEGACY_XCITY_MEDIA.get(AUTHZ_INDEX_KEY) : null;
+    if (!legacyObject) {
         return { entries: [], etag: null };
     }
-    const parsed = await object.json().catch(() => []);
-    return { entries: normalizeAuthzIndex(parsed), etag: etagFromIfMatch(object.httpEtag || '') };
+    const parsed = await legacyObject.json().catch(() => []);
+    return { entries: normalizeAuthzIndex(parsed), etag: null };
 }
 
 async function updateAuthzIndex(env, update) {
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (let attempt = 0; attempt < 6; attempt++) {
         const { entries, etag } = await readAuthzIndex(env);
         const next = normalizeAuthzIndex(update(entries));
         const onlyIf = etag ? { etagMatches: etag } : { etagDoesNotExist: true };
@@ -579,8 +586,13 @@ async function updateAuthzIndex(env, update) {
             }
         });
         if (stored) return true;
+        await delay(25 * (attempt + 1));
     }
     return false;
+}
+
+function delay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function publicAuthzItem(record) {
@@ -588,6 +600,7 @@ function publicAuthzItem(record) {
         id: record.id,
         subject_name: record.subject_name,
         reference_key: record.reference_key,
+        reference_url: typeof record.reference_url === 'string' ? record.reference_url : '',
         note: typeof record.note === 'string' ? record.note : '',
         status: safeAuthzStatus(record.status),
         created_at: typeof record.created_at === 'string' ? record.created_at : '',
@@ -643,6 +656,7 @@ async function handleAuthzCreate(request, env, cors) {
 
     const subjectName = typeof payload?.subject_name === 'string' ? payload.subject_name.trim() : '';
     const referenceKey = typeof payload?.reference_key === 'string' ? payload.reference_key.trim() : '';
+    const referenceUrl = typeof payload?.reference_url === 'string' ? payload.reference_url.trim() : '';
     const note = typeof payload?.note === 'string' ? payload.note.trim() : '';
     if (!subjectName) {
         return json({ error: 'subject_name is required' }, 400, cors);
@@ -655,6 +669,20 @@ async function handleAuthzCreate(request, env, cors) {
     }
     if (referenceKey.length > MAX_AUTHZ_REFERENCE_KEY_CHARS) {
         return json({ error: `reference_key is over the ${MAX_AUTHZ_REFERENCE_KEY_CHARS} character limit` }, 413, cors);
+    }
+    if (referenceUrl.length > MAX_AUTHZ_REFERENCE_URL_CHARS) {
+        return json({ error: `reference_url is over the ${MAX_AUTHZ_REFERENCE_URL_CHARS} character limit` }, 413, cors);
+    }
+    if (referenceUrl) {
+        let parsedReferenceUrl;
+        try {
+            parsedReferenceUrl = new URL(referenceUrl);
+        } catch {
+            return json({ error: 'reference_url must be a valid URL' }, 400, cors);
+        }
+        if (parsedReferenceUrl.protocol !== 'https:' && parsedReferenceUrl.protocol !== 'http:') {
+            return json({ error: 'reference_url must use HTTP or HTTPS' }, 400, cors);
+        }
     }
     if (note.length > MAX_AUTHZ_NOTE_CHARS) {
         return json({ error: `note is over the ${MAX_AUTHZ_NOTE_CHARS} character limit` }, 413, cors);
@@ -679,6 +707,7 @@ async function handleAuthzCreate(request, env, cors) {
         owner,
         subject_name: subjectName,
         reference_key: referenceKey,
+        reference_url: referenceUrl,
         note,
         doc_key: '',
         doc_bytes: 0,

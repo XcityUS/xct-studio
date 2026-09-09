@@ -4,6 +4,11 @@ import {
     type ReferenceDeclaration,
     type ReferenceOrigin
 } from '@/features/assets/reference/origin';
+import type { VideoPortrait } from '@/features/generation/history/merge';
+
+export function isReferenceImagePortrait(portrait: Pick<VideoPortrait, 'assetType'>): boolean {
+    return portrait.assetType === undefined || portrait.assetType === 'Image';
+}
 
 export function isHttpImageUrl(url: string): boolean {
     try {

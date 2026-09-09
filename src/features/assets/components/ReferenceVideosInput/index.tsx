@@ -13,6 +13,8 @@ interface ReferenceVideosInputProps {
     urls: string[];
     onChange: (urls: string[]) => void;
     onDurationChange?: (url: string, seconds: number) => void;
+    /** Resolves provider-only references to a browser-playable preview URL. */
+    resolvePreviewUrl?: (url: string) => string;
     /** Uploads a local file and resolves to its public URL. Absent = URL-only mode. */
     onUpload?: (file: File) => Promise<string>;
     disabled?: boolean;
@@ -33,6 +35,7 @@ export function ReferenceVideosInput({
     urls,
     onChange,
     onDurationChange,
+    resolvePreviewUrl,
     onUpload,
     disabled
 }: ReferenceVideosInputProps) {
@@ -111,21 +114,21 @@ export function ReferenceVideosInput({
                             <div className='relative overflow-hidden rounded-md border border-white/15 bg-black'>
                                 <VideoPlayer
                                     instanceKey={`${url}-${i}`}
-                                    src={url}
+                                    src={resolvePreviewUrl?.(url) ?? url}
                                     preload='metadata'
                                     onDurationChange={(duration) => onDurationChange?.(url, duration)}
                                     aspectRatio='16 / 9'
                                     className='aspect-video w-full object-contain'
                                     title={url}
                                 />
-                                <span className='pointer-events-none absolute bottom-1 left-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-white/80'>
+                                <span className='pointer-events-none absolute bottom-1 left-1 rounded bg-[var(--studio-media-overlay)] px-1.5 py-0.5 text-[10px] text-[var(--studio-media-muted)]'>
                                     {t('Video <lcur>number<rcur>', { number: i + 1 })}
                                 </span>
                                 <button
                                     type='button'
                                     onClick={() => removeAt(i)}
                                     disabled={disabled}
-                                    className='absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded bg-black/70 text-white/70 transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-40'
+                                    className='absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded bg-[var(--studio-media-overlay)] text-[var(--studio-media-muted)] transition-colors hover:text-[var(--studio-media-foreground)] disabled:cursor-not-allowed disabled:opacity-40'
                                     aria-label={t('Remove reference video <lcur>number<rcur>', { number: i + 1 })}>
                                     <X className='h-3.5 w-3.5' />
                                 </button>

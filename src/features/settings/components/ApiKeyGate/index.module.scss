@@ -45,13 +45,13 @@
     gap: 16px;
     max-width: 100%;
     padding: 32px;
-    border: 1px solid #ffffff33;
+    border: 1px solid var(--studio-border-strong);
     border-radius: 8px;
-    background: #000c;
+    background: var(--studio-overlay);
     color: var(--studio-foreground);
     text-align: center;
     overflow-wrap: anywhere;
-    box-shadow: 0 20px 40px #0008;
+    box-shadow: var(--studio-overlay-shadow);
 }
 
 .message h3 {

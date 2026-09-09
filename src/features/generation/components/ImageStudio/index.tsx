@@ -299,7 +299,7 @@ export function ImageStudio({ imageModels, onGenerate, onAnimate }: ImageStudioP
                                             <button
                                                 type='button'
                                                 onClick={() => void db.images.delete(rec.id)}
-                                                className='absolute top-1 right-1 rounded-full bg-red-600/80 p-1 text-white transition-colors hover:bg-red-500/90'
+                                                className='absolute top-1 right-1 rounded-full bg-red-600/80 p-1 text-[var(--studio-status-foreground)] transition-colors hover:bg-red-500/90'
                                                 aria-label='Delete image'>
                                                 <Trash2 size={12} />
                                             </button>

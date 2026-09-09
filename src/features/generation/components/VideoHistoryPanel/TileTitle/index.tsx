@@ -64,7 +64,7 @@ export function TileTitle({
                             setEditing(false);
                         }
                     }}
-                    className='min-w-0 flex-1 rounded border border-white/20 bg-black/60 px-1 py-0.5 text-xs text-white outline-none focus:border-white/50'
+                    className='min-w-0 flex-1 rounded border border-[var(--studio-media-border)] bg-[var(--studio-media-overlay)] px-1 py-0.5 text-xs text-[var(--studio-media-foreground)] outline-none focus:border-[var(--studio-media-foreground)]'
                     maxLength={120}
                     aria-label={t('History title')}
                 />

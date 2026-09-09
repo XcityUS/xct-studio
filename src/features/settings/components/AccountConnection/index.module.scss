@@ -30,7 +30,7 @@
 
 .error {
     max-width: 384px;
-    color: #fca5a5cc;
+    color: var(--studio-danger);
     font-size: 12px;
 }
 
@@ -57,16 +57,16 @@
     color: var(--studio-background);
 
     &:hover {
-        background: #ffffffe6;
+        opacity: 0.84;
     }
 }
 
 .secondary {
-    background: #ffffff1a;
+    background: var(--studio-surface-soft);
     color: var(--studio-foreground);
 
     &:hover {
-        background: #fff3;
+        background: var(--studio-hover);
     }
 }
 

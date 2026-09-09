@@ -1,8 +1,8 @@
 .dialog {
     width: calc(100% - 32px);
     max-width: 425px;
-    border: 1px solid #ffffff33;
-    background: var(--studio-background);
+    border: 1px solid var(--studio-border-strong);
+    background: var(--studio-overlay);
     color: var(--studio-foreground);
 }
 
@@ -21,8 +21,8 @@
 }
 
 .input {
-    border-color: #ffffff33;
-    background: var(--studio-background);
+    border-color: var(--studio-border-strong);
+    background: var(--studio-surface);
     color: var(--studio-foreground);
 }
 
@@ -32,10 +32,10 @@
 
 .error {
     padding: 8px 12px;
-    border: 1px solid #ef44444d;
+    border: 1px solid var(--studio-danger-border);
     border-radius: 6px;
-    background: #ef44441a;
-    color: #fecaca;
+    background: var(--studio-danger-soft);
+    color: var(--studio-danger);
     font-size: 14px;
     overflow-wrap: anywhere;
 }
@@ -54,7 +54,7 @@
 }
 
 .action:hover {
-    background: #e5e5e5;
+    opacity: 0.84;
 }
 .action:disabled {
     background: var(--studio-hover);

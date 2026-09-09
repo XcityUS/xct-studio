@@ -17,15 +17,18 @@ export function portraitCollections(
     return {
         imageAssets: (assets ?? []).filter((asset) => asset.kind === 'image'),
         livenessGroups: (groups ?? []).filter((group) => group.groupType === 'LivenessFace'),
-        virtualGroups: (groups ?? []).filter((group) => group.groupType === 'AIGC'),
+        virtualGroups: (groups ?? []).filter(isCharacterAssetGroup),
         verifiedPortraits: portraits.filter((portrait) => portrait.groupType === 'LivenessFace'),
-        reviewedMaterials: portraits.filter(
-            (portrait) => portrait.groupType === 'AIGC' && originFor(portrait) === 'no-person'
-        ),
         virtualPortraits: portraits.filter(
-            (portrait) => portrait.groupType === 'AIGC' && originFor(portrait) !== 'no-person'
+            (portrait) => portrait.groupType === 'AIGC' && originFor(portrait) === 'thirdparty-ai'
         )
     };
+}
+
+export function isCharacterAssetGroup(group: PortraitGroup): boolean {
+    if (group.groupType !== 'AIGC') return false;
+    const slug = group.name.split(':').slice(2).join(':').trim().toLowerCase();
+    return slug !== 'reviewed-materials';
 }
 
 export function formatBytes(bytes: number | null): string {

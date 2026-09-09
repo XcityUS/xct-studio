@@ -18,7 +18,7 @@ The user chose framework, internationalization, and directory architecture first
 | New styles        | Sass 1.104.0; owned SCSS Modules for shell/settings/callback and Input/Textarea; shared tokens                                                                                                                |
 | Selection UI      | Radix Select 2.3.7 through the shared `components/ui/Dropdown`; visible native selects prohibited by Harness                                                                                                  |
 | Video playback    | ArtPlayer 5.4.0 through the shared `components/ui/VideoPlayer` adapter; built-in English and Simplified Chinese controls                                                                                      |
-| Boundaries        | Runtime config, xcity-litellm clients, and portrait guards protected by `server-only`; shared config/contracts                                                                                                 |
+| Boundaries        | Runtime config, xcity-litellm clients, and portrait guards protected by `server-only`; shared config/contracts                                                                                                |
 | Harness           | Directory/style/ownership checks, AST runtime import graph and function advisory, nine legacy size budgets, pnpm metadata gate, blocking flat-key/dictionary/translation-call validation, CI quality workflow |
 | Deployment config | Railway/Nixpacks and CodSpeed commands migrated to pnpm; no deployment performed                                                                                                                              |
 
@@ -56,6 +56,9 @@ Six component budgets were lowered to their new exact line counts; VideoOutput's
 - `xcity-litellm` owns BytePlus credentials, HMAC signing, provider group ownership checks, response normalization, and asset URL allowlisting.
 - Before creating an asset, Studio synchronizes and reads the current cloud state. An existing `assetId` is queried and reused; a missing `assetId` starts a new provider submission.
 - A successful CreateAsset response is persisted immediately as `Processing`, then reconciled to `Active` or `Failed`. If authentication or provider submission fails before an ID is returned, Studio does not invent or persist an `assetId`.
+- Public-figure and protected-IP references use this direct provider flow after the provider's offline rights authorization/OA and account allowlisting. Studio no longer duplicates that process with an internal `/authz` upload or administrator decision.
+- Reviewed uploads remain in the main Assets list and are sorted first. Active records reference `asset://<AssetID>`; unreviewed records must enter provider review before reference actions are enabled. Seedream output remains explicitly exempt.
+- The Assets view lists BytePlus records only from provider groups owned by the signed-in Xcity user, merges them into the existing cloud grid, and deduplicates matching source URLs and Asset IDs. It never exposes the platform account's unscoped library.
 - The Assets view polls persisted `Processing` records and writes terminal status, preview URL, and failure reason back to cloud state. Deploying the media Worker update is required so portrait declarations and status fields survive cloud merges.
 
 ## Verification

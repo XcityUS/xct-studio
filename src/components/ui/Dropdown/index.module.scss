@@ -8,10 +8,10 @@
     gap: 8px;
     padding: 0 12px;
     overflow: hidden;
-    border: 1px solid rgb(255 255 255 / 18%);
+    border: 1px solid var(--studio-border);
     border-radius: 6px;
-    background: #080808;
-    color: #f5f5f5;
+    background: var(--studio-surface);
+    color: var(--studio-foreground);
     font: inherit;
     font-size: 14px;
     line-height: 1;
@@ -30,15 +30,15 @@
     }
 
     &:hover {
-        border-color: rgb(255 255 255 / 34%);
-        background: #0d0d0d;
+        border-color: var(--studio-border-strong);
+        background: var(--studio-surface-soft);
     }
 
     &:focus-visible,
     &[data-state='open'] {
-        border-color: var(--studio-focus, #a3e635);
+        border-color: var(--studio-focus);
         outline: none;
-        box-shadow: 0 0 0 3px rgb(163 230 53 / 16%);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--studio-focus) 12%, transparent);
     }
 
     &:disabled {
@@ -56,7 +56,7 @@
 .triggerIcon {
     display: inline-flex;
     flex-shrink: 0;
-    color: rgb(255 255 255 / 50%);
+    color: var(--studio-muted);
     transition: transform 140ms ease;
 }
 
@@ -71,11 +71,11 @@
     max-width: var(--dropdown-content-max-width, min(420px, calc(100vw - 16px)));
     max-height: min(360px, var(--radix-select-content-available-height));
     overflow: hidden;
-    border: 1px solid rgb(255 255 255 / 16%);
+    border: 1px solid var(--studio-border);
     border-radius: 6px;
-    background: #101010;
-    color: #f5f5f5;
-    box-shadow: 0 16px 42px rgb(0 0 0 / 55%);
+    background: var(--studio-overlay);
+    color: var(--studio-foreground);
+    box-shadow: var(--studio-shadow);
     animation: dropdown-in 120ms ease-out;
 }
 
@@ -90,21 +90,21 @@
     align-items: center;
     padding: 8px 34px 8px 10px;
     border-radius: 4px;
-    color: rgb(255 255 255 / 76%);
+    color: var(--studio-muted);
     font-size: 13px;
     line-height: 1.35;
     cursor: pointer;
     user-select: none;
 
     &[data-highlighted] {
-        background: rgb(255 255 255 / 9%);
-        color: #fff;
+        background: var(--studio-hover);
+        color: var(--studio-foreground);
         outline: none;
     }
 
     &[data-state='checked'] {
-        background: rgb(163 230 53 / 10%);
-        color: #d9f99d;
+        background: var(--studio-hover);
+        color: var(--studio-foreground);
     }
 
     &[data-disabled] {
@@ -122,7 +122,7 @@
     position: absolute;
     right: 10px;
     display: inline-flex;
-    color: #a3e635;
+    color: var(--studio-foreground);
 }
 
 .scrollButton {
@@ -130,7 +130,7 @@
     height: 28px;
     align-items: center;
     justify-content: center;
-    color: rgb(255 255 255 / 50%);
+    color: var(--studio-muted);
 }
 
 @keyframes dropdown-in {

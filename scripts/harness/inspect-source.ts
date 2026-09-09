@@ -59,11 +59,31 @@ export function uiFindings(path: string, source: string): Finding[] {
     return findings;
 }
 
+export function styleFindings(path: string, source: string): Finding[] {
+    if (!path.startsWith('src/') || path === 'src/app/globals.css' || !/\.(?:[cm]?tsx?|s?css)$/.test(path)) {
+        return [];
+    }
+
+    const hardcodedColor = /#[\da-f]{3,8}\b|\b(?:rgb|hsl|oklch)a?\s*\(/gi;
+    const match = hardcodedColor.exec(source);
+    if (!match) return [];
+    const line = source.slice(0, match.index).split(/\r\n|\r|\n/).length;
+
+    return [
+        {
+            rule: 'styles',
+            level: 'error',
+            message: `Hardcoded color at line ${line}; define the value in src/app/globals.css and consume a semantic token.`
+        }
+    ];
+}
+
 export function inspectSource(path: string, source: string, legacy?: LegacyEntry): Finding[] {
     return [
         ...namingFindings(path),
         ...sizeFindings(path, countLines(source), legacy),
         ...functionFindings(path, source),
-        ...uiFindings(path, source)
+        ...uiFindings(path, source),
+        ...styleFindings(path, source)
     ];
 }

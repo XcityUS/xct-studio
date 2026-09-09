@@ -9,6 +9,7 @@ import {
     sharePromptWithinLimit,
     shareTitleFromPrompt
 } from '@/features/studio/components/StudioWorkspace/share';
+import { promptWithLanguageControls } from '@/features/script/prompt/guards';
 import { DEFAULT_MODEL, DEFAULT_RATIO, DEFAULT_RESOLUTION } from '@/shared/config/seedance';
 import { describe, expect, it } from 'vitest';
 
@@ -39,6 +40,18 @@ describe('extracted Studio share transformations', () => {
             expect(Number.isFinite(params.seconds)).toBe(true);
             expect(params.generated_captions).toBeUndefined();
         }
+    });
+
+    it('requires bilingual subtitles to render English above Simplified Chinese', () => {
+        const prompt = promptWithLanguageControls('A short greeting scene.', {
+            voiceLanguage: 'en-US',
+            captionMode: 'bilingual-en-zh'
+        });
+
+        expect(prompt).toContain('show English on the first subtitle line');
+        expect(prompt).toContain('Simplified Chinese directly below it on the second subtitle line');
+        expect(prompt).toContain('not mojibake, random Han characters, pinyin, Japanese kana');
+        expect(prompt).not.toContain('Show only one subtitle language at a time');
     });
 });
 

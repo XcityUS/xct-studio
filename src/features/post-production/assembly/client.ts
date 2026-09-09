@@ -241,15 +241,15 @@ async function createWatermarkImage(text: string): Promise<Blob> {
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
     ctx.scale(scale, scale);
-
+    const tokens = getComputedStyle(document.documentElement);
     roundedRect(ctx, 0, 0, width, height, 3);
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.46)';
+    ctx.fillStyle = tokens.getPropertyValue('--studio-media-watermark-background').trim();
     ctx.fill();
 
     ctx.font = `600 ${fontSize}px Arial, Helvetica, sans-serif`;
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillStyle = tokens.getPropertyValue('--studio-media-watermark-foreground').trim();
+    ctx.shadowColor = tokens.getPropertyValue('--studio-media-watermark-shadow').trim();
     ctx.shadowBlur = 1;
     ctx.fillText(text, paddingX, height / 2 + 1);
 

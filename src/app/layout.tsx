@@ -29,7 +29,12 @@ export default async function RootLayout({
     return (
         <html lang={locale} suppressHydrationWarning>
             <body className={`${geistSans.variable} ${geistMono.variable} ${styles.body}`}>
-                <ThemeProvider attribute='class' defaultTheme='dark' enableSystem={false} disableTransitionOnChange>
+                <ThemeProvider
+                    attribute='class'
+                    defaultTheme='dark'
+                    enableSystem={false}
+                    disableTransitionOnChange
+                    storageKey='xct-studio-theme'>
                     {children}
                 </ThemeProvider>
             </body>

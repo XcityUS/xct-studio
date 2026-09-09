@@ -13,7 +13,7 @@ export function PortraitAssetStatus({ portrait }: { portrait: VideoPortrait }) {
               ? t('Virtual')
               : t('Verified');
     const label =
-        portrait.status === 'Active' ? activeLabel : portrait.status === 'Failed' ? t('Failed') : t('Processing');
+        portrait.status === 'Active' ? activeLabel : portrait.status === 'Failed' ? t('Failed') : t('Under review');
     const Icon = portrait.groupType === 'AIGC' && portrait.referenceOrigin !== 'no-person' ? Sparkles : ShieldCheck;
 
     return (

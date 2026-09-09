@@ -28,7 +28,7 @@ function ReviewStatus({ asset }: { asset: VideoPortrait }) {
     return (
         <div className={styles.status} data-status={asset.status.toLowerCase()}>
             <span>
-                {asset.status === 'Active' ? t('Approved') : asset.status === 'Failed' ? t('Failed') : t('Processing')}
+                {asset.status === 'Active' ? t('Approved') : asset.status === 'Failed' ? t('Failed') : t('Under review')}
             </span>
             <code>{shortAssetId(asset.assetId)}</code>
         </div>
@@ -75,12 +75,12 @@ export function ReviewAction(props: ReviewActionProps) {
 
     return (
         <div className={styles.root}>
-            {origin === 'thirdparty-ai' && (
+            {origin !== 'no-person' && (
                 <input
                     className={styles.input}
                     value={name}
                     onChange={(event) => setName(event.target.value)}
-                    placeholder={t('Virtual character name')}
+                    placeholder={t('Asset name')}
                     disabled={disabled || submission.isReviewing}
                 />
             )}

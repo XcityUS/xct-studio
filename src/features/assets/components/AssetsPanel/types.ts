@@ -1,13 +1,9 @@
-import type {
-    AuthorizationItem,
-    AuthorizationQueueItem,
-    AuthorizationReviewAction,
-    CreatedAuthorization
-} from '@/features/assets/authorization/api';
+import type { ProviderAssetReviewInput } from '@/features/assets/hooks/use-provider-asset-review';
 import {
     type PortraitAsset,
     type PortraitGroup,
     type PortraitGroupQueryType,
+    type ProviderLibraryAsset,
     type PortraitSession,
     type PortraitStatus
 } from '@/features/assets/portrait/api';
@@ -19,37 +15,21 @@ export type AssetsPanelProps = {
     /** Fetches the caller's stored assets (uploads + archived videos). */
     loadAssets: () => Promise<UserAsset[]>;
     deleteAsset: (key: string) => Promise<void>;
-    loadAuthorizations: () => Promise<AuthorizationItem[]>;
-    submitAuthorization: (input: {
-        subjectName: string;
-        referenceKey: string;
-        note: string;
-        file: File;
-    }) => Promise<CreatedAuthorization>;
-    loadAuthorizationQueue: () => Promise<AuthorizationQueueItem[] | null>;
-    reviewAuthorization: (id: string, action: AuthorizationReviewAction, note: string) => Promise<void>;
-    fetchAuthorizationDoc: (id: string) => Promise<Blob>;
-    authorizationTargets: {
-        key: string;
-        label: string;
-        url: string;
-        kind?: 'image' | 'video';
-        authorizationId?: string;
-    }[];
-    selectedAuthorizationReferenceKey: string | null;
-    onAuthorizationSubmitted: (referenceKey: string, authorizationId: string) => void;
     characters: VideoCharacter[];
     addCharacter: (character: VideoCharacter) => void;
     removeCharacter: (id: string) => void;
     portraitEnabled: boolean;
     portraits: VideoPortrait[];
+    deletedIds: string[];
     declarations: Record<string, ReferenceDeclaration>;
     addPortrait: (portrait: VideoPortrait) => void;
     syncPortraitState: () => Promise<void>;
     removePortrait: (assetId: string) => void;
     startPortraitSession: (origin: string) => Promise<PortraitSession>;
     loadPortraitGroups: (type?: PortraitGroupQueryType) => Promise<PortraitGroup[]>;
+    loadPortraitAssets: (type?: PortraitGroupQueryType) => Promise<ProviderLibraryAsset[]>;
     createPortraitGroup: (name: string) => Promise<{ groupId: string; slug: string; created: boolean }>;
+    deletePortraitGroup: (groupId: string) => Promise<void>;
     createPortraitAsset: (input: {
         groupId: string;
         url: string;
@@ -59,17 +39,17 @@ export type AssetsPanelProps = {
     getPortraitAsset: (assetId: string) => Promise<PortraitAsset>;
     /** Operator self-test of the real-human library configuration. */
     getPortraitStatus: () => Promise<PortraitStatus>;
+    reviewAsset: (input: ProviderAssetReviewInput) => Promise<string>;
     /** Loads an image asset into the video form's reference list. */
-    onUseAsReference: (url: string) => void;
+    onUseAsReference: (sourceUrl: string, providerReferenceUrl?: string) => void;
     /** Loads a video asset into the video form's reference video list. */
-    onUseAsReferenceVideo: (url: string) => void;
+    onUseAsReferenceVideo: (sourceUrl: string, providerReferenceUrl?: string) => void;
     onAttachAssetId: (input: { assetId: string; origin: ReferenceOrigin }) => boolean;
-    /** Sends the user back to the video form to mark a reference for licensing review. */
-    onMarkReferenceForAuthorization?: () => void;
     /** The panel fetches lazily — only once it has actually been shown. */
     active: boolean;
 };
 
+/** Compatibility shape for historical authorization records that remain readable in storage. */
 export type AuthorizationTargetOption = {
     key: string;
     label: string;

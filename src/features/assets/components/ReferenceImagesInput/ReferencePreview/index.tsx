@@ -3,12 +3,33 @@
 import { assetReferenceLabel } from '../utils';
 import { isAssetReferenceUrl } from '@/features/assets/reference/origin';
 import { cn } from '@/shared/utils/classnames';
-import { ShieldCheck } from 'lucide-react';
+import { ImageOff, ShieldCheck } from 'lucide-react';
+import * as React from 'react';
 
-export function ReferencePreview({ url, alt, className }: { url: string; alt: string; className: string }) {
+type ReferencePreviewProps = {
+    url: string;
+    previewUrl?: string;
+    alt: string;
+    className: string;
+};
+
+export function ReferencePreview({ url, previewUrl, alt, className }: ReferencePreviewProps) {
+    const [failedUrl, setFailedUrl] = React.useState<string | null>(null);
+    const imageUrl = previewUrl || (!isAssetReferenceUrl(url) ? url : '');
+    const showImage = Boolean(imageUrl) && failedUrl !== imageUrl;
+
     return (
         <div className={cn('shrink-0 overflow-hidden rounded-md border border-white/20 bg-white/5', className)}>
-            {isAssetReferenceUrl(url) ? (
+            {showImage ? (
+                // eslint-disable-next-line @next/next/no-img-element -- arbitrary worker/external URL
+                <img
+                    src={imageUrl}
+                    alt={alt}
+                    title={url}
+                    className='h-full w-full object-cover'
+                    onError={() => setFailedUrl(imageUrl)}
+                />
+            ) : isAssetReferenceUrl(url) ? (
                 <div
                     title={url}
                     className='flex h-full w-full flex-col items-center justify-center gap-1 bg-emerald-400/[0.06] px-1 text-center'>
@@ -18,16 +39,7 @@ export function ReferencePreview({ url, alt, className }: { url: string; alt: st
                     </span>
                 </div>
             ) : (
-                // eslint-disable-next-line @next/next/no-img-element -- arbitrary worker/external URL
-                <img
-                    src={url}
-                    alt={alt}
-                    title={url}
-                    className='h-full w-full object-cover'
-                    onError={(e) => {
-                        (e.target as HTMLImageElement).style.visibility = 'hidden';
-                    }}
-                />
+                <ImageOff className='m-auto h-full w-4 text-white/35' aria-hidden='true' />
             )}
         </div>
     );

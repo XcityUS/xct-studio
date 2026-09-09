@@ -50,7 +50,7 @@ export function TotalCostDialog({
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogTrigger asChild>
                 <button
-                    className='mt-0.5 flex items-center gap-1 rounded-full bg-green-600/80 px-1.5 py-0.5 text-[12px] text-white transition-colors hover:bg-green-500/90'
+                    className='mt-0.5 flex items-center gap-1 rounded-full bg-green-600/80 px-1.5 py-0.5 text-[12px] text-[var(--studio-status-foreground)] transition-colors hover:bg-green-500/90'
                     aria-label={t('Show total cost summary')}>
                     {t('Total Billed<colon> <usd><lcur>amount<rcur>', { amount: totalCost.toFixed(2) })}
                 </button>

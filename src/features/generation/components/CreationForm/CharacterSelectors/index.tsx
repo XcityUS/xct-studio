@@ -1,9 +1,14 @@
 'use client';
 
+import styles from './index.module.scss';
+import { virtualCharacterOptions } from './options';
 import { portraitReferenceUrl } from '@/features/assets/portrait/reference';
+import { characterPreviewUrl } from '@/features/generation/history/characters';
 import type { VideoCharacter, VideoPortrait } from '@/features/generation/hooks/use-video-history';
-import { ShieldCheck, Sparkles } from 'lucide-react';
+import { cn } from '@/shared/utils/classnames';
+import { Check, ShieldCheck, Sparkles, UserRound } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import * as React from 'react';
 
 type CharacterSelectorsProps = {
     characters: VideoCharacter[];
@@ -44,37 +49,61 @@ function Selector<T>({
     if (items.length === 0) return null;
 
     return (
-        <div className='space-y-2'>
-            <div className='flex flex-wrap items-center gap-2'>
-                <span className='text-sm text-white'>{label}</span>
-                <div className='flex min-w-0 flex-1 flex-wrap gap-1.5'>
-                    {items.map((item) => {
-                        const url = getUrl(item);
-                        const name = getName(item);
-                        const isAttached = referenceUrls.includes(url);
-                        const isDisabled = disabled || (!isAttached && referenceUrls.length >= referenceLimit);
-                        return (
-                            <button
-                                key={getId(item)}
-                                type='button'
-                                title={
-                                    isDisabled && !isAttached
-                                        ? t('Reference limit reached <lpar><lcur>limit<rcur><rpar>', {
-                                              limit: referenceLimit
-                                          })
-                                        : t('Attach <lcur>name<rcur>', { name })
-                                }
-                                onClick={() => onAttach(item)}
-                                disabled={isDisabled}
-                                className='inline-flex max-w-full items-center gap-1.5 rounded-full border border-white/15 bg-white/5 py-1 pr-2 pl-1 text-xs text-white/75 transition-colors hover:border-white/30 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-40'>
-                                {renderAvatar(item)}
-                                <span className='max-w-32 truncate'>{name}</span>
-                            </button>
-                        );
-                    })}
-                </div>
+        <div className={styles.row}>
+            <span className={styles.label}>{label}</span>
+            <div className={styles.options}>
+                {items.map((item) => {
+                    const url = getUrl(item);
+                    const name = getName(item);
+                    const isAttached = referenceUrls.includes(url);
+                    const isDisabled = disabled || (!isAttached && referenceUrls.length >= referenceLimit);
+                    return (
+                        <button
+                            key={getId(item)}
+                            type='button'
+                            title={
+                                isDisabled && !isAttached
+                                    ? t('Reference limit reached <lpar><lcur>limit<rcur><rpar>', {
+                                          limit: referenceLimit
+                                      })
+                                    : t('Attach <lcur>name<rcur>', { name })
+                            }
+                            onClick={() => onAttach(item)}
+                            disabled={isDisabled}
+                            aria-pressed={isAttached}
+                            className={cn(styles.option, isAttached && styles.selected)}>
+                            {renderAvatar(item)}
+                            <span className={styles.name}>{name}</span>
+                            {isAttached && <Check className={styles.selectedMark} aria-hidden='true' />}
+                        </button>
+                    );
+                })}
             </div>
         </div>
+    );
+}
+
+function AvatarImage({ src, alt, fallback }: { src: string; alt: string; fallback: React.ReactNode }) {
+    const [failed, setFailed] = React.useState(false);
+    if (failed) return fallback;
+    // eslint-disable-next-line @next/next/no-img-element -- provider or worker-hosted thumbnail
+    return <img src={src} alt={alt} loading='lazy' onError={() => setFailed(true)} />;
+}
+
+function PortraitAvatar({ portrait, virtual }: { portrait: VideoPortrait; virtual: boolean }) {
+    const TypeIcon = virtual ? Sparkles : ShieldCheck;
+    return (
+        <span className={styles.avatar}>
+            <AvatarImage
+                key={portrait.thumbUrl}
+                src={portrait.thumbUrl}
+                alt=''
+                fallback={<UserRound className={styles.avatarIcon} aria-hidden='true' />}
+            />
+            <span className={styles.portraitType} aria-hidden='true'>
+                <TypeIcon />
+            </span>
+        </span>
     );
 }
 
@@ -91,10 +120,7 @@ export function CharacterSelectors({
     const verifiedPortraits = portraits.filter(
         (portrait) => portrait.status === 'Active' && portrait.groupType === 'LivenessFace'
     );
-    const virtualPortraits = portraits.filter(
-        (portrait) =>
-            portrait.status === 'Active' && portrait.groupType === 'AIGC' && portrait.referenceOrigin !== 'no-person'
-    );
+    const virtualPortraits = virtualCharacterOptions(portraits, referenceUrls);
 
     return (
         <>
@@ -107,17 +133,23 @@ export function CharacterSelectors({
                 getId={(character) => character.id}
                 getName={(character) => character.name}
                 getUrl={(character) => character.url}
-                renderAvatar={(character) => (
-                    <span className='h-5 w-5 shrink-0 overflow-hidden rounded-full border border-white/15 bg-white/5'>
-                        {/* eslint-disable-next-line @next/next/no-img-element -- worker-hosted URL */}
-                        <img
-                            src={character.url}
-                            alt={character.name}
-                            loading='lazy'
-                            className='h-full w-full object-cover'
-                        />
-                    </span>
-                )}
+                renderAvatar={(character) => {
+                    const previewUrl = characterPreviewUrl(character, portraits);
+                    return (
+                        <span className={styles.avatar}>
+                            {previewUrl ? (
+                                <AvatarImage
+                                    key={previewUrl}
+                                    src={previewUrl}
+                                    alt={character.name}
+                                    fallback={<UserRound className={styles.avatarIcon} aria-hidden='true' />}
+                                />
+                            ) : (
+                                <UserRound className={styles.avatarIcon} aria-hidden='true' />
+                            )}
+                        </span>
+                    );
+                }}
                 onAttach={onAttachCharacter}
             />
             <Selector
@@ -129,11 +161,7 @@ export function CharacterSelectors({
                 getId={(portrait) => portrait.assetId}
                 getName={(portrait) => portrait.name}
                 getUrl={(portrait) => portraitReferenceUrl(portrait.assetId)}
-                renderAvatar={() => (
-                    <span className='flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-emerald-300/30 bg-emerald-300/10'>
-                        <ShieldCheck className='h-3 w-3 text-emerald-300' />
-                    </span>
-                )}
+                renderAvatar={(portrait) => <PortraitAvatar portrait={portrait} virtual={false} />}
                 onAttach={onAttachPortrait}
             />
             <Selector
@@ -145,11 +173,7 @@ export function CharacterSelectors({
                 getId={(portrait) => portrait.assetId}
                 getName={(portrait) => portrait.name}
                 getUrl={(portrait) => portraitReferenceUrl(portrait.assetId)}
-                renderAvatar={() => (
-                    <span className='flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-cyan-200/30 bg-cyan-200/10'>
-                        <Sparkles className='h-3 w-3 text-cyan-200' />
-                    </span>
-                )}
+                renderAvatar={(portrait) => <PortraitAvatar portrait={portrait} virtual />}
                 onAttach={onAttachPortrait}
             />
         </>

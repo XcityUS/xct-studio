@@ -17,23 +17,23 @@
     }
 
     &[data-status='queued'] {
-        background: #3b82f633;
-        color: #93c5fd;
+        background: var(--studio-info-soft);
+        color: var(--studio-info);
     }
 
     &[data-status='in_progress'] {
-        background: #eab30833;
-        color: #fde047;
+        background: var(--studio-warning-soft);
+        color: var(--studio-warning);
     }
 
     &[data-status='completed'] {
-        background: #22c55e33;
-        color: #86efac;
+        background: var(--studio-success-soft);
+        color: var(--studio-success);
     }
 
     &[data-status='failed'] {
-        background: #ef444433;
-        color: #fca5a5;
+        background: var(--studio-danger-soft);
+        color: var(--studio-danger);
     }
 }
 

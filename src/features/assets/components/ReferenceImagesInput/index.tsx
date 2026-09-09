@@ -2,26 +2,28 @@
 
 import { LastFrameSlot } from './LastFrameSlot';
 import { ReferencePreview } from './ReferencePreview';
-import { ReferenceStatusBadge } from './ReferenceStatusBadge';
 import { ReviewAction } from './ReviewAction';
+import { SelectedReference } from './SelectedReference';
+import styles from './index.module.scss';
 import type { ReferenceImagesInputProps } from './types';
-import { assetReferenceLabel, declarationForUrl, isReferenceImageUrl } from './utils';
+import { declarationForUrl, isReferenceImagePortrait, isReferenceImageUrl } from './utils';
 import { Dropdown } from '@/components/ui/Dropdown';
 import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
 import { portraitReferenceUrl } from '@/features/assets/portrait/reference';
 import {
     ASSET_LIBRARY_MODEL_BLOCK_REASON,
+    assetIdFromReferenceUrl,
     declarationSatisfied,
-    isAssetReferenceUrl,
     originRequiresAssetLibrary,
     originSupportsInlineReview,
     refKey,
     type ReferenceOrigin
 } from '@/features/assets/reference/origin';
 import { useReferenceCopy } from '@/features/assets/reference/use-copy';
+import { characterPreviewUrl } from '@/features/generation/history/characters';
 import { cn } from '@/shared/utils/classnames';
-import { ImagePlus, Link2, Loader2, ShieldCheck, X } from 'lucide-react';
+import { ImagePlus, Link2, Loader2, UserRound, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import * as React from 'react';
 
@@ -71,9 +73,18 @@ export function ReferenceImagesInput({
     const remaining = maxImages - urls.length;
     const canUpload = Boolean(onUpload);
     const attachablePortraits =
-        maxImages > 1 ? portraits.filter((portrait) => !urls.includes(portraitReferenceUrl(portrait.assetId))) : [];
+        maxImages > 1
+            ? portraits.filter(
+                  (portrait) =>
+                      isReferenceImagePortrait(portrait) && !urls.includes(portraitReferenceUrl(portrait.assetId))
+              )
+            : [];
     const attachableCharacters = characters.filter((character) => !urls.includes(character.url));
     const attachableImageAssets = imageAssets.filter((asset) => asset.kind === 'image' && !urls.includes(asset.url));
+    const portraitsByAssetId = React.useMemo(
+        () => new Map(portraits.map((portrait) => [portrait.assetId, portrait])),
+        [portraits]
+    );
     const unresolvedDeclarations = React.useMemo(() => {
         const items = urls.map((url, i) => ({ url, label: `Image ${i + 1}` }));
         if (lastFrameUrl.trim()) {
@@ -92,6 +103,17 @@ export function ReferenceImagesInput({
         setEditingDeclarationKeys((current) => {
             const next = new Set(current);
             next.add(key);
+            return next;
+        });
+    }, []);
+
+    const closeDeclarationEditor = React.useCallback((url: string) => {
+        const key = refKey(url);
+        if (!key) return;
+        setEditingDeclarationKeys((current) => {
+            if (!current.has(key)) return current;
+            const next = new Set(current);
+            next.delete(key);
             return next;
         });
     }, []);
@@ -183,56 +205,19 @@ export function ReferenceImagesInput({
                 <div className='flex flex-wrap gap-2'>
                     {urls.map((url, i) => {
                         const declaration = declarationForUrl(declarations, url);
+                        const assetId = assetIdFromReferenceUrl(url);
                         return (
-                            <div key={`${url}-${i}`} className='w-16 space-y-1'>
-                                <div className='relative h-16 w-16 overflow-hidden rounded-md border border-white/20 bg-white/5'>
-                                    {isAssetReferenceUrl(url) ? (
-                                        <div
-                                            title={url}
-                                            className='flex h-full w-full flex-col items-center justify-center gap-1 bg-emerald-400/[0.06] px-1 text-center'>
-                                            <ShieldCheck className='h-5 w-5 text-emerald-300' />
-                                            <span className='max-w-full truncate font-mono text-[10px] text-emerald-100/80'>
-                                                {assetReferenceLabel(url)}
-                                            </span>
-                                        </div>
-                                    ) : (
-                                        // eslint-disable-next-line @next/next/no-img-element -- arbitrary worker/external URL
-                                        <img
-                                            src={url}
-                                            alt={t('Reference <lcur>number<rcur>', { number: i + 1 })}
-                                            title={url}
-                                            className='h-full w-full object-cover'
-                                            onError={(e) => {
-                                                (e.target as HTMLImageElement).style.visibility = 'hidden';
-                                            }}
-                                        />
-                                    )}
-                                    <span className='absolute bottom-0 left-0 rounded-tr bg-black/70 px-1 text-[10px] text-white/80'>
-                                        {i + 1}
-                                    </span>
-                                    <button
-                                        type='button'
-                                        onClick={() => removeAt(i)}
-                                        disabled={disabled}
-                                        className='absolute top-0 right-0 rounded-bl bg-black/70 p-0.5 text-white/70 transition-colors hover:text-white'
-                                        aria-label={t('Remove reference image <lcur>number<rcur>', { number: i + 1 })}>
-                                        <X className='h-3 w-3' />
-                                    </button>
-                                    <ReferenceStatusBadge
-                                        declaration={declaration}
-                                        approvedAuthorizationIds={approvedAuthorizationIds}
-                                        onEdit={disabled ? undefined : () => editDeclarationForUrl(url)}
-                                    />
-                                </div>
-                                {declaration && !disabled && (
-                                    <button
-                                        type='button'
-                                        onClick={() => editDeclarationForUrl(url)}
-                                        className='w-full truncate rounded border border-white/10 bg-white/[0.04] px-1 py-0.5 text-[10px] leading-4 text-white/55 transition-colors hover:border-white/25 hover:bg-white/[0.08] hover:text-white/85'>
-                                        {t('Change reference origin')}
-                                    </button>
-                                )}
-                            </div>
+                            <SelectedReference
+                                key={`${url}-${i}`}
+                                url={url}
+                                index={i}
+                                portrait={assetId ? portraitsByAssetId.get(assetId) : undefined}
+                                declaration={declaration}
+                                approvedAuthorizationIds={approvedAuthorizationIds}
+                                disabled={disabled}
+                                onRemove={() => removeAt(i)}
+                                onEdit={() => editDeclarationForUrl(url)}
+                            />
                         );
                     })}
                 </div>
@@ -251,14 +236,18 @@ export function ReferenceImagesInput({
                                     onClick={() => addUrls([character.url])}
                                     disabled={disabled}
                                     className='inline-flex max-w-full items-center gap-1.5 rounded-full border border-white/15 bg-white/5 py-1 pr-2 pl-1 text-xs text-white/75 transition-colors hover:border-white/30 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-45'>
-                                    <span className='h-5 w-5 shrink-0 overflow-hidden rounded-full border border-white/15 bg-white/5'>
-                                        {/* eslint-disable-next-line @next/next/no-img-element -- user stored character thumbnail */}
-                                        <img
-                                            src={character.url}
-                                            alt={character.name}
-                                            loading='lazy'
-                                            className='h-full w-full object-cover'
-                                        />
+                                    <span className='flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/15 bg-white/5'>
+                                        {characterPreviewUrl(character, portraits) ? (
+                                            // eslint-disable-next-line @next/next/no-img-element -- user stored character thumbnail
+                                            <img
+                                                src={characterPreviewUrl(character, portraits) ?? undefined}
+                                                alt={character.name}
+                                                loading='lazy'
+                                                className='h-full w-full object-cover'
+                                            />
+                                        ) : (
+                                            <UserRound className='h-3 w-3 text-white/40' aria-hidden='true' />
+                                        )}
                                     </span>
                                     <span className='max-w-32 truncate'>{character.name}</span>
                                 </button>
@@ -304,7 +293,7 @@ export function ReferenceImagesInput({
                                         loading='lazy'
                                         className='h-full w-full object-cover'
                                     />
-                                    <span className='absolute inset-x-0 bottom-0 truncate bg-black/70 px-1 py-0.5 text-[10px] text-white/80'>
+                                    <span className='absolute inset-x-0 bottom-0 truncate bg-[var(--studio-media-overlay)] px-1 py-0.5 text-[10px] text-[var(--studio-media-muted)]'>
                                         {asset.name ?? t('Image')}
                                     </span>
                                 </button>
@@ -408,6 +397,7 @@ export function ReferenceImagesInput({
                                 Boolean(declaration && originRequiresAssetLibrary(declaration.origin)) &&
                                 (!assetLibraryUnsupported || canSwitchToAssetModel);
                             const referenceKey = refKey(item.url);
+                            const isEditingDeclaration = editingDeclarationKeys.has(referenceKey);
                             const canReviewInline = Boolean(onReviewReferenceAsset) && Boolean(reviewOrigin);
                             const reviewUnavailable = Boolean(reviewOrigin) && !onReviewReferenceAsset;
                             const reviewAsset = portraits
@@ -415,6 +405,10 @@ export function ReferenceImagesInput({
                                 .reduce<
                                     (typeof portraits)[number] | undefined
                                 >((latest, portrait) => (!latest || portrait.updatedAt > latest.updatedAt ? portrait : latest), undefined);
+                            const referencedAssetId = assetIdFromReferenceUrl(item.url);
+                            const referencePreviewUrl =
+                                (referencedAssetId ? portraitsByAssetId.get(referencedAssetId)?.thumbUrl : undefined) ??
+                                reviewAsset?.thumbUrl;
                             const originHint = reviewUnavailable
                                 ? referenceCopy.translateMessage(
                                       'Provider asset review is not configured on this deployment. Ask an admin to enable Assets.'
@@ -440,20 +434,34 @@ export function ReferenceImagesInput({
                                         <div className='flex min-w-0 items-center gap-2'>
                                             <ReferencePreview
                                                 url={item.url}
+                                                previewUrl={referencePreviewUrl}
                                                 alt={t('<lcur>label<rcur> declaration', { label: displayLabel })}
                                                 className='h-8 w-8'
                                             />
                                             <span className='min-w-0 text-xs text-white/50'>{displayLabel}</span>
                                         </div>
-                                        <Dropdown
-                                            value={declaration?.origin ?? ''}
-                                            onValueChange={(value) =>
-                                                declareReference(item.url, value as ReferenceOrigin)
-                                            }
-                                            disabled={disabled}
-                                            placeholder={t('Select origin')}
-                                            options={referenceCopy.originOptions}
-                                        />
+                                        <div className={styles.editorControls}>
+                                            <Dropdown
+                                                value={declaration?.origin ?? ''}
+                                                onValueChange={(value) =>
+                                                    declareReference(item.url, value as ReferenceOrigin)
+                                                }
+                                                disabled={disabled}
+                                                placeholder={t('Select origin')}
+                                                options={referenceCopy.originOptions}
+                                            />
+                                            {isEditingDeclaration && (
+                                                <button
+                                                    type='button'
+                                                    className={styles.closeEditor}
+                                                    onClick={() => closeDeclarationEditor(item.url)}
+                                                    disabled={disabled}
+                                                    title={t('Close')}
+                                                    aria-label={t('Close')}>
+                                                    <X aria-hidden='true' />
+                                                </button>
+                                            )}
+                                        </div>
                                     </div>
                                     {declaration?.origin && (
                                         <div className='space-y-3 text-xs text-amber-100/80'>

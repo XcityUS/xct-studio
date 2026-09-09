@@ -9,7 +9,7 @@ export async function createAndTrackPortraitAsset(
     getAsset: (assetId: string) => Promise<PortraitAsset>,
     savePortrait: (portrait: VideoPortrait) => void,
     syncState: () => Promise<void>
-): Promise<void> {
+): Promise<PortraitAsset> {
     const created = await createAsset();
     const save = (status: VideoPortrait['status'], failureReason?: string) =>
         savePortrait({
@@ -26,6 +26,7 @@ export async function createAndTrackPortraitAsset(
         const asset = await waitForPortraitAsset(created.assetId, getAsset);
         save(storedPortraitAssetStatus(asset.status), asset.failureReason);
         await syncState();
+        return asset;
     } catch (error) {
         try {
             const asset = await getAsset(created.assetId);

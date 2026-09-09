@@ -1,4 +1,4 @@
-import { functionFindings, inspectSource, uiFindings } from '../../scripts/harness/inspect-source';
+import { functionFindings, inspectSource, styleFindings, uiFindings } from '../../scripts/harness/inspect-source';
 import { countLines, filePolicy, namingFindings, sizeFindings } from '../../scripts/harness/policy';
 import { describe, expect, it } from 'vitest';
 
@@ -129,5 +129,22 @@ describe('UI control inspection', () => {
     it('ignores select text and non-TSX files', () => {
         expect(uiFindings('src/components/Form/index.tsx', 'const text = "<select>";')).toEqual([]);
         expect(uiFindings('docs/example.md', '<select></select>')).toEqual([]);
+    });
+});
+
+describe('color token inspection', () => {
+    it('rejects color literals in source and component styles', () => {
+        expect(styleFindings('src/components/Panel/index.module.scss', '.root { color: #fff; }')).toEqual([
+            expect.objectContaining({ level: 'error', rule: 'styles' })
+        ]);
+        expect(styleFindings('src/components/Panel/index.tsx', "const color = 'rgb(0 0 0)';")).toEqual([
+            expect.objectContaining({ level: 'error', rule: 'styles' })
+        ]);
+    });
+
+    it('accepts semantic tokens and the global token source', () => {
+        expect(styleFindings('src/components/Panel/index.module.scss', '.root { color: var(--studio-foreground); }'))
+            .toEqual([]);
+        expect(styleFindings('src/app/globals.css', ':root { --studio-foreground: #111; }')).toEqual([]);
     });
 });

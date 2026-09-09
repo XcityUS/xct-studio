@@ -48,8 +48,15 @@
     align-items: center;
     justify-content: flex-end;
     flex-wrap: wrap;
-    gap: 10px;
+    gap: 6px;
     min-width: 0;
+}
+
+.utilities {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding-left: 4px;
 }
 
 .navigationLink {
@@ -69,19 +76,28 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-height: 36px;
-    border-radius: 6px;
-    padding: 6px 10px;
-    background: var(--studio-foreground);
-    color: var(--studio-background);
-    font-size: 13px;
+    height: 32px;
+    gap: 6px;
+    border: 1px solid var(--studio-border);
+    border-radius: 5px;
+    padding: 0 9px;
+    background: var(--studio-surface);
+    color: var(--studio-foreground);
+    font-size: 12px;
     font-weight: 500;
     text-decoration: none;
     white-space: nowrap;
+    transition:
+        border-color 140ms ease,
+        background-color 140ms ease;
 }
 
-.brand:hover,
 .account:hover {
+    border-color: var(--studio-border-strong);
+    background: var(--studio-hover);
+}
+
+.brand:hover {
     opacity: 0.85;
 }
 

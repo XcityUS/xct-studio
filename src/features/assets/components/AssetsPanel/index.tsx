@@ -1,126 +1,87 @@
 'use client';
 
+import { AssetImageDropdown } from './AssetImageDropdown';
+import { AssetLibrary } from './AssetLibrary';
 import { AssetStrip } from './AssetStrip';
-import { AuthorizationListItem } from './AuthorizationListItem';
-import { AuthorizationQueueCard } from './AuthorizationQueueCard';
-import { AuthorizationReferenceSelect } from './AuthorizationReferenceSelect';
 import { CharacterDialog } from './CharacterDialog';
-import { CopyUrlButton } from './CopyUrlButton';
-import type { AssetsPanelProps, AuthorizationTargetOption } from './types';
-import {
-    buildAuthorizationTargets,
-    defaultCharacterName,
-    formatBytes,
-    formatDate,
-    portraitCollections,
-    portraitGroupLabel,
-    shortAssetId
-} from './utils';
+import { CharacterGroupBrowser } from './CharacterGroupBrowser';
+import { DeleteCharacterGroupDialog } from './DeleteCharacterGroupDialog';
+import { buildAssetList, selectablePortraitSourceAssets } from './asset-list';
+import type { AssetsPanelProps } from './types';
+import { defaultCharacterName, portraitCollections, portraitGroupLabel, shortAssetId } from './utils';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
-import { Dropdown } from '@/components/ui/Dropdown';
 import { Input } from '@/components/ui/Input';
-import { Label } from '@/components/ui/Label';
-import type {
-    AuthorizationItem,
-    AuthorizationQueueItem,
-    AuthorizationReviewAction
-} from '@/features/assets/authorization/api';
 import { AssetIdIntake } from '@/features/assets/components/AssetIdIntake';
+import { usePortraitStatusCheck } from '@/features/assets/hooks/use-portrait-status-check';
 import { useProcessingPortraitRefresh } from '@/features/assets/hooks/use-processing-portrait-refresh';
+import { useProviderAssetList } from '@/features/assets/hooks/use-provider-asset-list';
 import { validateAssetImage } from '@/features/assets/image/validation';
 import type { PortraitGroup, PortraitGroupType } from '@/features/assets/portrait/api';
 import { createAndTrackPortraitAsset } from '@/features/assets/portrait/track';
+import { assetIdFromReferenceUrl, refKey } from '@/features/assets/reference/origin';
+import { characterPreviewUrl } from '@/features/generation/history/characters';
 import type { UserAsset } from '@/lib/media-archive';
-import { ImagePlus, Loader2, Music, RefreshCw, ShieldCheck, Sparkles, Trash2, UserPlus, Video } from 'lucide-react';
-import { useLocale, useTranslations } from 'next-intl';
+import { ImagePlus, Loader2, RefreshCw, ShieldCheck, Sparkles, Trash2, UserRound } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import * as React from 'react';
 
 export function AssetsPanel({
     loadAssets,
     deleteAsset,
-    loadAuthorizations,
-    submitAuthorization,
-    loadAuthorizationQueue,
-    reviewAuthorization,
-    fetchAuthorizationDoc,
-    authorizationTargets,
-    selectedAuthorizationReferenceKey,
-    onAuthorizationSubmitted,
     characters,
     addCharacter,
     removeCharacter,
     portraitEnabled,
     portraits,
+    deletedIds,
     declarations,
     addPortrait,
     syncPortraitState,
     removePortrait,
     startPortraitSession,
     loadPortraitGroups,
+    loadPortraitAssets,
     createPortraitGroup,
+    deletePortraitGroup,
     createPortraitAsset,
     getPortraitAsset,
     getPortraitStatus,
+    reviewAsset,
     onUseAsReference,
     onUseAsReferenceVideo,
     onAttachAssetId,
-    onMarkReferenceForAuthorization,
     active
 }: AssetsPanelProps) {
     const t = useTranslations();
-    const locale = useLocale();
     const loadAssetsError = t('Could not load assets');
-    const loadAuthorizationsError = t('Could not load authorizations');
     const loadPortraitGroupsError = t('Could not load portrait groups');
     const assetsSignInError = t('Sign in at xcity<dot>ai or set an API key to view your assets');
-    const authorizationsSignInError = t('Sign in at xcity<dot>ai or set an API key to view your authorizations');
     const characterFallback = t('Character');
-    const imageAssetLabel = t('Image asset');
-    const videoAssetLabel = t('Video asset');
     const assetCharacterName = (asset: UserAsset) => defaultCharacterName(asset, characterFallback);
     const [assets, setAssets] = React.useState<UserAsset[] | null>(null);
     const [isLoading, setIsLoading] = React.useState(false);
     const [error, setError] = React.useState<string | null>(null);
-    const [kindFilter, setKindFilter] = React.useState<'all' | 'image' | 'audio' | 'video'>('all');
-    const [authorizations, setAuthorizations] = React.useState<AuthorizationItem[] | null>(null);
-    const [authorizationQueue, setAuthorizationQueue] = React.useState<AuthorizationQueueItem[] | null>(null);
-    const [isLoadingAuthorizations, setIsLoadingAuthorizations] = React.useState(false);
-    const [authorizationError, setAuthorizationError] = React.useState<string | null>(null);
-    const [authorizationNotice, setAuthorizationNotice] = React.useState<string | null>(null);
-    const [authorizationReferenceKey, setAuthorizationReferenceKey] = React.useState('');
-    const [authorizationSubjectName, setAuthorizationSubjectName] = React.useState('');
-    const [authorizationNote, setAuthorizationNote] = React.useState('');
-    const [authorizationFile, setAuthorizationFile] = React.useState<File | null>(null);
-    const [isSubmittingAuthorization, setIsSubmittingAuthorization] = React.useState(false);
-    const [reviewingAuthorizationId, setReviewingAuthorizationId] = React.useState<string | null>(null);
-    const [authorizationReviewNotes, setAuthorizationReviewNotes] = React.useState<Record<string, string>>({});
-    const authorizationFileInputRef = React.useRef<HTMLInputElement>(null);
     const [characterAsset, setCharacterAsset] = React.useState<UserAsset | null>(null);
+    const [characterReferenceUrl, setCharacterReferenceUrl] = React.useState('');
     const [characterName, setCharacterName] = React.useState('');
     const [portraitGroups, setPortraitGroups] = React.useState<PortraitGroup[] | null>(null);
     const [isLoadingPortraitGroups, setIsLoadingPortraitGroups] = React.useState(false);
     const [isStartingPortraitSession, setIsStartingPortraitSession] = React.useState(false);
     const [isCreatingVirtualGroup, setIsCreatingVirtualGroup] = React.useState(false);
+    const [deletingPortraitGroupId, setDeletingPortraitGroupId] = React.useState<string | null>(null);
+    const [pendingDeleteGroup, setPendingDeleteGroup] = React.useState<PortraitGroup | null>(null);
     const [virtualCharacterName, setVirtualCharacterName] = React.useState('');
     const [portraitError, setPortraitError] = React.useState<string | null>(null);
     const [portraitNotice, setPortraitNotice] = React.useState<string | null>(null);
+    const [characterGroupError, setCharacterGroupError] = React.useState<string | null>(null);
+    const [characterGroupNotice, setCharacterGroupNotice] = React.useState<string | null>(null);
     const [addingPortraitGroupId, setAddingPortraitGroupId] = React.useState<string | null>(null);
     const [portraitDrafts, setPortraitDrafts] = React.useState<Record<string, { assetKey: string; name: string }>>({});
     const [portraitStatus, setPortraitStatus] = React.useState<string | null>(null);
     const [isCheckingPortraitSetup, setIsCheckingPortraitSetup] = React.useState(false);
-    const uploadedAuthorizationTargets = React.useMemo<AuthorizationTargetOption[]>(
-        () => buildAuthorizationTargets(assets, imageAssetLabel, videoAssetLabel, locale),
-        [assets, imageAssetLabel, locale, videoAssetLabel]
-    );
-    const authorizationTargetOptions = React.useMemo<AuthorizationTargetOption[]>(() => {
-        const seen = new Set<string>();
-        return [...authorizationTargets, ...uploadedAuthorizationTargets].filter((target) => {
-            if (seen.has(target.key)) return false;
-            seen.add(target.key);
-            return true;
-        });
-    }, [authorizationTargets, uploadedAuthorizationTargets]);
+    const errorMessage = (value: unknown) =>
+        value instanceof Error && value.message ? value.message : t('Unknown error');
 
     const checkPortraitSetup = async () => {
         setIsCheckingPortraitSetup(true);
@@ -133,11 +94,15 @@ export function AssetsPanel({
                           projectName: status.projectName
                       })
                     : t('Portrait libraries unavailable<colon> <lcur>error<rcur>', {
-                          error: t('Unknown error')
+                          error: status.error || t('Unknown error')
                       })
             );
         } catch (err) {
-            setPortraitStatus(t('Setup check failed'));
+            setPortraitStatus(
+                t('Setup check failed<colon> <lcur>error<rcur>', {
+                    error: errorMessage(err)
+                })
+            );
         } finally {
             setIsCheckingPortraitSetup(false);
         }
@@ -159,41 +124,48 @@ export function AssetsPanel({
         }
     }, [assetsSignInError, loadAssets, loadAssetsError]);
 
-    const refreshAuthorizations = React.useCallback(async () => {
-        setIsLoadingAuthorizations(true);
-        setAuthorizationError(null);
-        const queuePromise = loadAuthorizationQueue().catch((err) => {
-            console.warn('Could not load authorization review queue:', err);
-            return null;
-        });
-
-        try {
-            const [loadedItems, loadedQueue] = await Promise.all([loadAuthorizations(), queuePromise]);
-            setAuthorizations(loadedItems);
-            setAuthorizationQueue(loadedQueue);
-        } catch (err) {
-            setAuthorizationError(
-                err instanceof Error && err.message.includes('Sign in at xcity.ai')
-                    ? authorizationsSignInError
-                    : loadAuthorizationsError
-            );
-        } finally {
-            setIsLoadingAuthorizations(false);
-        }
-    }, [authorizationsSignInError, loadAuthorizationQueue, loadAuthorizations, loadAuthorizationsError]);
-
     const refreshPortraitGroups = React.useCallback(async () => {
         if (!portraitEnabled) return;
         setIsLoadingPortraitGroups(true);
         setPortraitError(null);
         try {
             setPortraitGroups(await loadPortraitGroups('all'));
-        } catch (err) {
+        } catch {
             setPortraitError(loadPortraitGroupsError);
         } finally {
             setIsLoadingPortraitGroups(false);
         }
     }, [loadPortraitGroups, loadPortraitGroupsError, portraitEnabled]);
+
+    const {
+        assets: providerAssets,
+        error: providerAssetsError,
+        hasLoaded: hasLoadedProviderAssets,
+        isLoading: isLoadingProviderAssets,
+        refresh: refreshProviderAssets,
+        upsertAsset: upsertProviderAsset
+    } = useProviderAssetList({ active, enabled: portraitEnabled, loadAssets: loadPortraitAssets });
+    const { checkStatus: checkPortraitStatus, checkingAssetId } = usePortraitStatusCheck({
+        getAsset: getPortraitAsset,
+        refreshProviderAssets,
+        savePortrait: addPortrait,
+        syncState: syncPortraitState
+    });
+
+    const handleCheckReviewStatus = async (portrait: (typeof portraits)[number]) => {
+        setPortraitError(null);
+        setPortraitNotice(null);
+        try {
+            const status = await checkPortraitStatus(portrait);
+            setPortraitNotice(
+                status === 'Active' ? t('Reviewed') : status === 'Failed' ? t('Review failed') : t('Under review')
+            );
+        } catch (error) {
+            setPortraitError(
+                t('Could not check review status<colon> <lcur>error<rcur>', { error: errorMessage(error) })
+            );
+        }
+    };
 
     // First fetch happens when the tab first becomes visible.
     const fetchedRef = React.useRef(false);
@@ -201,24 +173,8 @@ export function AssetsPanel({
         if (active && !fetchedRef.current) {
             fetchedRef.current = true;
             void refresh();
-            void refreshAuthorizations();
         }
-    }, [active, refresh, refreshAuthorizations]);
-
-    React.useEffect(() => {
-        if (
-            selectedAuthorizationReferenceKey &&
-            authorizationTargetOptions.some((target) => target.key === selectedAuthorizationReferenceKey)
-        ) {
-            setAuthorizationReferenceKey(selectedAuthorizationReferenceKey);
-            return;
-        }
-        setAuthorizationReferenceKey((current) =>
-            current && authorizationTargetOptions.some((target) => target.key === current)
-                ? current
-                : (authorizationTargetOptions[0]?.key ?? '')
-        );
-    }, [authorizationTargetOptions, selectedAuthorizationReferenceKey]);
+    }, [active, refresh]);
 
     const fetchedPortraitGroupsRef = React.useRef(false);
     React.useEffect(() => {
@@ -228,31 +184,53 @@ export function AssetsPanel({
         }
     }, [active, portraitEnabled, refreshPortraitGroups]);
 
-    const handleDelete = async (asset: UserAsset) => {
-        if (
-            !confirm(
-                t('Delete this <lcur>kind<rcur> from cloud storage<q> Its links will stop working', {
-                    kind: asset.kind
-                })
-            )
-        )
-            return;
+    const deletedIdSet = React.useMemo(() => new Set(deletedIds), [deletedIds]);
+    const visibleProviderAssets = React.useMemo(
+        () =>
+            providerAssets.filter(
+                (asset) =>
+                    !deletedIdSet.has(asset.assetId) &&
+                    (!asset.previewUrl || !deletedIdSet.has(refKey(asset.previewUrl)))
+            ),
+        [deletedIdSet, providerAssets]
+    );
+    const assetList = React.useMemo(
+        () => buildAssetList(assets ?? [], portraits, declarations, providerAssets, deletedIds),
+        [assets, declarations, deletedIds, portraits, providerAssets]
+    );
+    const selectableImageAssets = React.useMemo(() => selectablePortraitSourceAssets(assetList), [assetList]);
+
+    const handleDelete = async (item: (typeof assetList)[number]) => {
+        const { asset } = item;
+        const isProviderOnly = item.source === 'provider';
+        const confirmMessage = isProviderOnly
+            ? t('Remove this provider asset from this workspace<q> It can be added again later')
+            : t('Delete this <lcur>kind<rcur> from cloud storage<q> Its links will stop working', {
+                  kind: asset.kind
+              });
+        if (!confirm(confirmMessage)) return;
         try {
-            await deleteAsset(asset.key);
-            setAssets((prev) => prev?.filter((a) => a.key !== asset.key) ?? prev);
-        } catch (err) {
+            if (!isProviderOnly) await deleteAsset(asset.key);
+            const assetId = item.providerAsset?.assetId ?? item.portrait?.assetId;
+            if (assetId) removePortrait(assetId);
+            removePortrait(asset.key);
+            removePortrait(refKey(asset.url));
+            if (!isProviderOnly) setAssets((prev) => prev?.filter((a) => a.key !== asset.key) ?? prev);
+        } catch {
             setError(t('Delete failed'));
         }
     };
 
-    const openCharacterDialog = (asset: UserAsset) => {
+    const openCharacterDialog = (asset: UserAsset, referenceUrl = asset.url) => {
         setCharacterAsset(asset);
+        setCharacterReferenceUrl(referenceUrl);
         setCharacterName(assetCharacterName(asset));
     };
 
     const handleCharacterDialogOpenChange = (open: boolean) => {
         if (open) return;
         setCharacterAsset(null);
+        setCharacterReferenceUrl('');
         setCharacterName('');
     };
 
@@ -261,15 +239,19 @@ export function AssetsPanel({
         if (!characterAsset) return;
         const name = characterName.trim();
         if (!name) return;
-        addCharacter({ id: crypto.randomUUID(), name, url: characterAsset.url });
+        addCharacter({
+            id: crypto.randomUUID(),
+            name,
+            url: characterReferenceUrl || characterAsset.url,
+            previewUrl: characterAsset.url
+        });
         handleCharacterDialogOpenChange(false);
     };
 
-    const { imageAssets, livenessGroups, reviewedMaterials, virtualGroups, verifiedPortraits, virtualPortraits } =
-        React.useMemo(
-            () => portraitCollections(assets, portraitGroups, portraits, declarations),
-            [assets, declarations, portraitGroups, portraits]
-        );
+    const { livenessGroups, virtualGroups, verifiedPortraits } = React.useMemo(
+        () => portraitCollections(assets, portraitGroups, portraits, declarations),
+        [assets, declarations, portraitGroups, portraits]
+    );
     useProcessingPortraitRefresh({
         active,
         enabled: portraitEnabled,
@@ -302,7 +284,11 @@ export function AssetsPanel({
             window.open(session.h5Link, '_blank', 'noopener,noreferrer');
             setPortraitNotice(t('Complete verification in the opened page<comma> then return'));
         } catch (err) {
-            setPortraitError(t('Could not start verification'));
+            setPortraitError(
+                t('Could not start verification<colon> <lcur>error<rcur>', {
+                    error: errorMessage(err)
+                })
+            );
         } finally {
             setIsStartingPortraitSession(false);
         }
@@ -314,36 +300,98 @@ export function AssetsPanel({
         if (!name) return;
 
         setIsCreatingVirtualGroup(true);
-        setPortraitError(null);
-        setPortraitNotice(null);
+        setCharacterGroupError(null);
+        setCharacterGroupNotice(null);
         try {
             const result = await createPortraitGroup(name);
             setVirtualCharacterName('');
-            setPortraitNotice(
+            setCharacterGroupNotice(
                 result.created
-                    ? t('Virtual character <lcur>name<rcur> created', { name: result.slug })
-                    : t('Using existing virtual character <lcur>name<rcur>', { name: result.slug })
+                    ? t('Character group <lcur>name<rcur> created', { name: result.slug })
+                    : t('Using existing character group <lcur>name<rcur>', { name: result.slug })
             );
             await refreshPortraitGroups();
-        } catch (err) {
-            setPortraitError(t('Could not create virtual character'));
+        } catch {
+            setCharacterGroupError(t('Could not create character group'));
         } finally {
             setIsCreatingVirtualGroup(false);
         }
     };
 
+    const removeVirtualGroupLocally = (groupId: string) => {
+        const deletedAssetIds = new Set([
+            ...portraits.filter((portrait) => portrait.groupId === groupId).map((portrait) => portrait.assetId),
+            ...visibleProviderAssets.filter((asset) => asset.groupId === groupId).map((asset) => asset.assetId)
+        ]);
+        deletedAssetIds.forEach(removePortrait);
+        characters.forEach((character) => {
+            const assetId = assetIdFromReferenceUrl(character.url);
+            if (assetId && deletedAssetIds.has(assetId)) removeCharacter(character.id);
+        });
+        setPortraitGroups((current) => current?.filter((item) => item.id !== groupId) ?? current);
+        setPortraitDrafts((current) => {
+            const next = { ...current };
+            delete next[groupId];
+            return next;
+        });
+    };
+
+    const handleDeleteVirtualGroup = async (group: PortraitGroup) => {
+        if (!hasLoadedProviderAssets || isLoadingProviderAssets || providerAssetsError) {
+            setCharacterGroupError(t('Asset inventory unavailable<semi> refresh before deleting this group'));
+            setPendingDeleteGroup(null);
+            return;
+        }
+        if (visibleProviderAssets.some((asset) => asset.groupId === group.id)) {
+            setCharacterGroupError(t('Only empty character groups can be deleted'));
+            setPendingDeleteGroup(null);
+            return;
+        }
+        setDeletingPortraitGroupId(group.id);
+        setCharacterGroupError(null);
+        setCharacterGroupNotice(null);
+        try {
+            await deletePortraitGroup(group.id);
+            removeVirtualGroupLocally(group.id);
+            await refreshProviderAssets();
+            setCharacterGroupNotice(t('Character group deleted'));
+            setPendingDeleteGroup(null);
+        } catch (error) {
+            try {
+                const latestGroups = await loadPortraitGroups('all');
+                setPortraitGroups(latestGroups);
+                if (!latestGroups.some((item) => item.id === group.id)) {
+                    removeVirtualGroupLocally(group.id);
+                    await refreshProviderAssets();
+                    setCharacterGroupNotice(t('Character group deleted'));
+                    setPendingDeleteGroup(null);
+                    return;
+                }
+            } catch {
+                // Keep the original deletion error when the authoritative list cannot be refreshed.
+            }
+            setCharacterGroupError(
+                t('Could not delete character group<colon> <lcur>error<rcur>', { error: errorMessage(error) })
+            );
+        } finally {
+            setDeletingPortraitGroupId(null);
+        }
+    };
+
     const handleAddPortraitAsset = async (groupId: string, groupType: PortraitGroupType) => {
+        const setOperationError = groupType === 'AIGC' ? setCharacterGroupError : setPortraitError;
+        const setOperationNotice = groupType === 'AIGC' ? setCharacterGroupNotice : setPortraitNotice;
         const draft = portraitDrafts[groupId];
-        const selected = imageAssets.find((asset) => asset.key === draft?.assetKey);
+        const selected = selectableImageAssets.find((asset) => asset.key === draft?.assetKey);
         if (!selected) {
-            setPortraitError(t('Choose an image asset first'));
+            setOperationError(t('Choose an image asset first'));
             return;
         }
 
         const name = draft?.name.trim() || assetCharacterName(selected);
         setAddingPortraitGroupId(groupId);
-        setPortraitError(null);
-        setPortraitNotice(null);
+        setOperationError(null);
+        setOperationNotice(null);
         try {
             const validation = await validateAssetImage(selected.url);
             if (validation.status === 'rejected') {
@@ -354,10 +402,10 @@ export function AssetsPanel({
                 );
             }
             if (validation.status === 'unknown') {
-                setPortraitNotice(t('Studio will validate this image after submission'));
+                setOperationNotice(t('Studio will validate this image after submission'));
             }
 
-            await createAndTrackPortraitAsset(
+            const providerAsset = await createAndTrackPortraitAsset(
                 {
                     groupId,
                     groupType,
@@ -370,78 +418,29 @@ export function AssetsPanel({
                 addPortrait,
                 syncPortraitState
             );
-            setPortraitNotice(groupType === 'AIGC' ? t('Virtual character image added') : t('Verified photo added'));
+            const updatedAt = new Date().toISOString();
+            upsertProviderAsset({
+                ...providerAsset,
+                groupType,
+                name,
+                assetType: 'Image',
+                createdAt: updatedAt,
+                updatedAt
+            });
+            setOperationNotice(groupType === 'AIGC' ? t('Virtual character image added') : t('Verified photo added'));
             setPortraitDrafts((prev) => ({
                 ...prev,
                 [groupId]: { assetKey: '', name: '' }
             }));
-        } catch (err) {
-            setPortraitNotice(null);
-            setPortraitError(t('Could not add portrait image'));
+            void refreshProviderAssets();
+        } catch {
+            setOperationNotice(null);
+            setOperationError(t('Could not add portrait image'));
         } finally {
             setAddingPortraitGroupId(null);
         }
     };
 
-    const handleSubmitAuthorization = async (event: React.FormEvent<HTMLFormElement>) => {
-        event.preventDefault();
-        const referenceKey = authorizationReferenceKey.trim();
-        const subjectName = authorizationSubjectName.trim();
-        const note = authorizationNote.trim();
-        if (!referenceKey) {
-            setAuthorizationError(t('Choose a licensed reference image first'));
-            return;
-        }
-        if (!subjectName) {
-            setAuthorizationError(t('Enter the public figure or character name'));
-            return;
-        }
-        if (!authorizationFile) {
-            setAuthorizationError(t('Choose a PDF<comma> PNG<comma> JPEG<comma> or WebP authorization document'));
-            return;
-        }
-
-        setIsSubmittingAuthorization(true);
-        setAuthorizationError(null);
-        setAuthorizationNotice(null);
-        try {
-            const created = await submitAuthorization({
-                subjectName,
-                referenceKey,
-                note,
-                file: authorizationFile
-            });
-            onAuthorizationSubmitted(referenceKey, created.id);
-            setAuthorizationSubjectName('');
-            setAuthorizationNote('');
-            setAuthorizationFile(null);
-            if (authorizationFileInputRef.current) authorizationFileInputRef.current.value = '';
-            setAuthorizationNotice(
-                t('Authorization submitted for review<dot> Studio approval does not replace final model moderation')
-            );
-            await refreshAuthorizations();
-        } catch (err) {
-            setAuthorizationError(t('Authorization submission failed'));
-        } finally {
-            setIsSubmittingAuthorization(false);
-        }
-    };
-
-    const handleReviewAuthorization = async (item: AuthorizationQueueItem, action: AuthorizationReviewAction) => {
-        setReviewingAuthorizationId(`${item.id}:${action}`);
-        setAuthorizationError(null);
-        try {
-            await reviewAuthorization(item.id, action, authorizationReviewNotes[item.id]?.trim() ?? '');
-            setAuthorizationQueue((prev) => prev?.filter((candidate) => candidate.id !== item.id) ?? prev);
-            setAuthorizations(await loadAuthorizations());
-        } catch (err) {
-            setAuthorizationError(t('Authorization review failed'));
-        } finally {
-            setReviewingAuthorizationId(null);
-        }
-    };
-
-    const visible = (assets ?? []).filter((a) => kindFilter === 'all' || a.kind === kindFilter);
     return (
         <Card className='flex h-full w-full flex-col overflow-hidden rounded-lg border border-white/10 bg-black'>
             <CharacterDialog
@@ -461,22 +460,32 @@ export function AssetsPanel({
                 <Button
                     variant='ghost'
                     size='sm'
-                    onClick={() => {
-                        void refresh();
-                        void refreshAuthorizations();
-                    }}
-                    disabled={isLoading || isLoadingAuthorizations}
+                    onClick={() => void Promise.all([refresh(), refreshProviderAssets()])}
+                    disabled={isLoading || isLoadingProviderAssets}
                     className='h-auto rounded-md px-2 py-1 text-white/60 hover:bg-white/10 hover:text-white'>
                     <RefreshCw
                         size={14}
-                        className={isLoading || isLoadingAuthorizations ? 'animate-spin' : undefined}
+                        className={isLoading || isLoadingProviderAssets ? 'animate-spin' : undefined}
                     />
                     <span className='ml-1'>{t('Refresh')}</span>
                 </Button>
             </CardHeader>
             <CardContent className='flex-grow overflow-y-auto p-4'>
                 {error && <p className='mb-3 text-sm text-red-400'>{error}</p>}
+                {providerAssetsError && <p className='mb-3 text-sm text-red-400'>{providerAssetsError}</p>}
                 <AssetIdIntake onAttachAssetId={onAttachAssetId} />
+                <AssetLibrary
+                    checkingAssetId={checkingAssetId}
+                    items={assetList}
+                    providerAssets={visibleProviderAssets}
+                    isLoading={isLoading || isLoadingProviderAssets}
+                    onCheckReviewStatus={handleCheckReviewStatus}
+                    onDelete={handleDelete}
+                    onReview={reviewAsset}
+                    onSaveCharacter={openCharacterDialog}
+                    onUseImage={onUseAsReference}
+                    onUseVideo={onUseAsReferenceVideo}
+                />
 
                 {!portraitEnabled && (
                     <div className='mb-4 space-y-2 border-b border-white/10 pb-4'>
@@ -566,27 +575,19 @@ export function AssetsPanel({
                                                 <span className='text-[10px] text-white/35'>{group.name}</span>
                                             </div>
                                             <div className='grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(8rem,12rem)_auto]'>
-                                                <Dropdown
+                                                <AssetImageDropdown
                                                     ariaLabel={t('Image asset')}
+                                                    assets={selectableImageAssets}
                                                     value={draft.assetKey}
-                                                    onValueChange={(value) => {
-                                                        const asset = imageAssets.find(
-                                                            (candidate) => candidate.key === value
-                                                        );
+                                                    onValueChange={(value, asset) => {
                                                         updatePortraitDraft(group.id, {
                                                             assetKey: value,
                                                             name: draft.name || (asset ? assetCharacterName(asset) : '')
                                                         });
                                                     }}
-                                                    disabled={isAdding || imageAssets.length === 0}
-                                                    size='sm'
-                                                    options={[
-                                                        { value: '', label: t('Choose image asset') },
-                                                        ...imageAssets.map((asset) => ({
-                                                            value: asset.key,
-                                                            label: asset.name || assetCharacterName(asset)
-                                                        }))
-                                                    ]}
+                                                    disabled={isAdding}
+                                                    placeholder={t('Choose image asset')}
+                                                    labelFor={(asset) => asset.name || assetCharacterName(asset)}
                                                 />
                                                 <Input
                                                     value={draft.name}
@@ -613,7 +614,7 @@ export function AssetsPanel({
                                                     {t('Add verified photo')}
                                                 </Button>
                                             </div>
-                                            {imageAssets.length === 0 && (
+                                            {selectableImageAssets.length === 0 && (
                                                 <p className='text-[10px] text-white/35'>
                                                     {t('Upload or save an image asset first')}
                                                 </p>
@@ -628,24 +629,16 @@ export function AssetsPanel({
                             </p>
                         )}
 
-                        {reviewedMaterials.length > 0 && (
-                            <div className='space-y-2 border-t border-white/10 pt-4'>
-                                <h3 className='text-xs font-medium text-white/50'>{t('Reviewed materials')}</h3>
-                                <p className='text-xs text-white/40'>
-                                    {t(
-                                        'Materials submitted from the video form remain available here with their provider status'
-                                    )}
-                                </p>
-                                <AssetStrip assets={reviewedMaterials} kind='reviewed' onRemove={removePortrait} />
-                            </div>
-                        )}
-
                         <div className='space-y-3 border-t border-white/10 pt-4'>
                             <div className='flex flex-wrap items-start justify-between gap-3'>
                                 <div className='min-w-0 flex-1'>
-                                    <h3 className='text-xs font-medium text-white/50'>{t('Virtual characters')}</h3>
+                                    <h3 className='text-xs font-medium text-white/50'>
+                                        {t('My Xcity character groups')}
+                                    </h3>
                                     <p className='mt-1 text-xs text-white/40'>
-                                        {t('Group multiple images of one character to keep it consistent across shots')}
+                                        {t(
+                                            'A character group stores multiple reviewed images for the same virtual character'
+                                        )}
                                     </p>
                                 </div>
                                 <form
@@ -668,105 +661,83 @@ export function AssetsPanel({
                                         ) : (
                                             <Sparkles className='h-3 w-3' />
                                         )}
-                                        {t('Create virtual character')}
+                                        {t('Create character group')}
                                     </Button>
                                 </form>
                             </div>
 
-                            <AssetStrip assets={virtualPortraits} kind='virtual' onRemove={removePortrait} />
+                            {characterGroupNotice && (
+                                <p className='text-xs text-emerald-300'>{characterGroupNotice}</p>
+                            )}
+                            {characterGroupError && !pendingDeleteGroup && (
+                                <p className='text-xs text-red-400' role='alert'>
+                                    {characterGroupError}
+                                </p>
+                            )}
 
                             {isLoadingPortraitGroups && portraitGroups === null ? (
                                 <div className='flex items-center gap-2 text-xs text-white/40'>
                                     <Loader2 className='h-3 w-3 animate-spin' />
-                                    {t('Loading virtual characters')}
+                                    {t('Loading character groups')}
                                 </div>
                             ) : portraitGroups && virtualGroups.length > 0 ? (
-                                <div className='space-y-2'>
-                                    {virtualGroups.map((group) => {
-                                        const draft = portraitDrafts[group.id] ?? { assetKey: '', name: '' };
-                                        const isAdding = addingPortraitGroupId === group.id;
-                                        const groupLabel = t('Group <lcur>id<rcur>', { id: shortAssetId(group.id) });
-                                        return (
-                                            <div
-                                                key={group.id}
-                                                className='space-y-2 rounded-md border border-white/10 bg-white/[0.03] p-2'>
-                                                <div className='flex items-center justify-between gap-2'>
-                                                    <div className='flex min-w-0 items-center gap-1.5 text-xs text-white/70'>
-                                                        <Sparkles className='h-3.5 w-3.5 shrink-0 text-cyan-200' />
-                                                        <span className='truncate'>
-                                                            {portraitGroupLabel(group, groupLabel)}
-                                                        </span>
-                                                    </div>
-                                                    <span className='text-[10px] text-white/35'>
-                                                        {t('Group <lcur>id<rcur>', { id: shortAssetId(group.id) })}
-                                                    </span>
-                                                </div>
-                                                <div className='grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(8rem,12rem)_auto]'>
-                                                    <Dropdown
-                                                        ariaLabel={t('Virtual character image asset')}
-                                                        value={draft.assetKey}
-                                                        onValueChange={(value) => {
-                                                            const asset = imageAssets.find(
-                                                                (candidate) => candidate.key === value
-                                                            );
-                                                            updatePortraitDraft(group.id, {
-                                                                assetKey: value,
-                                                                name:
-                                                                    draft.name ||
-                                                                    (asset ? assetCharacterName(asset) : '')
-                                                            });
-                                                        }}
-                                                        disabled={isAdding || imageAssets.length === 0}
-                                                        size='sm'
-                                                        options={[
-                                                            { value: '', label: t('Choose image asset') },
-                                                            ...imageAssets.map((asset) => ({
-                                                                value: asset.key,
-                                                                label: asset.name || assetCharacterName(asset)
-                                                            }))
-                                                        ]}
-                                                    />
-                                                    <Input
-                                                        value={draft.name}
-                                                        onChange={(event) =>
-                                                            updatePortraitDraft(group.id, { name: event.target.value })
-                                                        }
-                                                        placeholder={t('Name')}
-                                                        disabled={isAdding}
-                                                        className='h-8 rounded-md border border-white/20 bg-black text-xs text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
-                                                    />
-                                                    <Button
-                                                        type='button'
-                                                        size='sm'
-                                                        onClick={() => void handleAddPortraitAsset(group.id, 'AIGC')}
-                                                        disabled={isAdding || !draft.assetKey}
-                                                        className='h-8 bg-white text-xs text-black hover:bg-white/90 disabled:bg-white/40'>
-                                                        {isAdding ? (
-                                                            <Loader2 className='h-3 w-3 animate-spin' />
-                                                        ) : (
-                                                            <ImagePlus className='h-3 w-3' />
-                                                        )}
-                                                        {t('Add character image')}
-                                                    </Button>
-                                                </div>
-                                                {imageAssets.length === 0 && (
-                                                    <p className='text-[10px] text-white/35'>
-                                                        {t('Upload or save an image asset first')}
-                                                    </p>
-                                                )}
-                                            </div>
-                                        );
-                                    })}
-                                </div>
+                                <CharacterGroupBrowser
+                                    groups={virtualGroups}
+                                    assets={visibleProviderAssets}
+                                    sourceAssets={selectableImageAssets}
+                                    drafts={portraitDrafts}
+                                    addingGroupId={addingPortraitGroupId}
+                                    deletingGroupId={deletingPortraitGroupId}
+                                    assetInventoryReady={
+                                        hasLoadedProviderAssets &&
+                                        !isLoadingProviderAssets &&
+                                        providerAssetsError === null
+                                    }
+                                    groupLabel={(group) =>
+                                        portraitGroupLabel(
+                                            group,
+                                            t('Group <lcur>id<rcur>', { id: shortAssetId(group.id) })
+                                        )
+                                    }
+                                    sourceLabel={(asset) => asset.name || assetCharacterName(asset)}
+                                    onAdd={(groupId) => handleAddPortraitAsset(groupId, 'AIGC')}
+                                    onDelete={(group) => {
+                                        setCharacterGroupError(null);
+                                        setCharacterGroupNotice(null);
+                                        setPendingDeleteGroup(group);
+                                    }}
+                                    onDraftChange={updatePortraitDraft}
+                                />
                             ) : (
                                 <p className='text-xs text-white/40'>
-                                    {t('No virtual characters yet<dot> Create one<comma> then add uploaded images')}
+                                    {t('No character groups yet<dot> Create one<comma> then add uploaded images')}
                                 </p>
                             )}
+
+                            <DeleteCharacterGroupDialog
+                                error={characterGroupError}
+                                groupName={
+                                    pendingDeleteGroup
+                                        ? portraitGroupLabel(pendingDeleteGroup, shortAssetId(pendingDeleteGroup.id))
+                                        : null
+                                }
+                                isDeleting={Boolean(
+                                    pendingDeleteGroup && deletingPortraitGroupId === pendingDeleteGroup.id
+                                )}
+                                onCancel={() => {
+                                    setPendingDeleteGroup(null);
+                                    setCharacterGroupError(null);
+                                }}
+                                onConfirm={() => {
+                                    if (pendingDeleteGroup) void handleDeleteVirtualGroup(pendingDeleteGroup);
+                                }}
+                            />
                         </div>
                     </div>
                 )}
 
+                {/* Legacy internal authorization UI is intentionally disabled; provider review happens inline. */}
+                {/*
                 <div className='mb-4 space-y-4 border-b border-white/10 pb-4'>
                     <div className='flex flex-wrap items-start justify-between gap-3'>
                         <div className='min-w-0 flex-1'>
@@ -789,45 +760,9 @@ export function AssetsPanel({
                         </Button>
                     </div>
 
-                    {authorizationNotice && <p className='text-xs text-emerald-300'>{authorizationNotice}</p>}
-                    {authorizationError && <p className='text-xs text-red-400'>{authorizationError}</p>}
-
-                    {authorizationQueue !== null && (
-                        <section className='space-y-3 rounded-md border border-white/10 bg-white/[0.03] p-3'>
-                            <div className='flex items-center justify-between gap-3'>
-                                <h4 className='text-sm font-medium text-white'>
-                                    {t('Authorization review queue <lpar><lcur>count<rcur><rpar>', {
-                                        count: authorizationQueue.length
-                                    })}
-                                </h4>
-                            </div>
-                            {authorizationQueue.length === 0 ? (
-                                <p className='text-sm text-white/40'>
-                                    {t('No authorization submissions waiting for review')}
-                                </p>
-                            ) : (
-                                <div className='grid gap-3 lg:grid-cols-2'>
-                                    {authorizationQueue.map((item) => (
-                                        <AuthorizationQueueCard
-                                            key={item.id}
-                                            item={item}
-                                            reviewingId={reviewingAuthorizationId}
-                                            reviewNote={authorizationReviewNotes[item.id] ?? ''}
-                                            onReviewNoteChange={(id, note) =>
-                                                setAuthorizationReviewNotes((prev) => ({ ...prev, [id]: note }))
-                                            }
-                                            onReview={handleReviewAuthorization}
-                                            fetchAuthorizationDoc={fetchAuthorizationDoc}
-                                        />
-                                    ))}
-                                </div>
-                            )}
-                        </section>
-                    )}
-
                     <form onSubmit={(event) => void handleSubmitAuthorization(event)} className='max-w-5xl space-y-4'>
                         <div className='flex items-start gap-2'>
-                            <ShieldCheck className='mt-0.5 h-4 w-4 shrink-0 text-amber-200/80' />
+                            <ShieldCheck className={styles.authorizationIcon} />
                             <div className='min-w-0'>
                                 <h4 className='text-sm font-medium text-white'>{t('Submit authorization')}</h4>
                                 <p className='mt-0.5 text-xs text-white/40'>
@@ -851,8 +786,8 @@ export function AssetsPanel({
                                         onValueChange={setAuthorizationReferenceKey}
                                     />
                                 ) : (
-                                    <div className='rounded-md border border-amber-300/20 bg-amber-300/[0.06] p-3'>
-                                        <p className='text-xs leading-5 text-amber-100/80'>
+                                    <div className={styles.authorizationEmpty}>
+                                        <p className={styles.authorizationEmptyText}>
                                             {t(
                                                 'Mark a reference as a public figure or protected IP<comma> or upload it to Assets'
                                             )}
@@ -863,7 +798,7 @@ export function AssetsPanel({
                                                 variant='ghost'
                                                 size='sm'
                                                 onClick={onMarkReferenceForAuthorization}
-                                                className='mt-2 h-8 rounded-md border border-amber-200/20 px-2 text-xs text-amber-100 hover:bg-amber-200/10 hover:text-white'>
+                                                className={styles.authorizationEmptyAction}>
                                                 {t('Go to reference image')}
                                             </Button>
                                         )}
@@ -965,173 +900,48 @@ export function AssetsPanel({
                         )}
                     </div>
                 </div>
+                */}
 
                 {characters.length > 0 && (
                     <div className='mb-4 space-y-2'>
-                        <h3 className='text-xs font-medium text-white/50'>{t('Characters')}</h3>
+                        <h3 className='text-xs font-medium text-white/50'>{t('Saved character shortcuts')}</h3>
                         <div className='flex gap-2 overflow-x-auto pb-1'>
-                            {characters.map((character) => (
-                                <div
-                                    key={character.id}
-                                    className='flex shrink-0 items-center gap-2 rounded-md border border-white/15 bg-white/[0.04] px-2 py-1.5'>
-                                    <div className='h-7 w-7 overflow-hidden rounded border border-white/15 bg-white/5'>
-                                        {/* eslint-disable-next-line @next/next/no-img-element -- worker-hosted URL */}
-                                        <img
-                                            src={character.url}
-                                            alt={character.name}
-                                            loading='lazy'
-                                            className='h-full w-full object-cover'
-                                        />
-                                    </div>
-                                    <span className='max-w-32 truncate text-xs text-white/80'>{character.name}</span>
-                                    <button
-                                        type='button'
-                                        title={t('Remove character')}
-                                        aria-label={t('Remove character <lcur>name<rcur>', { name: character.name })}
-                                        onClick={() => removeCharacter(character.id)}
-                                        className='rounded p-1 text-white/45 transition-colors hover:bg-white/10 hover:text-white'>
-                                        <Trash2 className='h-3 w-3' />
-                                    </button>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-
-                <div className='mb-4 flex items-center gap-2'>
-                    {(['all', 'image', 'audio', 'video'] as const).map((k) => (
-                        <button
-                            key={k}
-                            type='button'
-                            onClick={() => setKindFilter(k)}
-                            className={
-                                kindFilter === k
-                                    ? 'rounded-full bg-white px-2.5 py-1 text-xs text-black'
-                                    : 'rounded-full bg-white/10 px-2.5 py-1 text-xs text-white/60 transition-colors hover:bg-white/20 hover:text-white'
-                            }>
-                            {k === 'all'
-                                ? t('All')
-                                : k === 'image'
-                                  ? t('Images')
-                                  : k === 'audio'
-                                    ? t('Audio')
-                                    : t('Videos')}
-                        </button>
-                    ))}
-                </div>
-
-                {isLoading && assets === null ? (
-                    <div className='flex h-40 items-center justify-center text-white/40'>
-                        <Loader2 className='mr-2 h-5 w-5 animate-spin' />
-                        {t('Loading assets')}
-                    </div>
-                ) : visible.length === 0 ? (
-                    <div className='flex h-40 items-center justify-center text-white/40'>
-                        <p>
-                            {assets && assets.length > 0
-                                ? t('No assets match the current filter')
-                                : t('Nothing stored yet<dot> Uploaded references and archived videos will appear here')}
-                        </p>
-                    </div>
-                ) : (
-                    <div className='grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5'>
-                        {visible.map((asset) => (
-                            <div key={asset.key} className='flex h-full flex-col' title={asset.key}>
-                                <div className='relative aspect-square w-full overflow-hidden rounded-t-md border border-white/20 bg-neutral-900'>
-                                    {asset.kind === 'image' ? (
-                                        // eslint-disable-next-line @next/next/no-img-element -- worker-hosted URL
-                                        <img
-                                            src={asset.url}
-                                            alt={asset.key}
-                                            loading='lazy'
-                                            className='h-full w-full object-cover'
-                                        />
-                                    ) : asset.kind === 'audio' ? (
-                                        <div className='flex h-full w-full flex-col items-center justify-center gap-3 p-3'>
-                                            <Music className='h-8 w-8 text-white/35' />
-                                            <audio src={asset.url} controls preload='none' className='w-full' />
-                                        </div>
-                                    ) : (
-                                        <video
-                                            src={`${asset.url}#t=0.001`}
-                                            className='h-full w-full object-cover'
-                                            muted
-                                            preload='metadata'
-                                            playsInline
-                                            onMouseEnter={(e) => void e.currentTarget.play().catch(() => undefined)}
-                                            onMouseLeave={(e) => {
-                                                e.currentTarget.pause();
-                                                e.currentTarget.currentTime = 0;
-                                            }}
-                                        />
-                                    )}
-                                    <span className='pointer-events-none absolute top-1 left-1 rounded-full bg-black/70 px-1.5 py-0.5 text-[10px] text-white/80'>
-                                        {asset.kind === 'image'
-                                            ? t('Image')
-                                            : asset.kind === 'audio'
-                                              ? t('Audio')
-                                              : t('Video')}
-                                    </span>
-                                    <button
-                                        type='button'
-                                        title={t('Delete from cloud storage')}
-                                        onClick={() => void handleDelete(asset)}
-                                        className='absolute top-1 right-1 inline-flex h-7 w-7 items-center justify-center rounded-md bg-red-600/85 text-white shadow-sm transition-colors hover:bg-red-500'>
-                                        <Trash2 size={12} />
-                                    </button>
-                                    <div className='pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/65 to-transparent px-2 pt-8 pb-2'>
-                                        <div className='h-4 truncate text-xs text-white/90'>
-                                            {asset.name || asset.key.split('/').pop() || asset.key}
-                                        </div>
-                                        <div className='mt-1 flex h-4 items-center justify-between text-[10px] text-white/55'>
-                                            <span>{asset.uploaded ? formatDate(asset.uploaded, locale) : ''}</span>
-                                            <span>{formatBytes(asset.bytes)}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className='rounded-b-md border border-t-0 border-white/20 bg-neutral-900/50 p-2'>
+                            {characters.map((character) => {
+                                const previewUrl = characterPreviewUrl(character, portraits);
+                                return (
                                     <div
-                                        className={
-                                            asset.kind === 'image'
-                                                ? 'grid grid-cols-3 gap-1.5'
-                                                : 'grid grid-cols-2 gap-1.5'
-                                        }>
-                                        {asset.kind === 'image' && (
-                                            <>
-                                                <button
-                                                    type='button'
-                                                    title={t('Add to the video form as a reference image')}
-                                                    onClick={() => onUseAsReference(asset.url)}
-                                                    className='inline-flex h-9 min-w-0 items-center justify-center gap-1 rounded-md bg-white/10 px-2 text-xs text-white/70 transition-colors hover:bg-white/20 hover:text-white'>
-                                                    <ImagePlus size={11} />
-                                                    {t('Use as reference')}
-                                                </button>
-                                                <CopyUrlButton url={asset.url} />
-                                                <button
-                                                    type='button'
-                                                    title={t('Save this image as a named character')}
-                                                    onClick={() => openCharacterDialog(asset)}
-                                                    className='inline-flex h-9 min-w-0 items-center justify-center gap-1 rounded-md bg-white/10 px-2 text-xs text-white/70 transition-colors hover:bg-white/20 hover:text-white'>
-                                                    <UserPlus size={11} />
-                                                    {t('Save as character')}
-                                                </button>
-                                            </>
-                                        )}
-                                        {asset.kind === 'video' && (
-                                            <button
-                                                type='button'
-                                                title={t('Add to the video form as a reference video')}
-                                                onClick={() => onUseAsReferenceVideo(asset.url)}
-                                                className='inline-flex h-9 min-w-0 items-center justify-center gap-1 rounded-md bg-white/10 px-2 text-xs text-white/70 transition-colors hover:bg-white/20 hover:text-white'>
-                                                <Video size={11} />
-                                                {t('Use as reference video')}
-                                            </button>
-                                        )}
-                                        {asset.kind !== 'image' && <CopyUrlButton url={asset.url} />}
+                                        key={character.id}
+                                        className='flex shrink-0 items-center gap-2 rounded-md border border-white/15 bg-white/[0.04] px-2 py-1.5'>
+                                        <div className='flex h-7 w-7 items-center justify-center overflow-hidden rounded border border-white/15 bg-white/5'>
+                                            {previewUrl ? (
+                                                // eslint-disable-next-line @next/next/no-img-element -- worker-hosted URL
+                                                <img
+                                                    src={previewUrl}
+                                                    alt={character.name}
+                                                    loading='lazy'
+                                                    className='h-full w-full object-cover'
+                                                />
+                                            ) : (
+                                                <UserRound className='h-4 w-4 text-white/40' aria-hidden='true' />
+                                            )}
+                                        </div>
+                                        <span className='max-w-32 truncate text-xs text-white/80'>
+                                            {character.name}
+                                        </span>
+                                        <button
+                                            type='button'
+                                            title={t('Remove character')}
+                                            aria-label={t('Remove character <lcur>name<rcur>', {
+                                                name: character.name
+                                            })}
+                                            onClick={() => removeCharacter(character.id)}
+                                            className='rounded p-1 text-white/45 transition-colors hover:bg-white/10 hover:text-white'>
+                                            <Trash2 className='h-3 w-3' />
+                                        </button>
                                     </div>
-                                </div>
-                            </div>
-                        ))}
+                                );
+                            })}
+                        </div>
                     </div>
                 )}
             </CardContent>

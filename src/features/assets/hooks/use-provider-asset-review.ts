@@ -7,6 +7,7 @@ import {
     type PortraitAsset,
     type PortraitAssetType
 } from '@/features/assets/portrait/api';
+import { normalizeProviderAssetName } from '@/features/assets/portrait/name';
 import { portraitReferenceUrl } from '@/features/assets/portrait/reference';
 import { refKey, type InlineReviewOrigin, type ReferenceDeclaration } from '@/features/assets/reference/origin';
 import type { VideoPortrait } from '@/features/generation/history/merge';
@@ -16,6 +17,7 @@ export type ProviderAssetReviewInput = {
     url: string;
     name: string;
     origin: InlineReviewOrigin;
+    assetType?: PortraitAssetType;
 };
 
 type ProviderAssetReviewOptions = {
@@ -54,6 +56,7 @@ function trackedAsset(
         name: input.name,
         thumbUrl: input.url,
         status,
+        assetType: input.assetType ?? 'Image',
         ...(failureReason ? { failureReason } : {}),
         updatedAt: Date.now()
     };
@@ -97,12 +100,19 @@ async function createTarget(
     input: ProviderAssetReviewInput,
     existing?: VideoPortrait
 ): Promise<ReviewTarget> {
-    const validation = await validateAssetImage(input.url);
-    if (validation.status === 'rejected') throw new Error(validation.message);
+    if ((input.assetType ?? 'Image') === 'Image') {
+        const validation = await validateAssetImage(input.url);
+        if (validation.status === 'rejected') throw new Error(validation.message);
+    }
     const groupId =
         existing?.groupId ||
         (await options.createGroup(input.origin === 'no-person' ? 'Reviewed materials' : input.name)).groupId;
-    const created = await options.createAsset({ groupId, url: input.url, name: input.name, assetType: 'Image' });
+    const created = await options.createAsset({
+        groupId,
+        url: input.url,
+        name: input.name,
+        assetType: input.assetType ?? 'Image'
+    });
     const target = { assetId: created.assetId, groupId };
     options.saveAsset(trackedAsset(input, target, created.status));
     options.setDeclaration(refKey(input.url), {
@@ -129,7 +139,9 @@ async function waitForApproval(
         const asset = await options.getAsset(target.assetId).catch(() => null);
         if (asset) {
             const current = { assetId: asset.assetId || target.assetId, groupId: asset.groupId || target.groupId };
-            options.saveAsset(trackedAsset(input, current, storedPortraitAssetStatus(asset.status), asset.failureReason));
+            options.saveAsset(
+                trackedAsset(input, current, storedPortraitAssetStatus(asset.status), asset.failureReason)
+            );
             await options.syncNow();
         }
         throw error;
@@ -141,7 +153,7 @@ async function reviewProviderAsset(
     rawInput: ProviderAssetReviewInput
 ): Promise<string> {
     if (!options.enabled) throw new Error('Provider asset review is not available on this deployment.');
-    const input = { ...rawInput, name: rawInput.name.trim() || 'Reviewed material' };
+    const input = { ...rawInput, name: normalizeProviderAssetName(rawInput.name) };
     await options.syncCloudNow();
 
     const existing = options.findAssetByUrl(input.url);

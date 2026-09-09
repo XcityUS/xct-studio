@@ -70,6 +70,7 @@ Next bounded UI task: translate the asset library, assembly editor, and remainin
 - [x] Require approved authorization in addition to Asset ID for public figures and protected IP.
 - [x] Connect the KYC High private virtual and real-human list/upload/review APIs through server-only provider adapters.
 - [x] Let no-person and external-AI references submit provider review inline, retain Processing/Failed state, and admit only Active Asset IDs.
+- [x] List the signed-in user's BytePlus assets from owned provider groups and merge them into the main Assets grid with review state and Asset ID references.
 - [x] Reuse the existing Xcity cloud URL when a `/video` reference is submitted for review; replace it with `asset://<assetId>` only after the provider reports `Active`.
 - [ ] Persist admitted-asset review state, subject coverage, revocation, and authorization records outside browser history.
 - [ ] Add IP list and IP profile.

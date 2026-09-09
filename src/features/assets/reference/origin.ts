@@ -7,7 +7,10 @@ export type ReferenceOrigin =
     | 'public-figure'
     | 'licensed-ip';
 
-export type InlineReviewOrigin = Extract<ReferenceOrigin, 'no-person' | 'thirdparty-ai'>;
+export type InlineReviewOrigin = Extract<
+    ReferenceOrigin,
+    'no-person' | 'thirdparty-ai' | 'public-figure' | 'licensed-ip'
+>;
 
 export type ReferenceDeclaration = {
     origin: ReferenceOrigin;
@@ -40,11 +43,11 @@ export const REFERENCE_ORIGIN_LABELS: Record<ReferenceOrigin, { label: string; h
     },
     'no-person': {
         label: 'No person in this image',
-        hint: 'Landscapes, products, styles — nothing that identifies someone.'
+        hint: 'Landscapes, products, and styles still need provider review and an active Asset ID.'
     },
     'byteplus-ai': {
-        label: 'AI-generated · Studio model',
-        hint: 'Made by Studio image models. Usable directly.'
+        label: 'AI-generated · Seedream',
+        hint: 'Made by Seedream. Usable directly.'
     },
     'thirdparty-ai': {
         label: 'AI-generated · other model',
@@ -56,11 +59,11 @@ export const REFERENCE_ORIGIN_LABELS: Record<ReferenceOrigin, { label: string; h
     },
     'public-figure': {
         label: 'Public figure',
-        hint: 'Requires complete likeness authorization, account approval, and an approved Asset ID.'
+        hint: 'Complete offline likeness authorization and account allowlisting, then submit for an Asset ID.'
     },
     'licensed-ip': {
         label: 'Celebrity or licensed character',
-        hint: 'Blocked until an authorization document is approved.'
+        hint: 'Complete the copyright chain, offline authorization, and account allowlisting before submission.'
     }
 };
 
@@ -117,12 +120,16 @@ export function assetIdFromReferenceUrl(url: string): string | undefined {
     return /^asset:\/\//i.test(url.trim()) && assetId ? assetId : undefined;
 }
 
+/** Provider moderation replaces the retired Studio-managed authorization gate. */
 export function originRequiresAuthorization(origin: ReferenceOrigin): boolean {
-    return origin === 'public-figure' || origin === 'licensed-ip';
+    void origin;
+    return false;
 }
 
 export function originSupportsInlineReview(origin: ReferenceOrigin): origin is InlineReviewOrigin {
-    return origin === 'no-person' || origin === 'thirdparty-ai';
+    return (
+        origin === 'no-person' || origin === 'thirdparty-ai' || origin === 'public-figure' || origin === 'licensed-ip'
+    );
 }
 
 /**
@@ -132,11 +139,10 @@ export function declarationSatisfied(
     decl: ReferenceDeclaration | undefined,
     approvedAuthorizationIds: ReadonlySet<string> = new Set()
 ): boolean {
+    void approvedAuthorizationIds;
     if (!decl) return false;
-    if (decl.origin === 'byteplus-ai') return true;
-    if (!decl.assetId) return false;
-    if (!originRequiresAuthorization(decl.origin)) return true;
-    return Boolean(decl.authorizationId && approvedAuthorizationIds.has(decl.authorizationId));
+    if (isSeedreamExempt(decl)) return true;
+    return Boolean(decl.assetId);
 }
 
 export function declarationBlockReason(
@@ -147,6 +153,7 @@ export function declarationBlockReason(
     if (!decl) return 'Choose where this image came from.';
 
     if (!decl.assetId) {
+        if (decl.origin === 'byteplus-ai') return 'Review this material and attach its Asset ID before submitting.';
         if (decl.origin === 'official-asset') return 'Attach the official Asset ID before submitting.';
         if (decl.origin === 'no-person') return 'Review this material and attach its Asset ID before submitting.';
         if (decl.origin === 'thirdparty-ai') {
@@ -156,16 +163,11 @@ export function declarationBlockReason(
             return 'Verify this person and attach the approved Asset ID before submitting.';
         }
         if (decl.origin === 'public-figure') {
-            return 'Complete likeness authorization and attach the approved Asset ID before submitting.';
+            return 'Submit this public figure image to the provider asset library before generating.';
         }
         if (decl.origin === 'licensed-ip') {
-            return 'Complete IP authorization and attach the approved Asset ID before submitting.';
+            return 'Submit this IP image to the provider asset library before generating.';
         }
-    }
-    if (originRequiresAuthorization(decl.origin)) {
-        return decl.authorizationId
-            ? 'This authorization is not approved yet. Studio approval only unblocks this reference check; final model moderation may still reject the image.'
-            : 'Submit an approved authorization document before using this public figure or licensed IP. Studio approval only unblocks this reference check; final model moderation may still reject the image.';
     }
     return 'Choose where this image came from.';
 }
@@ -186,17 +188,19 @@ export function isAssetReferenceUrl(url: string): boolean {
  * before "go set this up".
  */
 export function referenceRequiresAssetLibrary(url: string, declaration: ReferenceDeclaration | undefined): boolean {
-    return isAssetReferenceUrl(url) || (declaration ? originRequiresAssetLibrary(declaration.origin) : false);
+    return isAssetReferenceUrl(url) || (declaration ? !isSeedreamExempt(declaration) : false);
 }
 
-/** Every model this studio can drive is BytePlus's; anything else is someone's third-party render. */
-const BYTEPLUS_MODEL_RE = /^(byteplus\/)?(dreamina-)?(seedance|seedream)/i;
+const SEEDREAM_MODEL_RE = /^(byteplus\/)?(dreamina-)?seedream/i;
+
+export function isSeedreamExempt(declaration: ReferenceDeclaration | undefined): boolean {
+    return declaration?.origin === 'byteplus-ai' && SEEDREAM_MODEL_RE.test((declaration.model ?? '').trim());
+}
 
 /**
- * Origin of an image the studio itself produced — a Seedream render, a frame
- * captured from a Seedance clip. Asking the user to declare our own output
- * would be busywork, so these paths declare themselves.
+ * Only Seedream renders receive the provider-documented exemption. Frames from
+ * Seedance clips and output from other image models still require review.
  */
 export function originForGeneratedImage(model: string | undefined): ReferenceOrigin {
-    return BYTEPLUS_MODEL_RE.test((model ?? '').trim()) ? 'byteplus-ai' : 'thirdparty-ai';
+    return SEEDREAM_MODEL_RE.test((model ?? '').trim()) ? 'byteplus-ai' : 'thirdparty-ai';
 }

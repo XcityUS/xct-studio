@@ -20,3 +20,12 @@ export async function POST(request: Request) {
     if (!body) return jsonError('missing request body', 400);
     return providerAssetResponse('/groups', gate.auth.bearer, { method: 'POST', body });
 }
+
+export async function DELETE(request: Request) {
+    const gate = await requirePortraitRoute(request);
+    if ('response' in gate) return gate.response;
+
+    const groupId = new URL(request.url).searchParams.get('id')?.trim();
+    if (!groupId) return jsonError('missing group id', 400);
+    return providerAssetResponse(`/groups/${encodeURIComponent(groupId)}`, gate.auth.bearer, { method: 'DELETE' });
+}

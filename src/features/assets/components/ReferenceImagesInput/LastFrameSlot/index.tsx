@@ -81,7 +81,7 @@ export function LastFrameSlot({
             {url ? (
                 <div className='relative h-16 w-16 overflow-hidden rounded-md border border-white/20 bg-white/5'>
                     <ReferencePreview url={url} alt={t('Last frame reference')} className='h-full w-full border-0' />
-                    <span className='absolute bottom-0 left-0 rounded-tr bg-black/70 px-1 text-[10px] text-white/80'>
+                    <span className='absolute bottom-0 left-0 rounded-tr bg-[var(--studio-media-overlay)] px-1 text-[10px] text-[var(--studio-media-muted)]'>
                         {t('last')}
                     </span>
                     <button
@@ -91,7 +91,7 @@ export function LastFrameSlot({
                             setUploadError(null);
                         }}
                         disabled={disabled}
-                        className='absolute top-0 right-0 rounded-bl bg-black/70 p-0.5 text-white/70 transition-colors hover:text-white'
+                        className='absolute top-0 right-0 rounded-bl bg-[var(--studio-media-overlay)] p-0.5 text-[var(--studio-media-muted)] transition-colors hover:text-[var(--studio-media-foreground)]'
                         aria-label={t('Remove last frame')}>
                         <X className='h-3 w-3' />
                     </button>

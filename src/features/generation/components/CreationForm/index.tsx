@@ -200,6 +200,15 @@ export function CreationForm({
         ]);
         return referenceUrls.map((url) => labelsByUrl.get(url) ?? null);
     }, [characters, portraits, referenceUrls]);
+    const referenceVideoPreviewUrls = React.useMemo(
+        () =>
+            new Map(
+                portraits
+                    .filter((portrait) => portrait.thumbUrl)
+                    .map((portrait) => [portraitReferenceUrl(portrait.assetId), portrait.thumbUrl] as const)
+            ),
+        [portraits]
+    );
 
     React.useEffect(() => {
         if (model !== activeModel) {
@@ -916,6 +925,7 @@ export function CreationForm({
                         <ReferenceVideosInput
                             urls={referenceVideoUrls}
                             onChange={setReferenceVideoUrls}
+                            resolvePreviewUrl={(url) => referenceVideoPreviewUrls.get(url) ?? url}
                             onDurationChange={(url, duration) => {
                                 setReferenceVideoSecondsByUrl((current) => ({ ...current, [url]: duration }));
                             }}

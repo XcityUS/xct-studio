@@ -35,6 +35,10 @@ export function useOutputMessages() {
                 return t(
                     'This reference video task requires adaptive ratio and source duration<dot> Please retry from the Studio reference<dash>video action'
                 );
+            case 'The generated video may contain copyrighted characters or content. Use original reference media and try again.':
+                return t(
+                    'The generated video may contain copyrighted characters or content<dot> Use original reference media and try again'
+                );
             case 'Studio could not load the reference video. The link may have expired or the archived copy may not be ready yet.':
                 return t(
                     'Studio could not load the reference video<dot> The link may have expired or the archived copy may not be ready yet'

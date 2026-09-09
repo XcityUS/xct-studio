@@ -21,7 +21,7 @@ export function AssetStrip({ assets, kind, onRemove }: AssetStripProps) {
             ? t('Remove verified photo')
             : kind === 'reviewed'
               ? t('Remove reviewed material')
-              : t('Remove virtual character image');
+              : t('Remove character association');
 
     return (
         <div className={styles.root}>

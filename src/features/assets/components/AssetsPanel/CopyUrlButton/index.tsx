@@ -4,7 +4,13 @@ import { Check, Copy } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import * as React from 'react';
 
-export function CopyUrlButton({ url }: { url: string }) {
+type CopyUrlButtonProps = {
+    className?: string;
+    labelClassName?: string;
+    url: string;
+};
+
+export function CopyUrlButton({ className, labelClassName, url }: CopyUrlButtonProps) {
     const t = useTranslations();
     const [copied, setCopied] = React.useState(false);
     const [copyFailed, setCopyFailed] = React.useState(false);
@@ -38,9 +44,9 @@ export function CopyUrlButton({ url }: { url: string }) {
                     setTimeout(() => setCopyFailed(false), 2500);
                 }
             }}
-            className='inline-flex h-9 min-w-0 items-center justify-center gap-1 rounded-md bg-white/10 px-2 text-xs text-white/70 transition-colors hover:bg-white/20 hover:text-white'>
+            className={className}>
             {copied ? <Check size={11} className='text-green-400' /> : <Copy size={11} />}
-            {copyFailed ? t('Copy failed') : copied ? t('Copied') : t('Copy URL')}
+            <span className={labelClassName}>{copyFailed ? t('Copy failed') : copied ? t('Copied') : t('Copy URL')}</span>
         </button>
     );
 }
