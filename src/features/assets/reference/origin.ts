@@ -138,37 +138,45 @@ export function originSupportsInlineReview(origin: ReferenceOrigin): origin is I
  */
 export function declarationSatisfied(
     decl: ReferenceDeclaration | undefined,
-    approvedAuthorizationIds: ReadonlySet<string> = new Set()
+    approvedAuthorizationIds?: ReadonlySet<string>
 ): boolean {
     void approvedAuthorizationIds;
-    if (!decl) return false;
-    if (isSeedreamExempt(decl)) return true;
-    return Boolean(decl.assetId);
+    if (!decl || decl.origin === 'official-asset') return false;
+    if (decl.assetId) return true;
+    if (decl.origin !== 'byteplus-ai') return false;
+
+    const model = decl.model?.trim();
+    if (!model) return false;
+    return SEEDREAM_MODEL_RE.test(model);
 }
 
 export function declarationBlockReason(
     decl: ReferenceDeclaration | undefined,
-    approvedAuthorizationIds: ReadonlySet<string> = new Set()
+    approvedAuthorizationIds?: ReadonlySet<string>
 ): string | null {
-    if (declarationSatisfied(decl, approvedAuthorizationIds)) return null;
+    void approvedAuthorizationIds;
     if (!decl) return 'Choose where this image came from.';
+    if (decl.assetId) return null;
 
-    if (!decl.assetId) {
-        if (decl.origin === 'byteplus-ai') return 'Review this material and attach its Asset ID before submitting.';
-        if (decl.origin === 'official-asset') return 'Attach the official Asset ID before submitting.';
-        if (decl.origin === 'no-person') return 'Review this material and attach its Asset ID before submitting.';
-        if (decl.origin === 'thirdparty-ai') {
-            return 'Add this AI-generated material to the virtual asset library before submitting.';
-        }
-        if (decl.origin === 'real-person') {
-            return 'Verify this person and attach the approved Asset ID before submitting.';
-        }
-        if (decl.origin === 'public-figure') {
-            return 'Submit this public figure image to the provider asset library before generating.';
-        }
-        if (decl.origin === 'licensed-ip') {
-            return 'Submit this IP image to the provider asset library before generating.';
-        }
+    if (decl.origin === 'byteplus-ai') {
+        const model = decl.model?.trim();
+        if (model && SEEDREAM_MODEL_RE.test(model)) return null;
+    }
+
+    if (decl.origin === 'byteplus-ai') return 'Review this material and attach its Asset ID before submitting.';
+    if (decl.origin === 'official-asset') return 'Attach the official Asset ID before submitting.';
+    if (decl.origin === 'no-person') return 'Review this material and attach its Asset ID before submitting.';
+    if (decl.origin === 'thirdparty-ai') {
+        return 'Add this AI-generated material to the virtual asset library before submitting.';
+    }
+    if (decl.origin === 'real-person') {
+        return 'Verify this person and attach the approved Asset ID before submitting.';
+    }
+    if (decl.origin === 'public-figure') {
+        return 'Submit this public figure image to the provider asset library before generating.';
+    }
+    if (decl.origin === 'licensed-ip') {
+        return 'Submit this IP image to the provider asset library before generating.';
     }
     return 'Choose where this image came from.';
 }
