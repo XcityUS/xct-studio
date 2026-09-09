@@ -38,15 +38,16 @@ type AssetLibraryBodyProps = {
 
 function AssetMetrics({
     assets,
+    availableCount,
     itemCount,
     isLoading
 }: {
     assets: ProviderLibraryAsset[];
+    availableCount: number;
     itemCount: number;
     isLoading: boolean;
 }) {
     const t = useTranslations();
-    const activeCount = assets.filter((asset) => asset.status === 'Active').length;
     const processingCount = assets.filter((asset) => asset.status === 'Processing').length;
     return (
         <div className={styles.metrics} aria-live='polite'>
@@ -57,7 +58,7 @@ function AssetMetrics({
                 {t('Provider Asset IDs')} <strong>{assets.length}</strong>
             </span>
             <span>
-                {t('Reviewed')} <strong>{activeCount}</strong>
+                {t('Available assets')} <strong>{availableCount}</strong>
             </span>
             <span>
                 {t('Under review')} <strong>{processingCount}</strong>
@@ -145,15 +146,15 @@ export function AssetLibrary(props: AssetLibraryProps) {
             ),
         [availableOnly, items, kindFilter]
     );
+    const availableCount = React.useMemo(() => items.filter((item) => Boolean(item.referenceUrl)).length, [items]);
+    const metricProps = { assets: providerAssets, availableCount, itemCount: items.length, isLoading };
     return (
         <section className={styles.root} aria-labelledby='asset-library-heading'>
             <div className={styles.header}>
                 <h3 id='asset-library-heading' className={styles.title}>
                     {t('Assets')}
                 </h3>
-                {source === 'xcity' && (
-                    <AssetMetrics assets={providerAssets} itemCount={items.length} isLoading={isLoading} />
-                )}
+                {source === 'xcity' && <AssetMetrics {...metricProps} />}
             </div>
 
             <AssetSourceTabs active={source} itemCount={items.length} onChange={setSource} />
