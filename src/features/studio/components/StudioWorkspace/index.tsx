@@ -86,6 +86,8 @@ import { useVideoJobs } from '@/features/generation/hooks/use-video-jobs';
 import { calculateVideoCost } from '@/features/generation/utils/cost';
 import { estimateVideoProgress } from '@/features/generation/utils/progress';
 import { burnBrandingWatermarkIntoVideo } from '@/features/post-production/assembly/client';
+import { ProjectHeader } from '@/features/projects/components/ProjectHeader';
+import { useShortDramaProject } from '@/features/projects/hooks/use-short-drama-project';
 import {
     DEFAULT_CAPTION_MODE,
     DEFAULT_TITLE_OVERLAY_DURATION,
@@ -306,6 +308,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
     } = useVideoHistory(resolveKey, {
         onPersistenceError: (message) => setError(message, 'output')
     });
+    const projectDraft = useShortDramaProject();
     const { getVideoSrc, getThumbnailSrc, setRemoteSource, removeSource, clearAllSources, hasLocalCopy, hasSource } =
         useVideoSources();
     const activePortraits = React.useMemo(
@@ -357,6 +360,28 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         setNotice: setCreateNotice,
         setError
     });
+
+    const handleAttachAssetIdToProject = React.useCallback(
+        (input: { assetId: string; origin: ReferenceOrigin; note?: string }) => {
+            const attached = handleAttachAssetId(input);
+            return attached && Boolean(projectDraft.registerProjectAsset({
+                    name: input.note?.trim() || input.assetId,
+                    kind: 'character',
+                    sourceType: input.origin === 'official-asset' ? 'official' : 'provider',
+                    status: 'active',
+                    providerReferenceUrl: `asset://${input.assetId}`,
+                    providerAssetId: input.assetId,
+                    origin: input.origin,
+                    note: input.note
+                }));
+        },
+        [handleAttachAssetId, projectDraft]
+    );
+
+    const handleAttachUserAssetToProject = React.useCallback(
+        (asset: UserAsset, providerReferenceUrl?: string) => projectDraft.attachUserAsset(asset, providerReferenceUrl),
+        [projectDraft]
+    );
 
     const handleUpdateOfficialAssetNote = React.useCallback(
         (key: string, note: string) => {
@@ -768,9 +793,11 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
             if (!key) {
                 throw new Error('Sign in at xcity.ai (or set an API key) before creating a virtual character.');
             }
-            return createPortraitGroup(name, key);
+            const result = await createPortraitGroup(name, key);
+            projectDraft.createCharacterReferencePack(name, [], result.groupId);
+            return result;
         },
-        [resolveKey]
+        [projectDraft, resolveKey]
     );
 
     const handleDeletePortraitGroup = React.useCallback(
@@ -790,9 +817,19 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
             if (!key) {
                 throw new Error('Sign in at xcity.ai (or set an API key) before adding a portrait image.');
             }
-            return createPortraitAsset(input, key);
+            const result = await createPortraitAsset(input, key);
+            projectDraft.registerProjectAsset({
+                name: input.name,
+                kind: 'character',
+                sourceType: 'provider',
+                status: 'reviewing',
+                sourceUrl: input.url,
+                providerReferenceUrl: `asset://${result.assetId}`,
+                providerAssetId: result.assetId
+            });
+            return result;
         },
-        [resolveKey]
+        [projectDraft, resolveKey]
     );
 
     const handleGetPortraitAsset = React.useCallback(
@@ -994,11 +1031,20 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         async (script: string) => {
             const key = await resolveKey();
             if (!key) {
+                setIsApiKeyDialogOpen(true);
                 throw new Error('Sign in at xcity.ai (or set an API key) to use script breakdown.');
             }
-            return breakdownScript(script, key, process.env.NEXT_PUBLIC_OPENAI_API_BASE_URL);
+            try {
+                return await breakdownScript(script, key);
+            } catch (error) {
+                if (error instanceof InvalidApiKeyError) {
+                    invalidateKey();
+                    setIsApiKeyDialogOpen(true);
+                }
+                throw error;
+            }
         },
-        [resolveKey]
+        [invalidateKey, resolveKey]
     );
 
     const handleTranscribeVideo = React.useCallback(
@@ -1148,7 +1194,8 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                 try {
                     const key = await resolveKey();
                     if (key) {
-                        const archivedOriginal = await archiveLocalVideo(job.id, blob, key, `${job.id}.mp4`);
+                            const assetName = historyItem?.title?.trim() || job.id;
+                            const archivedOriginal = await archiveLocalVideo(job.id, blob, key, `${assetName}.mp4`);
                         if (archivedOriginal?.url) {
                             originalArchiveUrl = archivedOriginal.url;
                             if (!shouldAddBranding) {
@@ -3313,6 +3360,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                                 onReviewReferenceAsset={isPortraitEnabled ? handleReviewReferenceAsset : undefined}
                                 onOptimizePrompt={handleOptimizePrompt}
                                 onBreakdownScript={handleBreakdownScript}
+                                buildProductionSnapshot={projectDraft.buildProductionSnapshot}
                                 // Only offer the jump when the Assets tab actually exists —
                                 // it is gated on the media worker / portrait library.
                                 onOpenAssets={
@@ -3481,6 +3529,15 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
             </Dialog>
 
             <div className='mx-auto w-full max-w-7xl space-y-6 px-4 md:px-6'>
+                <ProjectHeader
+                    project={projectDraft.activeProject}
+                    projects={projectDraft.projects}
+                    projectAssets={projectDraft.projectAssets}
+                    onCreateProject={projectDraft.addProject}
+                    onSelectProject={projectDraft.setActiveProjectId}
+                    onRenameProject={(title) => projectDraft.updateActiveProject({ title })} onDeleteProject={projectDraft.deleteProject}
+                    onOpenAssets={() => navigateToTab('assets')}
+                />
                 {imageGenerationEnabled || uploadEnabled || isPortraitEnabled ? (
                     <Tabs value={activeTab} onValueChange={(value) => navigateToTab(value as StudioTab)}>
                         <TabsList className='mb-4 border border-white/10 bg-white/5'>
@@ -3551,8 +3608,12 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                                         reviewAsset={handleReviewReferenceAsset}
                                         onUseAsReference={handleUseAssetAsReference}
                                         onUseAsReferenceVideo={handleUseAssetAsReferenceVideo}
-                                        onAttachAssetId={handleAttachAssetId}
+                                        onAttachAssetId={handleAttachAssetIdToProject}
                                         onUpdateOfficialAssetNote={handleUpdateOfficialAssetNote}
+                                        projectAssets={projectDraft.projectAssets}
+                                        onAttachProjectAsset={handleAttachUserAssetToProject}
+                                        onChangeProjectAssetKind={projectDraft.updateProjectAssetKind}
+                                        onRemoveProjectAsset={projectDraft.archiveProjectAsset}
                                         active={activeTab === 'assets'}
                                     />
                                 </div>

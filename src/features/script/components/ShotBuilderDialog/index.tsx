@@ -1,5 +1,9 @@
 'use client';
 
+import { InlineError } from './InlineError';
+import { ScriptImportField } from './ScriptImportField';
+import { type ShotLanguageMode, ShotLanguageModeField } from './ShotLanguageModeField';
+import { appendImageToken, compilePrompt, createEmptyShot, isPresetCamera } from './helpers';
 import { Button } from '@/components/ui/Button';
 import {
     Dialog,
@@ -15,16 +19,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/Textarea';
 import { PROMPT_TEMPLATE_CATEGORIES } from '@/features/script/prompt/templates';
 import { usePromptTemplateLabels } from '@/features/script/prompt/use-template-labels';
+import type { ShotDraft } from '@/features/script/types';
+import { InvalidApiKeyError } from '@/shared/errors';
 import { cn } from '@/shared/utils/classnames';
-import { AlertCircle, ArrowDown, ArrowUp, ChevronDown, Loader2, Plus, Trash2, Wand2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronDown, Loader2, Plus, Trash2, Wand2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import * as React from 'react';
-
-export type ShotDraft = {
-    description: string;
-    camera?: string;
-    audio?: string;
-};
 
 type ShotBuilderDialogProps = {
     isOpen: boolean;
@@ -32,68 +32,22 @@ type ShotBuilderDialogProps = {
     referenceCount: number;
     referenceLabels?: (string | null)[];
     onApply: (prompt: string) => void;
+    onGenerateShots?: (
+        shots: ShotDraft[],
+        globalNote: string,
+        options: { useFormLanguageSettings: boolean }
+    ) => Promise<void>;
     onBreakdownScript?: (script: string) => Promise<ShotDraft[]>;
+    defaultDurationSeconds: number;
+    minDurationSeconds: number;
+    maxDurationSeconds: number;
+    isGeneratingShots?: boolean;
+    pendingShotCount?: number;
+    onContinueShotQueue?: () => Promise<void>;
 };
 
 const CAMERA_TEMPLATES = PROMPT_TEMPLATE_CATEGORIES.find((category) => category.id === 'camera')?.templates ?? [];
 const NO_CAMERA_VALUE = '__no_camera__';
-
-function InlineError({ children }: { children: React.ReactNode }) {
-    return (
-        <div
-            role='alert'
-            className='flex w-full items-start gap-2 rounded-md border border-red-400/25 bg-red-500/[0.08] px-3 py-2 text-xs leading-5 text-red-200'>
-            <AlertCircle className='mt-0.5 h-4 w-4 shrink-0 text-red-300' />
-            <span className='min-w-0 break-words'>{children}</span>
-        </div>
-    );
-}
-
-function createEmptyShot(): ShotDraft {
-    return { description: '' };
-}
-
-function cleanAudioCue(audio: string): string {
-    return audio
-        .trim()
-        .replace(/^\{+|\}+$/g, '')
-        .trim();
-}
-
-function compilePrompt(globalNote: string, shots: ShotDraft[]): string {
-    const lines = shots
-        .map((shot) => {
-            const description = shot.description.trim();
-            const camera = shot.camera?.trim();
-            const audio = shot.audio ? cleanAudioCue(shot.audio) : '';
-
-            let line = description;
-            if (camera) {
-                line = line ? `${line}, ${camera}` : camera;
-            }
-            if (audio) {
-                line = line ? `${line} {${audio}}` : `{${audio}}`;
-            }
-
-            return line;
-        })
-        .filter(Boolean)
-        .map((line, index) => `${index + 1}) ${line}`);
-
-    return [globalNote.trim(), lines.join('\n')].filter(Boolean).join('\n');
-}
-
-function appendImageToken(description: string, imageIndex: number): string {
-    const token = `[Image ${imageIndex}]`;
-    if (!description) {
-        return token;
-    }
-    return `${description}${/\s$/.test(description) ? '' : ' '}${token}`;
-}
-
-function isPresetCamera(camera: string): boolean {
-    return CAMERA_TEMPLATES.some((template) => template.text === camera);
-}
 
 export function ShotBuilderDialog({
     isOpen,
@@ -101,16 +55,24 @@ export function ShotBuilderDialog({
     referenceCount,
     referenceLabels,
     onApply,
-    onBreakdownScript
+    onGenerateShots,
+    onBreakdownScript,
+    defaultDurationSeconds,
+    minDurationSeconds,
+    maxDurationSeconds,
+    isGeneratingShots = false,
+    pendingShotCount = 0,
+    onContinueShotQueue
 }: ShotBuilderDialogProps) {
     const t = useTranslations();
     const templateLabel = usePromptTemplateLabels();
-    const [shots, setShots] = React.useState<ShotDraft[]>([createEmptyShot()]);
+    const [shots, setShots] = React.useState<ShotDraft[]>([createEmptyShot(defaultDurationSeconds)]);
     const [globalNote, setGlobalNote] = React.useState('');
     const [isAutoOpen, setIsAutoOpen] = React.useState(false);
     const [script, setScript] = React.useState('');
     const [isBreakingDown, setIsBreakingDown] = React.useState(false);
     const [breakdownError, setBreakdownError] = React.useState<string | null>(null);
+    const [shotLanguageMode, setShotLanguageMode] = React.useState<ShotLanguageMode>('silent');
 
     const compiledPrompt = React.useMemo(() => compilePrompt(globalNote, shots), [globalNote, shots]);
 
@@ -119,7 +81,7 @@ export function ShotBuilderDialog({
     };
 
     const addShot = () => {
-        setShots((current) => [...current, createEmptyShot()]);
+        setShots((current) => [...current, createEmptyShot(defaultDurationSeconds)]);
     };
 
     const removeShot = (index: number) => {
@@ -150,11 +112,51 @@ export function ShotBuilderDialog({
         setBreakdownError(null);
         try {
             const nextShots = await onBreakdownScript(script);
-            setShots(nextShots.length ? nextShots : [createEmptyShot()]);
+            setShots(
+                nextShots.length
+                    ? nextShots.map((shot) => ({ ...shot, durationSeconds: shot.durationSeconds ?? defaultDurationSeconds }))
+                    : [createEmptyShot(defaultDurationSeconds)]
+            );
         } catch (error) {
-            setBreakdownError(error instanceof Error ? error.message : t('Script breakdown failed'));
+            setBreakdownError(
+                error instanceof InvalidApiKeyError
+                    ? t('Your Xcity API key is invalid or expired<dot> Configure a new key and retry')
+                    : error instanceof Error
+                      ? error.message
+                      : t('Script breakdown failed')
+            );
         } finally {
             setIsBreakingDown(false);
+        }
+    };
+
+    const updateDuration = (index: number, value: string) => {
+        const parsed = Math.round(Number(value));
+        const durationSeconds = Number.isFinite(parsed)
+            ? Math.min(maxDurationSeconds, Math.max(minDurationSeconds, parsed))
+            : defaultDurationSeconds;
+        updateShot(index, { durationSeconds });
+    };
+
+    const handleGenerateShots = async () => {
+        if (!onGenerateShots || isGeneratingShots) return;
+        setBreakdownError(null);
+        try {
+            await onGenerateShots(shots, globalNote, { useFormLanguageSettings: shotLanguageMode === 'form' });
+            onOpenChange(false);
+        } catch (error) {
+            setBreakdownError(error instanceof Error ? error.message : t('Script breakdown failed'));
+        }
+    };
+
+    const handleContinueShotQueue = async () => {
+        if (!onContinueShotQueue || isGeneratingShots) return;
+        setBreakdownError(null);
+        try {
+            await onContinueShotQueue();
+            onOpenChange(false);
+        } catch (error) {
+            setBreakdownError(error instanceof Error ? error.message : t('Script breakdown failed'));
         }
     };
 
@@ -193,6 +195,12 @@ export function ShotBuilderDialog({
                                     placeholder={t('Paste a short script or scene outline')}
                                     className='min-h-[100px] resize-none rounded-md border border-white/20 bg-black text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
                                 />
+                                <ScriptImportField
+                                    disabled={isBreakingDown}
+                                    value={script}
+                                    onChange={setScript}
+                                    onError={setBreakdownError}
+                                />
                                 <div className='flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center'>
                                     <Button
                                         type='button'
@@ -229,6 +237,8 @@ export function ShotBuilderDialog({
                     />
                 </div>
 
+                <ShotLanguageModeField value={shotLanguageMode} onChange={setShotLanguageMode} />
+
                 <div className='space-y-3'>
                     <div className='flex items-center justify-between'>
                         <Label className='text-white/80'>{t('Shots')}</Label>
@@ -244,7 +254,8 @@ export function ShotBuilderDialog({
 
                     <div className='space-y-3'>
                         {shots.map((shot, index) => {
-                            const customCamera = shot.camera?.trim() && !isPresetCamera(shot.camera.trim());
+                            const customCamera =
+                                shot.camera?.trim() && !isPresetCamera(shot.camera.trim(), CAMERA_TEMPLATES);
 
                             return (
                                 <div key={index} className='rounded-md border border-white/10 bg-white/[0.03] p-3'>
@@ -343,7 +354,21 @@ export function ShotBuilderDialog({
                                             </div>
                                         )}
 
-                                        <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
+                                        <div className='grid grid-cols-1 gap-3 sm:grid-cols-3'>
+                                            <div className='space-y-2'>
+                                                <Label htmlFor={`shot-duration-${index}`} className='text-white/70'>
+                                                    {t('Duration')}
+                                                </Label>
+                                                <Input
+                                                    id={`shot-duration-${index}`}
+                                                    type='number'
+                                                    min={minDurationSeconds}
+                                                    max={maxDurationSeconds}
+                                                    value={shot.durationSeconds ?? defaultDurationSeconds}
+                                                    onChange={(event) => updateDuration(index, event.target.value)}
+                                                    className='rounded-md border border-white/20 bg-black text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
+                                                />
+                                            </div>
                                             <div className='space-y-2'>
                                                 <Label htmlFor={`shot-camera-${index}`} className='text-white/70'>
                                                     {t('Camera')}
@@ -422,6 +447,26 @@ export function ShotBuilderDialog({
                         className='bg-white text-black hover:bg-white/90 disabled:bg-white/40'>
                         {t('Apply to prompt')}
                     </Button>
+                    {onGenerateShots && (
+                        <Button
+                            type='button'
+                            onClick={() => void handleGenerateShots()}
+                            disabled={isGeneratingShots || !compiledPrompt.trim()}
+                            className='bg-white text-black hover:bg-white/90 disabled:bg-white/40'>
+                            {isGeneratingShots && <Loader2 className='h-4 w-4 animate-spin' />}
+                            {isGeneratingShots ? t('Generating shots<hellip>') : t('Generate each shot')}
+                        </Button>
+                    )}
+                    {onContinueShotQueue && pendingShotCount > 0 && (
+                        <Button
+                            type='button'
+                            onClick={() => void handleContinueShotQueue()}
+                            disabled={isGeneratingShots}
+                            className='bg-white text-black hover:bg-white/90 disabled:bg-white/40'>
+                            {isGeneratingShots && <Loader2 className='h-4 w-4 animate-spin' />}
+                            {t('Continue queue <lpar><lcur>count<rcur><rpar>', { count: pendingShotCount })}
+                        </Button>
+                    )}
                 </DialogFooter>
             </DialogContent>
         </Dialog>

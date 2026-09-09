@@ -1,0 +1,121 @@
+.panel {
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--studio-border);
+}
+
+.header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 0.75rem;
+}
+
+.title {
+    margin: 0;
+    color: var(--studio-foreground);
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.description {
+    margin: 0.25rem 0 0;
+    color: var(--studio-muted);
+    font-size: 0.75rem;
+    line-height: 1.5;
+}
+
+.summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
+.chip {
+    border: 1px solid var(--studio-border);
+    border-radius: 999px;
+    padding: 0.25rem 0.55rem;
+    color: var(--studio-muted);
+    font-size: 0.6875rem;
+}
+
+.grid {
+    display: grid;
+    gap: 0.6rem;
+}
+
+.empty {
+    display: grid;
+    gap: 0.35rem;
+    border: 1px dashed var(--studio-border);
+    border-radius: 0.65rem;
+    padding: 0.8rem;
+    color: var(--studio-muted);
+    font-size: 0.75rem;
+    line-height: 1.5;
+}
+
+.empty strong {
+    color: var(--studio-foreground);
+    font-size: 0.8125rem;
+}
+
+.asset {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.5rem;
+    align-items: center;
+    border: 1px solid var(--studio-border);
+    border-radius: 0.65rem;
+    padding: 0.65rem;
+    background: var(--studio-surface);
+}
+
+.name {
+    overflow: hidden;
+    color: var(--studio-foreground);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: 0.25rem;
+    color: var(--studio-muted);
+    font-size: 0.6875rem;
+}
+
+.actions {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+}
+
+.dropdown {
+    height: 2rem;
+    background: var(--studio-surface);
+    color: var(--studio-foreground);
+    font-size: 0.75rem;
+}
+
+.remove {
+    height: 2rem;
+    border: 1px solid var(--studio-border);
+    border-radius: 0.45rem;
+    background: transparent;
+    color: var(--studio-muted);
+    padding: 0 0.55rem;
+    cursor: pointer;
+    font-size: 0.75rem;
+}
+
+.remove:hover {
+    color: var(--studio-foreground);
+    background: var(--studio-hover);
+}

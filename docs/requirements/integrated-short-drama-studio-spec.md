@@ -9,7 +9,9 @@ Xct Studio is an integrated AI short-drama production workstation.
 It should support the complete creator path in one product, rather than leaving script writing, storyboarding, asset management, localization, and post-production as unrelated tools.
 
 ```text
-IP Assets
+Project
+  -> Project Assets
+  -> IP Assets
   -> Script Creation
   -> Episode Planning
   -> Scene And Shot Storyboard
@@ -34,6 +36,7 @@ The default user may understand storytelling but does not need professional stor
 | Module | Creator outcome | Core capabilities |
 | --- | --- | --- |
 | Workspace | Organize a production | projects, IPs, Episodes, status, recent work |
+| Project Assets | Prepare the material for one production | uploaded media, generated media, Asset IDs, characters, locations, props, audio, documents, style references |
 | IP Assets | Reuse a stable story world | characters, wardrobe, locations, props, visual style, voice, reference packs |
 | Script Studio | Turn an idea into a producible episode | write, import, AI co-write, version, characters, beats, dialogue |
 | Storyboard | Turn a script into editable production units | scenes, shots, camera, action, emotion, timing, references, prompts |
@@ -48,6 +51,7 @@ The default user may understand storytelling but does not need professional stor
 Every production view should resolve to the same context:
 
 - current workspace or project
+- current Project Asset library
 - current IP and locked asset versions
 - current Episode
 - current Script Version
@@ -55,6 +59,24 @@ Every production view should resolve to the same context:
 - current Episode Version when assembling or localizing
 
 For example, opening a candidate from the asset library should reveal which Shot, Episode, IP character version, generation settings, and selected-take status it belongs to.
+
+## Project Asset Workspace
+
+Short-drama creation starts from a Project, not from an isolated generation form. The Project owns the production asset workspace shown to the creator.
+
+The Project Asset Workspace should include:
+
+- all uploaded and generated media attached to the Project;
+- provider Asset IDs and review/admission status;
+- verified real-person references;
+- virtual character groups and Character Version reference packs;
+- reusable locations and backgrounds;
+- recurring props;
+- audio assets such as BGM, sound effects, voice references, and TTS outputs;
+- document assets such as source scripts, novels, style guides, and authorization notes;
+- style assets such as color, lighting, tone, and negative constraints.
+
+The current global Assets tab can be reused as a source library and migration surface, but the production workspace should show Project-scoped assets first. Episode, Scene, and Shot generation should bind to Project Assets and snapshot the exact assets used.
 
 ## Script Creation
 
@@ -172,4 +194,3 @@ A creator can:
 5. Select one take per Shot and assemble an Episode Version.
 6. Edit source captions, create a translated subtitle track, and export a localized version.
 7. Return to the production later without losing its IP, script, Shot, candidate, and version relationships.
-

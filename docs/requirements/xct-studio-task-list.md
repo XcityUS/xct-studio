@@ -1,14 +1,18 @@
 # Xct Studio Platform Task List
 
-Last updated: 2026-09-07
+Last updated: 2026-09-09
 
 This is the product-level implementation sequence. The more detailed Next 16 and i18n checklist remains in requirements/next16-i18n-task-list.md.
 
 ## Current Progress
 
-The runtime, locale shell, flat-key enforcement, and existing component ownership are delivered. Studio tabs now have durable locale-prefixed paths while sharing one persistent workspace implementation. The current reference flow also models provider Asset ID admission and separate public-figure/IP authorization gates. This is foundation work, not delivery of the full IP/Episode production model.
+The runtime, locale shell, flat-key enforcement, and existing component ownership are delivered. Studio tabs now have durable locale-prefixed paths while sharing one persistent workspace implementation. The current reference flow also models provider Asset ID admission and separate public-figure/IP authorization gates. This is foundation work, not delivery of the full Project/IP/Episode production model.
 
-Next bounded UI task: translate the asset library, assembly editor, and remaining image/remix/finalize generation dialogs. Keep provider/server migration, full styling migration, and new domain/persistence work as explicit separate phases below. Directory presence and documented contracts do not count as working business features.
+Next bounded platform decision: review and approve the
+[Episode Production Pipeline Architecture Proposal](../architecture/episode-production-pipeline-proposal.md).
+No Project/Episode implementation task starts until its Architecture Gate A0 resolves the authoritative Project identity, relational persistence, job runtime, and Agent/Manual approval policy. Directory presence and documented contracts do not count as working business features.
+
+The proposal recommends delivering one vertical production slice before expanding subtitles and multilingual work. The detailed dependency graph and acceptance criteria live in the proposal; this checklist remains the product-level rollup.
 
 ## Phase 0: Documentation And Harness
 
@@ -17,6 +21,7 @@ Next bounded UI task: translate the asset library, assembly editor, and remainin
 - [x] Define IP, Episode, Scene, Shot, Candidate, and Selected Take terminology.
 - [x] Define integrated short-drama production scope.
 - [x] Define IP continuity and Episode Pipeline specifications.
+- [x] Define Project-scoped asset workspace requirements.
 - [x] Define reference-project roles and short-drama business constraints in `docs/rules/business.md`.
 - [x] Add automated naming and file-length checks with an explicit no-growth legacy baseline and CI gate.
 - [x] Pin pnpm and document/install its constraints.
@@ -58,12 +63,14 @@ Next bounded UI task: translate the asset library, assembly editor, and remainin
 
 ## Phase 3: Domain Contracts And Draft State
 
-- [ ] Add product contracts for IP, Character Version, Script Version, Episode, Scene, Shot, Candidate, Episode Version, Subtitle Track, and Export.
-- [ ] Add mock or browser-draft adapters before adding durable persistence.
+- [ ] Complete Architecture Gate A0 and record the approved/rejected decisions in ADRs.
+- [ ] Introduce server-side production persistence before making Episode, Scene, Shot, or selection state a product source of truth.
+- [ ] Add product contracts for Project, Project Asset, IP, Character Version, Script Version, Episode, Scene, Shot, Candidate, Episode Version, Subtitle Track, and Export.
+- [ ] Add test adapters for isolated UI and contract tests; do not make a browser-draft adapter the production source of truth.
 - [ ] Map existing history items to Candidate-compatible contracts without breaking history.
 - [ ] Keep current creation and assembly flows working through adapters.
 
-## Phase 4: IP Asset Library
+## Phase 4: Project And IP Asset Library
 
 - [x] Require active Asset IDs for non-exempt references and retain the Studio/Seedream provenance exemption.
 - [x] Add a typed Asset ID intake path for reviewed, official, virtual, real-person, public-figure, and protected-IP material.
@@ -72,6 +79,15 @@ Next bounded UI task: translate the asset library, assembly editor, and remainin
 - [x] Let no-person and external-AI references submit provider review inline, retain Processing/Failed state, and admit only Active Asset IDs.
 - [x] List the signed-in user's BytePlus assets from owned provider groups and merge them into the main Assets grid with review state and Asset ID references.
 - [x] Reuse the existing Xcity cloud URL when a `/video` reference is submitted for review; replace it with `asset://<assetId>` only after the provider reports `Active`.
+- [ ] Add short-drama Project create/open/list shell before production asset work.
+- [ ] Add Project Asset contracts and attach/detach existing global assets to a Project.
+- [ ] Add Project Asset classification: character, location, prop, audio, video, image, document, style, other.
+- [ ] Add Project Asset filters and grouped workspace view matching the product direction: all, image, video, audio, document, provider-ready, needs review, failed/revoked.
+- [ ] Register official/provider Asset IDs as Project Assets without duplicating media bytes.
+- [ ] Move virtual character group creation into the current Project context while reusing the existing provider group APIs.
+- [ ] Add Character and Character Version records backed by ordered Project Asset reference packs.
+- [ ] Add Project-level location, prop, audio, document, and style asset placeholders.
+- [ ] Add asset usage read model showing where a Project Asset is used across Episode, Scene, Shot, Candidate, and Export.
 - [ ] Persist admitted-asset review state, subject coverage, revocation, and authorization records outside browser history.
 - [ ] Add IP list and IP profile.
 - [ ] Add Character profiles and Character Versions.
@@ -81,11 +97,16 @@ Next bounded UI task: translate the asset library, assembly editor, and remainin
 
 ## Phase 5: Script And Storyboard
 
-- [ ] Add script editor, import, and versions.
-- [ ] Add AI-assisted outline, scene, and dialogue drafts.
-- [ ] Convert a Script Version into editable Scenes and Shots.
+- [x] Extend the legacy Shot Builder with 20 MB TXT, Markdown, DOC, DOCX, and PDF text import; this remains an interim prompt workflow and does not create a Script Version.
+- [x] Move the legacy script-breakdown model call behind a typed server route and clear/reconfigure rejected browser keys.
+- [ ] Add script editor, import, immutable Script Versions, and original-input retention.
+- [ ] Add server-side AI analysis runs with validated, inspectable artifacts and retry state.
+- [ ] Add extracted-entity mapping against existing admitted Assets.
+- [ ] Generate an editable Breakdown Draft before formal production records.
+- [ ] Publish an accepted Breakdown Draft into versioned Scenes and Shots.
 - [ ] Add storyboard cards and reorder, split, merge, and manual edit actions.
 - [ ] Add practical Shot fields and advanced prompt controls.
+- [ ] Add computed Shot readiness with explicit blocked and stale reasons.
 
 ## Phase 6: Generation And Selection
 
@@ -115,8 +136,10 @@ Next bounded UI task: translate the asset library, assembly editor, and remainin
 
 ## Phase 9: Durable Persistence And Operations
 
-- [ ] Choose and design a server-side production database.
-- [ ] Introduce workspace ownership, migrations, concurrency behavior, and backups.
+- [ ] Choose and design a server-side production database in Architecture Gate A0; implement it before the Phase 3 production entities.
+- [ ] Introduce workspace ownership, migrations, concurrency behavior, and backups as the Episode vertical-slice foundation.
 - [ ] Move local browser storage to cache and migration compatibility roles.
 - [ ] Add job idempotency and durable retry behavior.
 - [ ] Add telemetry, failure dashboards, and operational release checks.
+
+Phase 9 remains the operations hardening rollup. Its database and durable-job prerequisites are intentionally pulled forward into the first Episode production slice; they must not be deferred until after Scene/Shot/Candidate UI work.

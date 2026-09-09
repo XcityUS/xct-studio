@@ -1,6 +1,6 @@
 # Runtime Upgrade Status
 
-Last updated: 2026-09-07
+Last updated: 2026-09-09
 
 ## Approved Scope
 
@@ -99,6 +99,8 @@ The rule is now implemented and checked: `components/ui/Input/index.tsx` with `i
 Harness rejects wrong component entries, wrong/orphan/shared component stylesheets, duplicate nonlocalized page trees, localized APIs, a second middleware entry, retired directory additions, known provider SDK imports outside adapters/legacy exceptions, missing server-only markers, and client-to-server paths through local runtime imports/re-exports. It checks pnpm pins and root lockfile exclusivity. Raw HTTP provider detection, semantic domain boundaries, and full legacy Tailwind migration still require review and behavior tests.
 
 ## Deferred Migration
+
+The script-file import follow-up touched two legacy components without broadening their ownership. `StudioWorkspace` only rewires its breakdown callback to the server API and rejected-key recovery; `ShotBuilderDialog` delegates new upload interaction and styling to its owned `ScriptImportField` CSS Module. Their broader orchestration and Tailwind migrations remain deferred.
 
 1. Remove legacy Tailwind classes/wrappers/dependencies and migrate remaining runtime JavaScript, including the Worker.
 2. Move all provider SDK calls, submission, and polling from browser adapters into authenticated server application services.

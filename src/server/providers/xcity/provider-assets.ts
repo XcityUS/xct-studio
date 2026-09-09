@@ -1,8 +1,18 @@
+import { createHash } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import 'server-only';
 
-const RETRYABLE_READ_STATUSES = new Set([502, 503, 504]);
-const READ_RETRY_DELAYS_MS = [150, 400] as const;
+const RETRYABLE_READ_STATUSES = new Set([429, 502, 503, 504]);
+const READ_RETRY_DELAYS_MS = [500, 1500] as const;
+const READ_CACHE_TTL_MS = 60_000;
+const STALE_READ_CACHE_TTL_MS = 5 * 60_000;
+
+type ReadCacheEntry = {
+    body: unknown;
+    createdAt: number;
+};
+
+const readCache = new Map<string, ReadCacheEntry>();
 
 function gatewayV1BaseUrl(): string {
     const configured = (
@@ -46,6 +56,28 @@ function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function readCacheKey(path: string, bearer: string): string {
+    const subject = createHash('sha256').update(bearer).digest('hex').slice(0, 24);
+    return `${subject}:${path}`;
+}
+
+function cachedRead(path: string, bearer: string, ttlMs: number): unknown | null {
+    const cached = readCache.get(readCacheKey(path, bearer));
+    return cached && Date.now() - cached.createdAt <= ttlMs ? cached.body : null;
+}
+
+function cacheRead(path: string, bearer: string, body: unknown) {
+    readCache.set(readCacheKey(path, bearer), { body, createdAt: Date.now() });
+}
+
+function providerErrorMessage(status: number, body: unknown): string {
+    const message = errorMessage(body);
+    if (message) return message;
+    if (status === 429) return 'Provider asset service is rate-limited. Please wait a minute, then refresh.';
+    if (status === 401 || status === 403) return 'Provider asset authentication failed. Check your Xcity API key.';
+    return `Provider asset request failed (${status}).`;
+}
+
 async function fetchProviderAsset(
     url: string,
     init: RequestInit,
@@ -81,16 +113,33 @@ export async function providerAssetResponse(
             cache: 'no-store'
         };
         const method = (requestInit.method ?? 'GET').toUpperCase();
+        const canUseReadCache = method === 'GET' || method === 'HEAD';
+        const freshCached = canUseReadCache ? cachedRead(path, bearer, READ_CACHE_TTL_MS) : null;
+        if (freshCached) {
+            return NextResponse.json(freshCached, { status: 200, headers: { 'X-Xcity-Cache': 'hit' } });
+        }
         const { response, body } = await fetchProviderAsset(
             `${gatewayV1BaseUrl()}/provider-assets${path}`,
             requestInit,
-            method === 'GET' || method === 'HEAD' ? READ_RETRY_DELAYS_MS : []
+            canUseReadCache ? READ_RETRY_DELAYS_MS : []
         );
         if (!response.ok) {
+            const staleCached = response.status === 429 && canUseReadCache
+                ? cachedRead(path, bearer, STALE_READ_CACHE_TTL_MS)
+                : null;
+            if (staleCached) {
+                return NextResponse.json(staleCached, {
+                    status: 200,
+                    headers: { 'X-Xcity-Cache': 'stale', 'X-Xcity-Upstream-Status': String(response.status) }
+                });
+            }
             return NextResponse.json(
-                { error: errorMessage(body) || `Provider asset request failed (${response.status}).` },
+                { error: providerErrorMessage(response.status, body) },
                 { status: response.status }
             );
+        }
+        if (canUseReadCache) {
+            cacheRead(path, bearer, body);
         }
         return NextResponse.json(body, { status: response.status });
     } catch (error) {

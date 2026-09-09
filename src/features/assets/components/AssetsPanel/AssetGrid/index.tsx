@@ -12,6 +12,7 @@ import type { ReferenceUseOptions } from '@/features/assets/components/AssetsPan
 import { cn } from '@/shared/utils/classnames';
 import {
     AlertCircle,
+    Boxes,
     Clock3,
     ImagePlus,
     Loader2,
@@ -32,6 +33,7 @@ export type AssetGridProps = {
     onSaveCharacter: (asset: AssetListItem['asset'], referenceUrl: string) => void;
     onUseImage: (sourceUrl: string, providerReferenceUrl?: string, options?: ReferenceUseOptions) => void;
     onUseVideo: (sourceUrl: string, providerReferenceUrl?: string) => void;
+    onAttachProjectAsset?: (item: AssetListItem) => void;
     checkingAssetId: string | null;
     onCheckReviewStatus: (portrait: NonNullable<AssetListItem['portrait']>) => Promise<void>;
 };
@@ -67,6 +69,7 @@ export function AssetGrid({
     onSaveCharacter,
     onUseImage,
     onUseVideo,
+    onAttachProjectAsset,
     checkingAssetId,
     onCheckReviewStatus
 }: AssetGridProps) {
@@ -150,7 +153,22 @@ export function AssetGrid({
                                     </div>
                                 </div>
                             </div>
-                            <div className={cn(styles.actions, asset.kind !== 'image' && styles.twoActions)}>
+                            <div
+                                className={cn(
+                                    styles.actions,
+                                    asset.kind !== 'image' && !onAttachProjectAsset && styles.twoActions,
+                                    onAttachProjectAsset && styles.withProjectAction
+                                )}>
+                                {onAttachProjectAsset && (
+                                    <button
+                                        type='button'
+                                        className={styles.action}
+                                        onClick={() => onAttachProjectAsset(item)}
+                                        title={t('Attach to current project')}>
+                                        <Boxes />
+                                        <span className={styles.actionLabel}>{t('Project')}</span>
+                                    </button>
+                                )}
                                 {asset.kind === 'image' && (
                                     <>
                                         <button

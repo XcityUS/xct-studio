@@ -6,7 +6,7 @@ import { AssetStrip } from './AssetStrip';
 import { CharacterDialog } from './CharacterDialog';
 import { CharacterGroupBrowser } from './CharacterGroupBrowser';
 import { DeleteCharacterGroupDialog } from './DeleteCharacterGroupDialog';
-import { buildAssetList, selectablePortraitSourceAssets } from './asset-list';
+import { buildAssetList, selectablePortraitSourceAssets, type AssetListItem } from './asset-list';
 import type { AssetsPanelProps } from './types';
 import { defaultCharacterName, portraitCollections, portraitGroupLabel, shortAssetId } from './utils';
 import { Button } from '@/components/ui/Button';
@@ -21,6 +21,7 @@ import type { PortraitGroup, PortraitGroupType } from '@/features/assets/portrai
 import { createAndTrackPortraitAsset } from '@/features/assets/portrait/track';
 import { assetIdFromReferenceUrl, refKey } from '@/features/assets/reference/origin';
 import { characterPreviewUrl } from '@/features/generation/history/characters';
+import { ProjectAssetWorkspace } from '@/features/projects/components/ProjectAssetWorkspace';
 import type { UserAsset } from '@/lib/media-archive';
 import { ImagePlus, Loader2, RefreshCw, ShieldCheck, Sparkles, Trash2, UserRound } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -53,6 +54,10 @@ export function AssetsPanel({
     onUseAsReferenceVideo,
     onAttachAssetId,
     onUpdateOfficialAssetNote,
+    projectAssets = [],
+    onAttachProjectAsset,
+    onChangeProjectAssetKind,
+    onRemoveProjectAsset,
     active
 }: AssetsPanelProps) {
     const t = useTranslations();
@@ -60,6 +65,7 @@ export function AssetsPanel({
     const loadPortraitGroupsError = t('Could not load portrait groups');
     const assetsSignInError = t('Sign in at xcity<dot>ai or set an API key to view your assets');
     const characterFallback = t('Character');
+    const unknownError = t('Unknown error');
     const assetCharacterName = (asset: UserAsset) => defaultCharacterName(asset, characterFallback);
     const [assets, setAssets] = React.useState<UserAsset[] | null>(null);
     const [isLoading, setIsLoading] = React.useState(false);
@@ -82,8 +88,7 @@ export function AssetsPanel({
     const [portraitDrafts, setPortraitDrafts] = React.useState<Record<string, { assetKey: string; name: string }>>({});
     const [portraitStatus, setPortraitStatus] = React.useState<string | null>(null);
     const [isCheckingPortraitSetup, setIsCheckingPortraitSetup] = React.useState(false);
-    const errorMessage = (value: unknown) =>
-        value instanceof Error && value.message ? value.message : t('Unknown error');
+    const errorMessage = React.useCallback((value: unknown) => (value instanceof Error && value.message ? value.message : unknownError), [unknownError]);
 
     const checkPortraitSetup = async () => {
         setIsCheckingPortraitSetup(true);
@@ -96,7 +101,7 @@ export function AssetsPanel({
                           projectName: status.projectName
                       })
                     : t('Portrait libraries unavailable<colon> <lcur>error<rcur>', {
-                          error: status.error || t('Unknown error')
+                          error: status.error || unknownError
                       })
             );
         } catch (err) {
@@ -132,12 +137,12 @@ export function AssetsPanel({
         setPortraitError(null);
         try {
             setPortraitGroups(await loadPortraitGroups('all'));
-        } catch {
-            setPortraitError(loadPortraitGroupsError);
+        } catch (err) {
+            setPortraitError(errorMessage(err) || loadPortraitGroupsError);
         } finally {
             setIsLoadingPortraitGroups(false);
         }
-    }, [loadPortraitGroups, loadPortraitGroupsError, portraitEnabled]);
+    }, [errorMessage, loadPortraitGroups, loadPortraitGroupsError, portraitEnabled]);
 
     const {
         assets: providerAssets,
@@ -168,6 +173,14 @@ export function AssetsPanel({
             );
         }
     };
+
+    const handleAttachProjectAsset = React.useCallback(
+        (item: AssetListItem) => {
+            onAttachProjectAsset?.(item.asset, item.referenceUrl);
+            setError(null);
+        },
+        [onAttachProjectAsset]
+    );
 
     // First fetch happens when the tab first becomes visible.
     const fetchedRef = React.useRef(false);
@@ -313,8 +326,8 @@ export function AssetsPanel({
                     : t('Using existing character group <lcur>name<rcur>', { name: result.slug })
             );
             await refreshPortraitGroups();
-        } catch {
-            setCharacterGroupError(t('Could not create character group'));
+        } catch (err) {
+            setCharacterGroupError(errorMessage(err) || t('Could not create character group'));
         } finally {
             setIsCreatingVirtualGroup(false);
         }
@@ -475,6 +488,13 @@ export function AssetsPanel({
             <CardContent className='flex-grow overflow-y-auto p-4'>
                 {error && <p className='mb-3 text-sm text-red-400'>{error}</p>}
                 {providerAssetsError && <p className='mb-3 text-sm text-red-400'>{providerAssetsError}</p>}
+                {(onChangeProjectAssetKind || onRemoveProjectAsset) && (
+                    <ProjectAssetWorkspace
+                        assets={projectAssets}
+                        onChangeKind={(assetId, kind) => onChangeProjectAssetKind?.(assetId, kind)}
+                        onArchive={(assetId) => onRemoveProjectAsset?.(assetId)}
+                    />
+                )}
                 <AssetIdIntake onAttachAssetId={onAttachAssetId} />
                 <AssetLibrary
                     checkingAssetId={checkingAssetId}
@@ -489,6 +509,7 @@ export function AssetsPanel({
                     onSaveCharacter={openCharacterDialog}
                     onUseImage={onUseAsReference}
                     onUseVideo={onUseAsReferenceVideo}
+                    onAttachProjectAsset={onAttachProjectAsset ? handleAttachProjectAsset : undefined}
                     onUpdateOfficialAssetNote={onUpdateOfficialAssetNote}
                 />
 

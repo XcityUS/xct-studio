@@ -2,16 +2,23 @@ import type { ProviderAssetReviewInput } from '@/features/assets/hooks/use-provi
 import type { PortraitGroup } from '@/features/assets/portrait/api';
 import { type ReferenceDeclaration, type ReferenceOrigin } from '@/features/assets/reference/origin';
 import type { VideoCharacter, VideoPortrait } from '@/features/generation/hooks/use-video-history';
-import { type ShotDraft } from '@/features/script/components/ShotBuilderDialog';
+import type { ShotDraft } from '@/features/script/types';
 import type { TtsVoice } from '@/lib/tts';
+import type { ProductionSnapshot } from '@/shared/contracts/production';
 import { type VideoModel, type VideoRatio, type VideoResolution } from '@/shared/config/seedance';
 import type { VideoJobCreate } from '@/shared/contracts/video';
 import * as React from 'react';
 
 export type CreationFormData = VideoJobCreate;
 
+export type CreationSubmitOptions = {
+    title?: string;
+    rethrowOnError?: boolean;
+    onSubmitStage?: (message: string) => void;
+};
+
 export type CreationFormProps = {
-    onSubmit: (data: CreationFormData) => void;
+    onSubmit: (data: CreationFormData, options?: CreationSubmitOptions) => void | Promise<string | null>;
     isLoading: boolean;
     model: VideoModel;
     setModel: React.Dispatch<React.SetStateAction<VideoModel>>;
@@ -73,6 +80,13 @@ export type CreationFormProps = {
     onOptimizePrompt?: (prompt: string) => Promise<string>;
     /** Splits a script into Seedance shot rows via the gateway's chat API. */
     onBreakdownScript?: (script: string) => Promise<ShotDraft[]>;
+    /** Captures the current Project and bound production assets before a generation request is persisted. */
+    buildProductionSnapshot?: (shot?: {
+        id: string;
+        index: number;
+        count: number;
+        durationSeconds: number;
+    }) => ProductionSnapshot;
     /** Opens the Assets tab for portrait-library setup. */
     onOpenAssets?: (referenceKey?: string) => void;
     /** Successful/neutral feedback from non-submit actions, rendered under the Create button. */

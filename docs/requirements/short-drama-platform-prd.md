@@ -30,6 +30,7 @@ Detailed specifications:
 
 - requirements/integrated-short-drama-studio-spec.md
 - requirements/ip-continuity-spec.md
+- requirements/project-asset-workspace-spec.md
 - requirements/episode-pipeline-spec.md
 
 ## MVP User
@@ -61,6 +62,38 @@ It includes:
 - characters
 - recurring locations
 - recurring props
+
+### Project
+
+A Project is the production workspace for one short-drama IP, series, or delivery effort.
+
+It includes:
+
+- title
+- owner/workspace
+- linked IP or story world
+- source language and default output policy
+- Project Assets
+- Episodes
+- recent production status
+- unresolved blockers
+
+Project is the first object a creator should create or open. Assets, scripts, Episodes, Shots, Candidates, and exports should resolve through the current Project instead of behaving as unrelated global tools.
+
+### Project Asset
+
+A Project Asset is a reusable piece of material attached to the current Project.
+
+It includes:
+
+- asset kind: character, location, prop, audio, video, image, document, style, or other
+- global media reference, when reused from the current asset library
+- provider Asset ID, when available
+- review/admission state
+- tags, notes, source type, and preview
+- usage links to Character, Episode, Scene, Shot, Candidate, or Export
+
+The global Assets tab may remain as a source library, but production generation should use Project Assets and snapshot their exact versions into Shot generation attempts.
 
 ### Script Version
 
@@ -153,17 +186,20 @@ Do not model shots as 30-second blocks by default. Longer scenes should be split
 
 ## Main Workflow
 
-1. User creates or selects an IP.
-2. User creates or imports a versioned script for an episode.
-3. AI extracts characters, scenes, and shots.
-4. User reviews and edits the generated storyboard and shot list.
-5. System injects IP, character, scene, and continuity locks into each shot prompt.
-6. User batch-generates candidates for each shot.
-7. User selects the best take per shot.
-8. System assembles selected takes into an episode version.
-9. User adds subtitles, voiceover, BGM, watermark, and export format.
-10. User creates translated subtitle or dubbed-language versions when needed.
-11. User exports or publishes the final episode.
+1. User creates or opens a short-drama Project.
+2. User attaches or uploads Project Assets: characters, locations, props, audio, documents, style references, and existing media.
+3. User creates or selects an IP inside the Project.
+4. User creates or imports a versioned script for an episode.
+5. AI extracts characters, scenes, shots, locations, props, dialogue, and continuity requirements.
+6. User maps extracted entities to Project Assets or creates placeholders.
+7. User reviews and edits the generated storyboard and shot list.
+8. System injects Project/IP, character, scene, prop, style, and continuity locks into each shot prompt.
+9. User batch-generates candidates for each shot.
+10. User selects the best take per shot.
+11. System assembles selected takes into an episode version.
+12. User adds subtitles, voiceover, BGM, watermark, and export format.
+13. User creates translated subtitle or dubbed-language versions when needed.
+14. User exports or publishes the final episode.
 
 ## Character Consistency Requirements
 
@@ -252,6 +288,7 @@ Current code already covers:
 The harness should add the missing organizing layer:
 
 ```text
+Project -> Project Assets
 History item -> Shot candidate
 Selected history item -> Selected take
 Assembly editor input -> Episode timeline

@@ -1,0 +1,188 @@
+.panel {
+    display: grid;
+    gap: 1rem;
+    padding: 1.25rem;
+    border: 1px solid var(--studio-border);
+    border-radius: 1rem;
+    background: var(--studio-surface);
+    color: var(--studio-foreground);
+    box-shadow: var(--studio-raised-shadow);
+}
+
+.main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(18rem, 0.72fr);
+    gap: 1rem;
+    align-items: start;
+    justify-content: space-between;
+}
+
+.content {
+    display: grid;
+    gap: 0.9rem;
+}
+
+.titleBlock {
+    min-width: 16rem;
+}
+
+.label {
+    margin-bottom: 0.25rem;
+    color: var(--studio-muted);
+    font-size: 0.75rem;
+}
+
+.title {
+    margin: 0;
+    font-size: 1.35rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+}
+
+.meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.35rem;
+    color: var(--studio-muted);
+    font-size: 0.75rem;
+}
+
+.controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    align-items: center;
+    justify-content: flex-end;
+}
+
+.input {
+    min-height: 2.25rem;
+    border: 1px solid var(--studio-border);
+    border-radius: 0.65rem;
+    background: var(--studio-surface);
+    color: var(--studio-foreground);
+}
+
+.dropdown {
+    max-width: 14rem;
+    background: var(--studio-surface);
+    color: var(--studio-foreground);
+}
+
+.input {
+    width: min(100%, 15rem);
+    padding: 0 0.7rem;
+}
+
+.button {
+    min-height: 2.25rem;
+    border: 0;
+    border-radius: 0.65rem;
+    background: var(--studio-foreground);
+    color: var(--studio-background);
+    padding: 0 0.85rem;
+    font-size: 0.875rem;
+    cursor: pointer;
+}
+
+.button:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+.dangerButton {
+    min-height: 2.25rem;
+    border: 1px solid var(--studio-border);
+    border-radius: 0.65rem;
+    background: transparent;
+    color: var(--studio-muted);
+    padding: 0 0.85rem;
+    font-size: 0.875rem;
+    cursor: pointer;
+}
+
+.dangerButton:hover:not(:disabled) {
+    background: var(--studio-danger-soft);
+    color: var(--studio-danger);
+}
+
+.dangerButton:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+.stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(7rem, 1fr));
+    gap: 0.6rem;
+}
+
+.stat {
+    display: grid;
+    gap: 0.2rem;
+    border: 1px solid var(--studio-border);
+    border-radius: 0.75rem;
+    padding: 0.65rem 0.75rem;
+    background: var(--studio-surface);
+    color: var(--studio-muted);
+    font-size: 0.75rem;
+}
+
+.stat strong {
+    color: var(--studio-foreground);
+    font-size: 1rem;
+    line-height: 1;
+}
+
+.guide {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    justify-content: space-between;
+    border: 1px dashed var(--studio-border);
+    border-radius: 0.75rem;
+    padding: 0.75rem 0.85rem;
+    background: var(--studio-surface);
+    color: var(--studio-muted);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+}
+
+.secondaryButton {
+    min-height: 2rem;
+    border: 1px solid var(--studio-border);
+    border-radius: 0.55rem;
+    background: var(--studio-surface);
+    color: var(--studio-foreground);
+    padding: 0 0.75rem;
+    cursor: pointer;
+    font-size: 0.8125rem;
+}
+
+.secondaryButton:hover {
+    background: var(--studio-hover);
+}
+
+@media (width <= 900px) {
+    .main {
+        grid-template-columns: 1fr;
+    }
+
+    .controls {
+        justify-content: flex-start;
+    }
+}
+
+@media (width <= 640px) {
+    .stats {
+        grid-template-columns: 1fr;
+    }
+
+    .input,
+    .dropdown {
+        width: 100%;
+        max-width: none;
+    }
+}

@@ -1,4 +1,5 @@
 import type { CostDetails } from './cost';
+import type { ProductionSnapshot } from './production';
 import type { VideoModel, VideoRatio, VideoResolution } from '@/shared/config/seedance';
 
 /**
@@ -132,6 +133,14 @@ export type VideoJobCreate = {
     seed?: number;
     /** Studio-only generation ladder flag. Omitted from the gateway request. */
     draft?: boolean;
+    /** Studio-only marker for shot-based production submissions. Omitted from the gateway request. */
+    episode_shot?: {
+        shotIndex: number;
+        shotCount: number;
+        durationSeconds: number;
+    };
+    /** Studio-only Project/asset/Shot snapshot for continuity, resume, and later migration. Omitted from the gateway request. */
+    production?: ProductionSnapshot;
     /** Studio-only final target resolution for a draft. Omitted from the gateway request. */
     final_resolution?: string;
     /** Studio branding watermark preference; handled after provider generation. */

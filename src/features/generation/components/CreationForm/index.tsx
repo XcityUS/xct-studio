@@ -4,6 +4,7 @@ import { CharacterSelectors } from './CharacterSelectors';
 import { InlineError } from './InlineError';
 import { CAMERA_TEMPLATES, nativeCheckboxClass, nativeRangeClass } from './constants';
 import { useCreationOptions } from './options';
+import { appendProjectReferenceUrls, compileShotPrompt, createQueueId, readShotQueue, type ShotQueueItem, withoutGeneratedLanguage, writeShotQueue } from './shot-queue';
 import type { CreationFormData, CreationFormProps, GenerationMode } from './types';
 import { appendCharacterPromptLine } from './utils';
 import { Button } from '@/components/ui/Button';
@@ -29,6 +30,7 @@ import type { VideoCharacter, VideoPortrait } from '@/features/generation/hooks/
 import { calculateVideoCost } from '@/features/generation/utils/cost';
 import { PromptInspirationDialog } from '@/features/script/components/PromptInspirationDialog';
 import { ShotBuilderDialog } from '@/features/script/components/ShotBuilderDialog';
+import type { ShotDraft } from '@/features/script/types';
 import {
     MAX_TITLE_OVERLAY_TEXT_LENGTH,
     SILENT_VOICE_LANGUAGE,
@@ -56,21 +58,12 @@ import {
     type VideoResolution
 } from '@/shared/config/seedance';
 import { cn } from '@/shared/utils/classnames';
-import {
-    ChevronDown,
-    Clapperboard,
-    CreditCard,
-    HelpCircle,
-    Lightbulb,
-    Loader2,
-    Sparkles,
-    Undo2,
-    Wand2
-} from 'lucide-react';
+import { ChevronDown, Clapperboard, CreditCard, HelpCircle, Lightbulb, Loader2, Sparkles, Undo2, Wand2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import * as React from 'react';
 
 export type { CreationFormData } from './types';
+
 export function CreationForm({
     onSubmit,
     isLoading,
@@ -127,6 +120,7 @@ export function CreationForm({
     onReviewReferenceAsset,
     onOptimizePrompt,
     onBreakdownScript,
+    buildProductionSnapshot,
     onOpenAssets,
     notice,
     onClearNotice,
@@ -186,6 +180,8 @@ export function CreationForm({
     const [isOptimizing, setIsOptimizing] = React.useState(false);
     const [isAdvancedOpen, setIsAdvancedOpen] = React.useState(false);
     const [optimizeError, setOptimizeError] = React.useState<string | null>(null);
+    const [isGeneratingShotBatch, setIsGeneratingShotBatch] = React.useState(false);
+    const [shotQueue, setShotQueue] = React.useState<ShotQueueItem[]>([]);
     const supportsCameraFixed = activeModel.includes('seedance-1-5');
     // The prompt as it was before the last AI rewrite, so Undo can restore it.
     const [promptBeforeOptimize, setPromptBeforeOptimize] = React.useState<string | null>(null);
@@ -210,12 +206,18 @@ export function CreationForm({
             ),
         [portraits]
     );
+    const pendingShotCount = shotQueue.length;
 
     React.useEffect(() => {
         if (model !== activeModel) {
             setModel(activeModel);
         }
     }, [activeModel, model, setModel]);
+
+    React.useEffect(() => {
+        const frame = window.requestAnimationFrame(() => setShotQueue(readShotQueue()));
+        return () => window.cancelAnimationFrame(frame);
+    }, []);
 
     React.useEffect(() => {
         if (!supportsDraftMode) {
@@ -325,15 +327,14 @@ export function CreationForm({
         [refCap, referenceUrls, setPrompt, setReferenceUrls]
     );
 
-    const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-        event.preventDefault();
-        if (blockedReferences.length > 0) return;
+    const buildSubmissionData = (nextPrompt = prompt, nextSeconds = activeSeconds, productionShot?: { id: string; index: number; count: number; durationSeconds: number }): CreationFormData => {
+        const productionSnapshot = buildProductionSnapshot?.(productionShot);
         const formData: CreationFormData = {
             model: activeModel,
-            prompt,
+            prompt: nextPrompt,
             ratio,
             resolution: activeResolution,
-            seconds: activeSeconds,
+            seconds: clampSeconds(nextSeconds, activeModel),
             generate_audio: normalizedVoiceLanguage !== SILENT_VOICE_LANGUAGE,
             camera_fixed: cameraFixed,
             seed,
@@ -348,11 +349,12 @@ export function CreationForm({
             title_overlay_duration: titleOverlayEnabled ? normalizedTitleOverlayDuration : undefined,
             title_overlay_language: titleOverlayEnabled ? normalizedTitleOverlayLanguage : undefined
         };
+        if (productionSnapshot) formData.production = productionSnapshot;
         if (isDraftMode) {
             formData.draft = true;
             formData.final_resolution = resolution;
         }
-        const refs = referenceUrls.map((u) => u.trim()).filter(Boolean);
+        const refs = appendProjectReferenceUrls(referenceUrls, productionSnapshot, refCap);
         const videos = showReferenceVideos ? referenceVideoUrls.map((u) => u.trim()).filter(Boolean) : [];
         if (refs.length === 1) {
             formData.input_reference_url = refs[0];
@@ -379,7 +381,73 @@ export function CreationForm({
                 formData.camera_fixed = undefined;
             }
         }
-        onSubmit(formData);
+        return formData;
+    };
+
+    const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        if (blockedReferences.length > 0) return;
+        void onSubmit(buildSubmissionData());
+    };
+
+    const updateShotQueue = (nextQueue: ShotQueueItem[]) => {
+        setShotQueue(nextQueue);
+        writeShotQueue(nextQueue);
+    };
+
+    const processShotQueue = async (initialQueue = shotQueue) => {
+        if (blockedReferences.length > 0 || isGeneratingShotBatch) return;
+        let remaining = initialQueue;
+        if (remaining.length === 0) return;
+        setIsGeneratingShotBatch(true);
+        try {
+            while (remaining.length > 0) {
+                const item = remaining[0];
+                await onSubmit(item.data, { title: item.title, rethrowOnError: true, onSubmitStage: () => undefined });
+                remaining = remaining.slice(1);
+                updateShotQueue(remaining);
+            }
+        } finally {
+            setIsGeneratingShotBatch(false);
+        }
+    };
+
+    const handleGenerateShots = async (
+        nextShots: ShotDraft[],
+        nextGlobalNote: string,
+        options: { useFormLanguageSettings: boolean }
+    ) => {
+        if (blockedReferences.length > 0 || isGeneratingShotBatch) return;
+        const generatableShots = nextShots.filter((shot) => shot.description.trim());
+        if (generatableShots.length === 0) return;
+        const queue = generatableShots.map((shot, index) => {
+            const shotPrompt = [nextGlobalNote.trim(), compileShotPrompt(shot, index, generatableShots.length)]
+                .filter(Boolean)
+                .join('\n');
+            const shotSeconds = clampSeconds(shot.durationSeconds ?? activeSeconds, activeModel);
+            const shotId = createQueueId();
+            const baseData = buildSubmissionData(shotPrompt, shotSeconds, {
+                id: shotId,
+                index: index + 1,
+                count: generatableShots.length,
+                durationSeconds: shotSeconds
+            });
+            return {
+                id: shotId,
+                order: index + 1,
+                title: t('Shot <lcur>number<rcur>', { number: index + 1 }),
+                data: {
+                    ...(options.useFormLanguageSettings ? baseData : withoutGeneratedLanguage(baseData)),
+                    episode_shot: {
+                        shotIndex: index + 1,
+                        shotCount: generatableShots.length,
+                        durationSeconds: shotSeconds
+                    }
+                }
+            };
+        });
+        updateShotQueue(queue);
+        await processShotQueue(queue);
     };
 
     return (
@@ -506,7 +574,14 @@ export function CreationForm({
                             setPromptBeforeOptimize(null);
                             setIsShotBuilderOpen(false);
                         }}
+                        onGenerateShots={handleGenerateShots}
                         onBreakdownScript={onBreakdownScript}
+                        defaultDurationSeconds={activeSeconds}
+                        minDurationSeconds={minSeconds}
+                        maxDurationSeconds={maxSeconds}
+                        isGeneratingShots={isGeneratingShotBatch || isLoading}
+                        pendingShotCount={pendingShotCount}
+                        onContinueShotQueue={() => processShotQueue()}
                     />
 
                     <div className='space-y-2'>

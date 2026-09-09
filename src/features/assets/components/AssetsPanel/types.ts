@@ -10,6 +10,7 @@ import {
 import type { ReferenceDeclaration, ReferenceOrigin } from '@/features/assets/reference/origin';
 import type { VideoCharacter, VideoPortrait } from '@/features/generation/hooks/use-video-history';
 import type { UserAsset } from '@/lib/media-archive';
+import type { ProjectAsset, ProjectAssetKind } from '@/shared/contracts/production';
 
 export type ReferenceUseOptions = {
     stayOnAssets?: boolean;
@@ -51,6 +52,10 @@ export type AssetsPanelProps = {
     onUseAsReferenceVideo: (sourceUrl: string, providerReferenceUrl?: string) => void;
     onAttachAssetId: (input: { assetId: string; origin: ReferenceOrigin; note?: string }) => boolean;
     onUpdateOfficialAssetNote: (key: string, note: string) => void;
+    projectAssets?: ProjectAsset[];
+    onAttachProjectAsset?: (asset: UserAsset, providerReferenceUrl?: string) => void;
+    onChangeProjectAssetKind?: (assetId: string, kind: ProjectAssetKind) => void;
+    onRemoveProjectAsset?: (assetId: string) => void;
     /** The panel fetches lazily — only once it has actually been shown. */
     active: boolean;
 };
