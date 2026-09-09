@@ -124,6 +124,15 @@
     white-space: nowrap;
 }
 
+.description {
+    overflow: hidden;
+    color: var(--studio-muted-soft);
+    font-size: 11px;
+    line-height: 15px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .edit {
     width: 100%;
     margin-top: 5px;

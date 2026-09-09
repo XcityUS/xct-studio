@@ -41,8 +41,10 @@ export function SelectedReference({
 }: SelectedReferenceProps) {
     const t = useTranslations();
     const isAsset = isAssetReferenceUrl(url);
+    const isOfficialAsset = declaration?.origin === 'official-asset';
     const previewUrl = portrait?.thumbUrl || (isAsset ? '' : url);
     const label = portrait?.name || t('Reference <lcur>number<rcur>', { number: index + 1 });
+    const officialDescription = declaration?.note || t('No description yet');
     const fallback = (
         <div className={styles.fallback}>
             {isAsset ? <ShieldCheck aria-hidden='true' /> : <ImageOff aria-hidden='true' />}
@@ -75,12 +77,18 @@ export function SelectedReference({
                 <ReferenceStatusBadge
                     declaration={declaration}
                     approvedAuthorizationIds={approvedAuthorizationIds}
-                    onEdit={disabled ? undefined : onEdit}
+                    onEdit={disabled || isOfficialAsset ? undefined : onEdit}
                 />
             </div>
             <div className={styles.name}>{label}</div>
-            {isAsset && <div className={styles.assetId}>{assetReferenceLabel(url)}</div>}
-            {declaration && !disabled && (
+            {isOfficialAsset ? (
+                <div className={styles.description} title={officialDescription}>
+                    {officialDescription}
+                </div>
+            ) : (
+                isAsset && <div className={styles.assetId}>{assetReferenceLabel(url)}</div>
+            )}
+            {declaration && !disabled && !isOfficialAsset && (
                 <button type='button' onClick={onEdit} className={styles.edit}>
                     {t('Change reference origin')}
                 </button>
