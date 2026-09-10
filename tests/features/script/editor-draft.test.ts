@@ -15,7 +15,6 @@ describe('short drama editor draft', () => {
             script: 'A',
             globalNote: '',
             automatic: false,
-            language: 'silent',
             characters: [],
             scenes: []
         };
@@ -41,7 +40,6 @@ describe('short drama editor draft', () => {
             script: 'A enters',
             globalNote: '',
             automatic: true,
-            language: 'silent',
             characters: [
                 {
                     id: 'character-1',

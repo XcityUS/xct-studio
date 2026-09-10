@@ -5,17 +5,12 @@ import { DramaLaunchPanel } from './DramaLaunchPanel';
 import { InlineError } from './InlineError';
 import { CAMERA_TEMPLATES, nativeCheckboxClass, nativeRangeClass } from './constants';
 import { useCreationOptions } from './options';
-import {
-    compileShotPrompt,
-    createQueueId,
-    readShotQueue,
-    type ShotQueueItem,
-    withoutGeneratedLanguage,
-    writeShotQueue
-} from './shot-queue';
+import { readShotQueue, storyboardQueueSignature, type ShotQueueItem, type ShotQueueScope, writeShotQueue } from './shot-queue';
+import { SHOT_GENERATION_BATCH_LIMIT, storyboardVideoQueueItems } from './storyboard-video-queue';
 import { createSubmissionBuilder } from './submission';
 import type { CreationFormProps, GenerationMode } from './types';
 import { useProjectConfig } from './use-project-config';
+import { useSceneAssetAutobind } from './use-scene-asset-autobind';
 import { appendCharacterPromptLine, referenceLabelsFor, referenceVideoPreviewsFor } from './utils';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -41,6 +36,7 @@ import { calculateVideoCost } from '@/features/generation/utils/cost';
 import { useVideoMode } from '@/features/projects/hooks/use-video-mode';
 import { PromptInspirationDialog } from '@/features/script/components/PromptInspirationDialog';
 import { ShotBuilderDialog } from '@/features/script/components/ShotBuilderDialog';
+import { recalledDraft, rememberDraft, type EditorDraft } from '@/features/script/components/ShotBuilderDialog/draft';
 import {
     MAX_TITLE_OVERLAY_TEXT_LENGTH,
     SILENT_VOICE_LANGUAGE,
@@ -53,7 +49,6 @@ import {
 } from '@/features/script/prompt/guards';
 import { applyPromptTemplate } from '@/features/script/prompt/templates';
 import { usePromptTemplateLabels } from '@/features/script/prompt/use-template-labels';
-import type { ShotDraft } from '@/features/script/types';
 import { XCITY_BILLING_URL, shouldShowBillingAction } from '@/features/settings/billing';
 import {
     DEFAULT_MODEL,
@@ -73,7 +68,7 @@ import { ChevronDown, CreditCard, HelpCircle, Lightbulb, Loader2, Sparkles, Undo
 import { useTranslations } from 'next-intl';
 import * as React from 'react';
 
-export type { CreationFormData } from './types';
+export type { CreationFormData, SceneAssetBindingProgress, ShotVideoPreview } from './types';
 
 export function CreationForm({
     onSubmit,
@@ -131,10 +126,8 @@ export function CreationForm({
     onReviewReferenceAsset,
     onOptimizePrompt,
     onBreakdownScript,
-    projectAssets = [],
-    projectConfig,
-    buildProductionSnapshot,
-    onOpenAssets,
+    onAutoBindSceneAssets,
+    projectAssets = [], projectConfig, buildProductionSnapshot, onOpenAssets, projectControls, storyboardEditorOpen, onStoryboardEditorOpenChange, onStoryboardDraftChange, shotVideoPreviews = [],
     notice,
     onClearNotice,
     error
@@ -189,12 +182,21 @@ export function CreationForm({
     );
 
     const [isInspirationOpen, setIsInspirationOpen] = React.useState(false);
-    const [isShotBuilderOpen, setIsShotBuilderOpen] = React.useState(false);
+    const [localShotBuilderOpen, setLocalShotBuilderOpen] = React.useState(false);
+    const isShotBuilderOpen = storyboardEditorOpen ?? localShotBuilderOpen;
+    const setIsShotBuilderOpen = React.useCallback((open: boolean) => { setLocalShotBuilderOpen(open); onStoryboardEditorOpenChange?.(open); }, [onStoryboardEditorOpenChange]);
     const [isOptimizing, setIsOptimizing] = React.useState(false);
     const [isAdvancedOpen, setIsAdvancedOpen] = React.useState(false);
     const [optimizeError, setOptimizeError] = React.useState<string | null>(null);
     const [isGeneratingShotBatch, setIsGeneratingShotBatch] = React.useState(false);
     const [shotQueue, setShotQueue] = React.useState<ShotQueueItem[]>([]);
+    const pendingShotCount = shotQueue.length;
+    const shotDraftKey = projectConfig?.id ?? buildProductionSnapshot?.().project.id ?? 'normal';
+    const [storyboardDraft, setStoryboardDraft] = React.useState<EditorDraft | undefined>(() => recalledDraft(shotDraftKey));
+    const shotQueueScope = React.useMemo<ShotQueueScope>(
+        () => ({ projectKey: shotDraftKey, draftSignature: storyboardQueueSignature(storyboardDraft) }),
+        [shotDraftKey, storyboardDraft]
+    );
     const supportsCameraFixed = activeModel.includes('seedance-1-5');
     const [promptBeforeOptimize, setPromptBeforeOptimize] = React.useState<string | null>(null);
     const [referenceVideoSecondsByUrl, setReferenceVideoSecondsByUrl] = React.useState<Record<string, number>>({});
@@ -207,7 +209,6 @@ export function CreationForm({
         [characters, portraits, referenceUrls]
     );
     const referenceVideoPreviewUrls = React.useMemo(() => referenceVideoPreviewsFor(portraits), [portraits]);
-    const pendingShotCount = shotQueue.length;
     useProjectConfig({
         enabled: videoMode === 'drama',
         project: projectConfig,
@@ -227,9 +228,20 @@ export function CreationForm({
     }, [activeModel, model, setModel]);
 
     React.useEffect(() => {
-        const frame = window.requestAnimationFrame(() => setShotQueue(readShotQueue()));
+        const frame = window.requestAnimationFrame(() => setShotQueue(readShotQueue(shotQueueScope)));
         return () => window.cancelAnimationFrame(frame);
-    }, []);
+    }, [shotQueueScope]);
+    React.useEffect(() => { const frame = window.requestAnimationFrame(() => setStoryboardDraft(recalledDraft(shotDraftKey))); return () => window.cancelAnimationFrame(frame); }, [shotDraftKey]);
+
+    const handleStoryboardDraftChange = React.useCallback(
+        (draft: EditorDraft) => {
+            const nextDraft = structuredClone(draft);
+            rememberDraft(shotDraftKey, nextDraft);
+            setStoryboardDraft(nextDraft);
+            onStoryboardDraftChange?.(nextDraft);
+        },
+        [onStoryboardDraftChange, shotDraftKey]
+    );
 
     React.useEffect(() => {
         if (!supportsDraftMode) {
@@ -374,67 +386,51 @@ export function CreationForm({
         if (blockedReferences.length > 0) return;
         void onSubmit(buildSubmissionData());
     };
-
     const updateShotQueue = (nextQueue: ShotQueueItem[]) => {
         setShotQueue(nextQueue);
-        writeShotQueue(nextQueue);
+        writeShotQueue(nextQueue, shotQueueScope);
     };
 
     const processShotQueue = async (initialQueue = shotQueue) => {
         if (blockedReferences.length > 0 || isGeneratingShotBatch) return;
-        let remaining = initialQueue;
+        let remaining = initialQueue.slice(0, SHOT_GENERATION_BATCH_LIMIT);
+        const deferred = initialQueue.slice(SHOT_GENERATION_BATCH_LIMIT);
         if (remaining.length === 0) return;
         setIsGeneratingShotBatch(true);
         try {
             while (remaining.length > 0) {
                 const item = remaining[0];
-                await onSubmit(item.data, { title: item.title, rethrowOnError: true, onSubmitStage: () => undefined });
+                const shotIndex = item.data.episode_shot?.shotIndex;
+                const replacesItemId = shotIndex
+                    ? shotVideoPreviews?.find((preview) => preview.shotIndex === shotIndex)?.jobId
+                    : undefined;
+                await onSubmit(item.data, { title: item.title, replacesItemId, rethrowOnError: true, onSubmitStage: () => undefined });
                 remaining = remaining.slice(1);
-                updateShotQueue(remaining);
+                setShotQueue([...remaining, ...deferred]);
             }
         } finally {
             setIsGeneratingShotBatch(false);
         }
     };
 
-    const handleGenerateShots = async (
-        nextShots: ShotDraft[],
-        nextGlobalNote: string,
-        options: { useFormLanguageSettings: boolean }
-    ) => {
-        if (blockedReferences.length > 0 || isGeneratingShotBatch) return;
-        const generatableShots = nextShots.filter((shot) => shot.description.trim());
-        if (generatableShots.length === 0) return;
-        const queue = generatableShots.map((shot, index) => {
-            const shotPrompt = [nextGlobalNote.trim(), compileShotPrompt(shot, index, generatableShots.length)]
-                .filter(Boolean)
-                .join('\n');
-            const shotSeconds = clampSeconds(shot.durationSeconds ?? activeSeconds, activeModel);
-            const shotId = createQueueId();
-            const baseData = buildSubmissionData(shotPrompt, shotSeconds, {
-                id: shotId,
-                index: index + 1,
-                count: generatableShots.length,
-                durationSeconds: shotSeconds,
-                assetIds: shot.assetIds
-            });
-            return {
-                id: shotId,
-                order: index + 1,
-                title: t('Shot <lcur>number<rcur>', { number: index + 1 }),
-                data: {
-                    ...(options.useFormLanguageSettings ? baseData : withoutGeneratedLanguage(baseData)),
-                    episode_shot: {
-                        shotIndex: index + 1,
-                        shotCount: generatableShots.length,
-                        durationSeconds: shotSeconds
-                    }
-                }
-            };
-        });
+    const handleGenerateShot = async (shot: EditorDraft['shots'][number], index: number) => {
+        if (!storyboardDraft || blockedReferences.length > 0 || isGeneratingShotBatch || !shot.description.trim()) return;
+        const queue = storyboardVideoQueueItems({ draft: storyboardDraft, shots: [{ shot, index }], activeSeconds, activeModel, buildSubmissionData, titleForShot: (itemIndex) => t('Shot <lcur>number<rcur>', { number: itemIndex + 1 }) });
         updateShotQueue(queue);
         await processShotQueue(queue);
     };
+
+    const handleGenerateAllShots = async () => {
+        if (!storyboardDraft || blockedReferences.length > 0 || isGeneratingShotBatch) return;
+        const queue = storyboardDraft.shots
+            .map((shot, index) => ({ shot, index }))
+            .filter(({ shot }) => shot.description.trim());
+        const items = storyboardVideoQueueItems({ draft: storyboardDraft, shots: queue, activeSeconds, activeModel, buildSubmissionData, titleForShot: (index) => t('Shot <lcur>number<rcur>', { number: index + 1 }) });
+        if (items.length === 0) return;
+        updateShotQueue(items);
+        await processShotQueue(items);
+    };
+    const sceneAssetAutobind = useSceneAssetAutobind({ draft: storyboardDraft, onAutoBind: onAutoBindSceneAssets, onDraftChange: handleStoryboardDraftChange });
 
     return (
         <Card className='flex h-full w-full flex-col overflow-hidden rounded-lg border border-white/10 bg-black'>
@@ -449,35 +445,39 @@ export function CreationForm({
                 </div>
             </CardHeader>
             <form onSubmit={handleSubmit} className='flex h-full flex-1 flex-col overflow-hidden'>
-                <CardContent
-                    data-creation-form-scroll
-                    className='flex-1 space-y-5 overflow-y-auto p-4 lg:overflow-visible'>
+                <CardContent data-creation-form-scroll className='flex-1 space-y-5 overflow-y-auto p-4'>
                     <ShotBuilderDialog
-                        key={buildProductionSnapshot?.().project.id ?? 'normal'}
-                        draftKey={buildProductionSnapshot?.().project.id ?? 'normal'}
-                        generationSummary={`${activeModel} · ${ratio} · ${activeResolution} · ${normalizedVoiceLanguage} · ${normalizedCaptionMode}`}
+                        key={shotDraftKey}
+                        draftKey={shotDraftKey}
                         isOpen={isShotBuilderOpen && videoMode === 'drama'}
                         onOpenChange={setIsShotBuilderOpen}
                         referenceCount={referenceUrls.length}
                         referenceLabels={referenceLabels}
-                        onGenerateShots={handleGenerateShots}
                         onBreakdownScript={onBreakdownScript}
+                        onDraftChange={handleStoryboardDraftChange}
                         projectAssets={projectAssets}
                         defaultDurationSeconds={activeSeconds}
                         minDurationSeconds={minSeconds}
                         maxDurationSeconds={maxSeconds}
                         isGeneratingShots={isGeneratingShotBatch || isLoading}
-                        pendingShotCount={pendingShotCount}
-                        onContinueShotQueue={
-                            shotQueue.every(
-                                (item) => item.data.production?.project.id === buildProductionSnapshot?.().project.id
-                            )
-                                ? () => processShotQueue()
-                                : undefined
-                        }
                     />
                     {videoMode === 'drama' ? (
-                        <DramaLaunchPanel disabled={isLoading} onOpen={() => setIsShotBuilderOpen(true)} />
+                        <DramaLaunchPanel
+                            disabled={isLoading}
+                            onOpen={() => setIsShotBuilderOpen(true)}
+                            projectControls={projectControls}
+                            storyboardDraft={storyboardDraft}
+                            projectAssets={projectAssets}
+                            onOpenAssets={onOpenAssets ? () => onOpenAssets() : undefined}
+                            onDraftChange={handleStoryboardDraftChange}
+                            onGenerateShot={handleGenerateShot}
+                            onGenerateAllShots={handleGenerateAllShots}
+                            isGeneratingShot={isGeneratingShotBatch || isLoading}
+                            pendingShotCount={pendingShotCount}
+                            shotVideoPreviews={shotVideoPreviews}
+                            onContinueShotQueue={() => void processShotQueue()}
+                            onAutoBindSceneAssets={sceneAssetAutobind.run} isAutoBindingSceneAssets={sceneAssetAutobind.busy} sceneAssetBindingError={sceneAssetAutobind.error} sceneAssetBindingProgress={sceneAssetAutobind.progress}
+                        />
                     ) : (
                         <>
                             <div className='space-y-1.5'>

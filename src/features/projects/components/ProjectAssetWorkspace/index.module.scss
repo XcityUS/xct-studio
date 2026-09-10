@@ -64,13 +64,17 @@
 
 .asset {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 0.5rem;
+    grid-template-columns: minmax(0, 1fr) minmax(8.8rem, auto);
+    gap: 0.75rem;
     align-items: center;
     border: 1px solid var(--studio-border);
     border-radius: 0.65rem;
     padding: 0.65rem;
     background: var(--studio-surface);
+}
+
+.info {
+    min-width: 0;
 }
 
 .name {
@@ -85,19 +89,30 @@
 .meta {
     display: flex;
     flex-wrap: wrap;
+    min-width: 0;
     gap: 0.35rem;
     margin-top: 0.25rem;
     color: var(--studio-muted);
     font-size: 0.6875rem;
 }
 
+.meta span {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .actions {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 0.4rem;
     align-items: center;
+    min-width: 0;
 }
 
 .dropdown {
+    min-width: 0;
     height: 2rem;
     background: var(--studio-surface);
     color: var(--studio-foreground);
@@ -105,6 +120,7 @@
 }
 
 .remove {
+    min-width: 3rem;
     height: 2rem;
     border: 1px solid var(--studio-border);
     border-radius: 0.45rem;
@@ -113,6 +129,7 @@
     padding: 0 0.55rem;
     cursor: pointer;
     font-size: 0.75rem;
+    white-space: nowrap;
 }
 
 .remove:hover {

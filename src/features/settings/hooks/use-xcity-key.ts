@@ -71,12 +71,11 @@ export function useXcityKey() {
     }, [attemptSso]);
 
     /**
-     * Call-time key resolution: current key if we have one, otherwise a fresh
-     * SSO fetch (keys rotate; a key may land after the calling closure was
-     * bound). Returns null only when genuinely signed out.
+     * Call-time key resolution: when SSO is enabled, fetch a fresh SSO key
+     * first because keys rotate and a manually stored key may be stale. Fall
+     * back to the current/manual key only when SSO is unavailable.
      */
     const resolveKey = React.useCallback(async (): Promise<string | null> => {
-        if (keyRef.current) return keyRef.current;
         if (XCITY_SSO_ENABLED) {
             const result = await fetchXcityUserKey();
             if (result.status === 'ok') {
@@ -84,7 +83,12 @@ export function useXcityKey() {
                 setSsoStatus('ok');
                 return result.key;
             }
+            setSsoStatus(result.status === 'unauthenticated' ? 'unauthenticated' : 'error');
+            if (result.status === 'error') {
+                setSsoError(result.message);
+            }
         }
+        if (keyRef.current) return keyRef.current;
         return null;
     }, [setKey]);
 

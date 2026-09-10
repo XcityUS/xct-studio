@@ -6,7 +6,7 @@ import { AssetStrip } from './AssetStrip';
 import { CharacterDialog } from './CharacterDialog';
 import { CharacterGroupBrowser } from './CharacterGroupBrowser';
 import { DeleteCharacterGroupDialog } from './DeleteCharacterGroupDialog';
-import { buildAssetList, selectablePortraitSourceAssets, type AssetListItem } from './asset-list';
+import { buildAssetList, selectablePortraitSourceAssets } from './asset-list';
 import type { AssetsPanelProps } from './types';
 import { defaultCharacterName, portraitCollections, portraitGroupLabel, shortAssetId } from './utils';
 import { Button } from '@/components/ui/Button';
@@ -26,6 +26,37 @@ import type { UserAsset } from '@/lib/media-archive';
 import { ImagePlus, Loader2, RefreshCw, ShieldCheck, Sparkles, Trash2, UserRound } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import * as React from 'react';
+
+const ASSET_NAME_ALIASES_STORAGE_KEY = 'xctStudioAssetNameAliases';
+
+function assetNameAliasKey(asset: UserAsset): string {
+    return asset.key || refKey(asset.url);
+}
+
+function readAssetNameAliases(): Record<string, string> {
+    if (typeof window === 'undefined') return {};
+    try {
+        const parsed = JSON.parse(window.localStorage.getItem(ASSET_NAME_ALIASES_STORAGE_KEY) ?? '{}') as unknown;
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+        return Object.fromEntries(
+            Object.entries(parsed)
+                .map(([key, value]) => [key, typeof value === 'string' ? value.trim() : ''])
+                .filter(([, value]) => value)
+        );
+    } catch {
+        return {};
+    }
+}
+
+function writeAssetNameAliases(aliases: Record<string, string>) {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(ASSET_NAME_ALIASES_STORAGE_KEY, JSON.stringify(aliases));
+}
+
+function applyAssetNameAlias(asset: UserAsset, aliases: Record<string, string>): UserAsset {
+    const alias = aliases[assetNameAliasKey(asset)]?.trim();
+    return alias ? { ...asset, name: alias } : asset;
+}
 
 export function AssetsPanel({
     loadAssets,
@@ -55,9 +86,9 @@ export function AssetsPanel({
     onAttachAssetId,
     onUpdateOfficialAssetNote,
     projectAssets = [],
-    onAttachProjectAsset,
     onChangeProjectAssetKind,
     onRemoveProjectAsset,
+    onSyncProjectAssetStatuses,
     active
 }: AssetsPanelProps) {
     const t = useTranslations();
@@ -68,6 +99,9 @@ export function AssetsPanel({
     const unknownError = t('Unknown error');
     const assetCharacterName = (asset: UserAsset) => defaultCharacterName(asset, characterFallback);
     const [assets, setAssets] = React.useState<UserAsset[] | null>(null);
+    const [assetNameAliases, setAssetNameAliases] = React.useState<Record<string, string>>(() =>
+        readAssetNameAliases()
+    );
     const [isLoading, setIsLoading] = React.useState(false);
     const [error, setError] = React.useState<string | null>(null);
     const [characterAsset, setCharacterAsset] = React.useState<UserAsset | null>(null);
@@ -174,14 +208,6 @@ export function AssetsPanel({
         }
     };
 
-    const handleAttachProjectAsset = React.useCallback(
-        (item: AssetListItem) => {
-            onAttachProjectAsset?.(item.asset, item.referenceUrl);
-            setError(null);
-        },
-        [onAttachProjectAsset]
-    );
-
     // First fetch happens when the tab first becomes visible.
     const fetchedRef = React.useRef(false);
     React.useEffect(() => {
@@ -209,9 +235,28 @@ export function AssetsPanel({
             ),
         [deletedIdSet, providerAssets]
     );
+    React.useEffect(() => {
+        if (!onSyncProjectAssetStatuses || visibleProviderAssets.length === 0) return;
+        onSyncProjectAssetStatuses(
+            Object.fromEntries(
+                visibleProviderAssets.map((asset) => [
+                    asset.assetId,
+                    asset.status === 'Active' ? 'active' : asset.status === 'Failed' ? 'failed' : 'reviewing'
+                ])
+            )
+        );
+    }, [onSyncProjectAssetStatuses, visibleProviderAssets]);
+    const aliasedAssets = React.useMemo(
+        () => assets?.map((asset) => applyAssetNameAlias(asset, assetNameAliases)) ?? null,
+        [assetNameAliases, assets]
+    );
     const assetList = React.useMemo(
-        () => buildAssetList(assets ?? [], portraits, declarations, providerAssets, deletedIds),
-        [assets, declarations, deletedIds, portraits, providerAssets]
+        () =>
+            buildAssetList(aliasedAssets ?? [], portraits, declarations, providerAssets, deletedIds).map((item) => ({
+                ...item,
+                asset: applyAssetNameAlias(item.asset, assetNameAliases)
+            })),
+        [aliasedAssets, assetNameAliases, declarations, deletedIds, portraits, providerAssets]
     );
     const selectableImageAssets = React.useMemo(() => selectablePortraitSourceAssets(assetList), [assetList]);
 
@@ -254,10 +299,26 @@ export function AssetsPanel({
         if (!characterAsset) return;
         const name = characterName.trim();
         if (!name) return;
+        const referenceUrl = characterReferenceUrl || characterAsset.url;
+        const referenceKey = refKey(referenceUrl);
+        const existingCharacter = characters.find(
+            (character) =>
+                refKey(character.url) === referenceKey ||
+                Boolean(character.previewUrl && refKey(character.previewUrl) === refKey(characterAsset.url))
+        );
+        const aliasKey = assetNameAliasKey(characterAsset);
+        setAssetNameAliases((prev) => {
+            const next = { ...prev, [aliasKey]: name };
+            writeAssetNameAliases(next);
+            return next;
+        });
+        setAssets((prev) =>
+            prev?.map((asset) => (assetNameAliasKey(asset) === aliasKey ? { ...asset, name } : asset)) ?? prev
+        );
         addCharacter({
-            id: crypto.randomUUID(),
+            id: existingCharacter?.id ?? `asset-character:${referenceKey || aliasKey}`,
             name,
-            url: characterReferenceUrl || characterAsset.url,
+            url: referenceUrl,
             previewUrl: characterAsset.url
         });
         handleCharacterDialogOpenChange(false);
@@ -509,7 +570,6 @@ export function AssetsPanel({
                     onSaveCharacter={openCharacterDialog}
                     onUseImage={onUseAsReference}
                     onUseVideo={onUseAsReferenceVideo}
-                    onAttachProjectAsset={onAttachProjectAsset ? handleAttachProjectAsset : undefined}
                     onUpdateOfficialAssetNote={onUpdateOfficialAssetNote}
                 />
 

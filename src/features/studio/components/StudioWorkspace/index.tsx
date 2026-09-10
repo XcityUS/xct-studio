@@ -38,7 +38,7 @@ import {
     DialogTitle
 } from '@/components/ui/Dialog';
 import { Input } from '@/components/ui/Input';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs';
+import { Tabs, TabsContent } from '@/components/ui/Tabs';
 import { AssetsPanel } from '@/features/assets/components/AssetsPanel';
 import type { ReferenceUseOptions } from '@/features/assets/components/AssetsPanel/types';
 import { useMediaArchive } from '@/features/assets/hooks/use-media-archive';
@@ -76,7 +76,7 @@ import { CommunityPanel } from '@/features/community/components/CommunityPanel';
 import { GallerySection } from '@/features/community/components/GallerySection';
 import { reconcilePreset } from '@/features/community/gallery/preset';
 import type { GalleryItem } from '@/features/community/gallery/utils';
-import { CreationForm, type CreationFormData } from '@/features/generation/components/CreationForm';
+import { CreationForm, type CreationFormData, type SceneAssetBindingProgress } from '@/features/generation/components/CreationForm';
 import { FinalizeDialog, type FinalizeSettings } from '@/features/generation/components/FinalizeDialog';
 import { ImageStudio } from '@/features/generation/components/ImageStudio';
 import { VideoHistoryPanel } from '@/features/generation/components/VideoHistoryPanel';
@@ -86,8 +86,9 @@ import { useVideoJobs } from '@/features/generation/hooks/use-video-jobs';
 import { calculateVideoCost } from '@/features/generation/utils/cost';
 import { estimateVideoProgress } from '@/features/generation/utils/progress';
 import { burnBrandingWatermarkIntoVideo } from '@/features/post-production/assembly/client';
-import { ProjectControls } from '@/features/projects/components/ProjectControls';
 import { useShortDramaProject } from '@/features/projects/hooks/use-short-drama-project';
+import { useVideoMode } from '@/features/projects/hooks/use-video-mode';
+import type { EditorDraft } from '@/features/script/components/ShotBuilderDialog/draft';
 import {
     DEFAULT_CAPTION_MODE,
     DEFAULT_TITLE_OVERLAY_DURATION,
@@ -111,6 +112,8 @@ import { useXcityKey } from '@/features/settings/hooks/use-xcity-key';
 import { XCITY_SSO_ENABLED } from '@/features/settings/sso';
 import { useAssetIdIntake } from '@/features/studio/hooks/use-asset-id-intake';
 import { useStudioTabRouting } from '@/features/studio/hooks/use-studio-tab-routing';
+import { autoBindSceneAssets } from './scene-asset-autobind';
+import { shotVideoPreviewsForProject } from './shot-video-previews';
 import type { AppLocale } from '@/i18n/routing';
 import { transcribeVideo, type CaptionSegment } from '@/lib/captions';
 import {
@@ -175,13 +178,12 @@ import { Check, Copy, ExternalLink, Loader2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import * as React from 'react';
 
-type StudioWorkspaceProps = {
-    locale: AppLocale;
-};
+type StudioWorkspaceProps = { locale: AppLocale };
 
 export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
     const t = useTranslations();
     const { activeTab, navigateToTab } = useStudioTabRouting(locale);
+    const [videoMode] = useVideoMode();
     const [errorState, setErrorState] = React.useState<{ message: string; scope: ErrorScope } | null>(null);
     const setError = React.useCallback((message: string | null, scope: ErrorScope = 'create') => {
         setErrorState(message ? { message, scope } : null);
@@ -302,6 +304,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         onPersistenceError: (message) => setError(message, 'output')
     });
     const projectDraft = useShortDramaProject();
+    const [isShotBuilderOpen, setIsShotBuilderOpen] = React.useState(false);
     const { getVideoSrc, getThumbnailSrc, setRemoteSource, removeSource, clearAllSources, hasLocalCopy, hasSource } =
         useVideoSources();
     const activePortraits = React.useMemo(
@@ -374,11 +377,6 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
             );
         },
         [handleAttachAssetId, projectDraft]
-    );
-
-    const handleAttachUserAssetToProject = React.useCallback(
-        (asset: UserAsset, providerReferenceUrl?: string) => projectDraft.attachUserAsset(asset, providerReferenceUrl),
-        [projectDraft]
     );
 
     const handleUpdateOfficialAssetNote = React.useCallback(
@@ -568,6 +566,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         void loadImageModels().then(setImageModels);
     }, []);
     const imageGenerationEnabled = imageModels.length > 0;
+    const imageTabEnabled = imageGenerationEnabled || uploadEnabled;
 
     React.useEffect(() => {
         if (!isPortraitEnabled || !apiKey) {
@@ -731,6 +730,12 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         void refreshImageAssets();
     }, [finalizeDialogItem, refreshImageAssets]);
 
+    React.useEffect(() => {
+        if (activeTab !== 'image') return;
+        const refreshTimer = window.setTimeout(() => void refreshImageAssets(), 0);
+        return () => window.clearTimeout(refreshTimer);
+    }, [activeTab, refreshImageAssets]);
+
     const handleStartPortraitSession = React.useCallback(
         async (origin: string) => {
             const key = await resolveKey();
@@ -858,6 +863,24 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         createAsset: handleCreatePortraitAsset,
         getAsset: handleGetPortraitAsset
     });
+
+    const handleAutoBindSceneAssets = React.useCallback(async (draft: EditorDraft, onProgress?: (draft: EditorDraft, progress: SceneAssetBindingProgress) => void): Promise<EditorDraft> => {
+            const imageModel = imageModels[0]?.id;
+            if (!imageModel) throw new Error('Image generation is not configured.');
+            if (!isPortraitEnabled) throw new Error('Asset review is not configured.');
+            const nextDraft = await autoBindSceneAssets({
+                draft, imageAssets, imageModel, ratio: createRatio, uploadEnabled,
+                basePrompt: projectDraft.activeProject.basePrompt, styleNote: projectDraft.activeProject.styleNote,
+                loadImageAssets: handleLoadAssets, generateImages: handleGenerateImages,
+                reviewAsset: handleReviewReferenceAsset, resolveKey, onProgress
+            });
+            void refreshImageAssets();
+            return nextDraft;
+        }, [
+            createRatio, handleGenerateImages, handleLoadAssets, handleReviewReferenceAsset, imageAssets,
+            imageModels, isPortraitEnabled, projectDraft.activeProject.basePrompt,
+            projectDraft.activeProject.styleNote, refreshImageAssets, resolveKey, uploadEnabled
+        ]);
 
     const handleLoadAssemblyAudioAssets = React.useCallback(async (): Promise<UserAsset[]> => {
         const key = await resolveKey();
@@ -1686,11 +1709,11 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
             )
         );
     }, [isInitialLoad, apiKey, history, activeJobs, restoreJobs]);
-
     const handleCreateVideo = async (
         rawFormData: CreationFormData,
         options: {
             replacesItem?: VideoMetadata;
+            replacesItemId?: string;
             title?: string;
             referenceVideoFallbackUrls?: string[];
             finalizeFlag?: 0 | 1 | 2;
@@ -1698,6 +1721,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
             onSubmitStage?: (message: string) => void;
         } = {}
     ): Promise<string | null> => {
+        const replacementItem = options.replacesItem ?? (options.replacesItemId ? history.find((item) => item.id === options.replacesItemId) : undefined);
         const voiceLanguage = normalizeVoiceLanguage(
             rawFormData.voice_language ?? (rawFormData.generate_audio ? DEFAULT_VOICE_LANGUAGE : SILENT_VOICE_LANGUAGE)
         );
@@ -1934,7 +1958,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
             model: formData.model,
             size: displaySize,
             seconds: formData.seconds,
-            title: options.title?.trim() || options.replacesItem?.title?.trim() || undefined,
+            title: options.title?.trim() || replacementItem?.title?.trim() || undefined,
             prompt: formData.prompt,
             mode: 'create',
             createParams: { ...formData, watermarkText: normalizedWatermarkText },
@@ -1952,12 +1976,11 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
             brandingWatermark: formData.watermark
                 ? { enabled: true, text: normalizedWatermarkText }
                 : { enabled: false },
-            replacesId: options.replacesItem?.id,
+            replacesId: replacementItem?.id,
             status: 'submitting',
             progress: 0
         });
         setCurrentJobId(tempId);
-
         try {
             const logReferenceVideoUrls = (label: string) => {
                 if (process.env.NODE_ENV === 'production' || !requestParams.reference_video_urls?.length) return;
@@ -1996,8 +2019,8 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                 size: displaySize,
                 seconds: String(formData.seconds)
             };
-            if (options.replacesItem) {
-                regenerateReplacementRef.current.set(job.id, options.replacesItem);
+            if (replacementItem) {
+                regenerateReplacementRef.current.set(job.id, replacementItem);
             }
             brandingRequestedIdsRef.current.set(job.id, Boolean(formData.watermark));
             const createParams =
@@ -2017,7 +2040,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                 model: job.model,
                 size: job.size,
                 seconds: formData.seconds,
-                title: options.title?.trim() || options.replacesItem?.title?.trim() || undefined,
+                title: options.title?.trim() || replacementItem?.title?.trim() || undefined,
                 prompt: formData.prompt,
                 mode: 'create',
                 createParams,
@@ -2035,13 +2058,13 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                 brandingWatermark: formData.watermark
                     ? { enabled: true, text: normalizedWatermarkText }
                     : { enabled: false },
-                replacesId: options.replacesItem?.id,
+                replacesId: replacementItem?.id,
                 status: 'processing',
                 progress: 0
             };
-            if (options.replacesItem) {
+            if (replacementItem) {
                 removeItem(tempId);
-                replaceItem(options.replacesItem.id, historyItem);
+                replaceItem(replacementItem.id, historyItem);
             } else {
                 replaceItem(tempId, historyItem);
             }
@@ -3235,6 +3258,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
     const currentVideoSrc =
         currentJobId && !currentMediaExpired ? (getVideoSrc(currentJobId) ?? currentFallbackVideoSrc) : null;
     const currentThumbnailSrc = currentJobId ? getThumbnailSrc(currentJobId) : null;
+    const shotVideoPreviews = React.useMemo(() => shotVideoPreviewsForProject({ history, activeJobs, projectId: projectDraft.activeProject.id, getVideoSrc, getThumbnailSrc }), [activeJobs, getThumbnailSrc, getVideoSrc, history, projectDraft.activeProject.id]);
 
     React.useEffect(() => {
         if (currentHistoryItem?.status === 'completed' && currentVideoSrc) {
@@ -3254,7 +3278,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
     }, [currentHistoryItem, currentMediaExpired, currentVideoSrc, resolvePlaybackSource, unresolvedPreviewIds]);
 
     // Without SSO the manual key is the only way in — gate until one is set.
-    const isApiKeyGateBlocked = !XCITY_SSO_ENABLED && !apiKey;
+    const isApiKeyGateBlocked = videoMode === 'normal' && !XCITY_SSO_ENABLED && !apiKey;
 
     const videoTabContent = (
         <>
@@ -3286,7 +3310,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                 </Alert>
             )}
             <div className='grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,0.8fr)_minmax(560px,1.2fr)] lg:items-start xl:grid-cols-[minmax(0,0.75fr)_minmax(640px,1.25fr)]'>
-                <div ref={creationFormRef} className='relative flex min-h-[600px] flex-col lg:col-span-1'>
+                <div ref={creationFormRef} className='relative flex min-h-[600px] flex-col lg:sticky lg:top-6 lg:col-span-1 lg:h-[calc(100vh-3rem)] lg:min-h-0 lg:self-start'>
                     <ApiKeyGate
                         isBlocked={isApiKeyGateBlocked}
                         onConfigure={() => setIsApiKeyDialogOpen(true)}
@@ -3355,9 +3379,17 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                                 onReviewReferenceAsset={isPortraitEnabled ? handleReviewReferenceAsset : undefined}
                                 onOptimizePrompt={handleOptimizePrompt}
                                 onBreakdownScript={handleBreakdownScript}
+                                onAutoBindSceneAssets={handleAutoBindSceneAssets}
+                                shotVideoPreviews={shotVideoPreviews}
                                 projectAssets={projectDraft.projectAssets}
                                 projectConfig={projectDraft.activeProject}
                                 buildProductionSnapshot={projectDraft.buildProductionSnapshot}
+                                projectControls={{
+                                    project: projectDraft.activeProject, projects: projectDraft.projects, projectAssets: projectDraft.projectAssets, onCreateProject: projectDraft.addProject,
+                                    onSelectProject: projectDraft.setActiveProjectId, onUpdateProject: projectDraft.updateActiveProject, onDeleteProject: projectDraft.deleteProject, deletionBlocked: isSubmitting || activeJobs.size > 0
+                                }}
+                                storyboardEditorOpen={isShotBuilderOpen}
+                                onStoryboardEditorOpenChange={setIsShotBuilderOpen}
                                 // Only offer the jump when the Assets tab actually exists —
                                 // it is gated on the media worker / portrait library.
                                 onOpenAssets={
@@ -3397,7 +3429,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
 
             <GallerySection onUsePreset={applyPreset} onUseAsReference={applyReferenceFrame} />
 
-            <div className='min-h-[450px]'>
+            {videoMode !== 'drama' && <div className='min-h-[450px]'>
                 <VideoHistoryPanel
                     history={history}
                     activeJobs={activeJobs}
@@ -3424,7 +3456,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                     loadAudioAssets={handleLoadAssemblyAudioAssets}
                     onTranscribeVideo={handleTranscribeVideo}
                 />
-            </div>
+            </div>}
         </>
     );
 
@@ -3526,49 +3558,17 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
             </Dialog>
 
             <div className='mx-auto w-full max-w-7xl space-y-6 px-4 md:px-6'>
-                <ProjectControls
-                    draft={projectDraft}
-                    busy={isSubmitting || activeJobs.size > 0}
-                    onOpenAssets={uploadEnabled || isPortraitEnabled ? () => navigateToTab('assets') : undefined}
-                />
-                {imageGenerationEnabled || uploadEnabled || isPortraitEnabled ? (
+                {imageTabEnabled || uploadEnabled || isPortraitEnabled ? (
                     <Tabs value={activeTab} onValueChange={(value) => navigateToTab(value as StudioTab)}>
-                        <TabsList className='mb-4 border border-white/10 bg-white/5'>
-                            <TabsTrigger
-                                value='video'
-                                className='px-6 text-white/60 data-[state=active]:bg-white data-[state=active]:text-black'>
-                                {t('Video')}
-                            </TabsTrigger>
-                            {imageGenerationEnabled && (
-                                <TabsTrigger
-                                    value='image'
-                                    className='px-6 text-white/60 data-[state=active]:bg-white data-[state=active]:text-black'>
-                                    {t('Image')}
-                                </TabsTrigger>
-                            )}
-                            {(uploadEnabled || isPortraitEnabled) && (
-                                <TabsTrigger
-                                    value='assets'
-                                    className='px-6 text-white/60 data-[state=active]:bg-white data-[state=active]:text-black'>
-                                    {t('Assets')}
-                                </TabsTrigger>
-                            )}
-                            {uploadEnabled && (
-                                <TabsTrigger
-                                    value='community'
-                                    className='px-6 text-white/60 data-[state=active]:bg-white data-[state=active]:text-black'>
-                                    {t('Community')}
-                                </TabsTrigger>
-                            )}
-                        </TabsList>
                         <TabsContent value='video' className='space-y-6'>
                             {videoTabContent}
                         </TabsContent>
-                        {imageGenerationEnabled && (
+                        {imageTabEnabled && (
                             <TabsContent value='image'>
                                 <ImageStudio
                                     imageModels={imageModels}
                                     onGenerate={handleGenerateImages}
+                                    cloudImageAssets={imageAssets}
                                     onAnimate={handleAnimateImage}
                                 />
                             </TabsContent>
@@ -3604,9 +3604,9 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                                         onAttachAssetId={handleAttachAssetIdToProject}
                                         onUpdateOfficialAssetNote={handleUpdateOfficialAssetNote}
                                         projectAssets={projectDraft.projectAssets}
-                                        onAttachProjectAsset={handleAttachUserAssetToProject}
                                         onChangeProjectAssetKind={projectDraft.updateProjectAssetKind}
                                         onRemoveProjectAsset={projectDraft.archiveProjectAsset}
+                                        onSyncProjectAssetStatuses={projectDraft.syncProjectAssetStatuses}
                                         active={activeTab === 'assets'}
                                     />
                                 </div>

@@ -8,18 +8,20 @@ type CopyUrlButtonProps = {
     className?: string;
     label?: string;
     labelClassName?: string;
+    title?: string;
     url: string;
 };
 
-export function CopyUrlButton({ className, label, labelClassName, url }: CopyUrlButtonProps) {
+export function CopyUrlButton({ className, label, labelClassName, title, url }: CopyUrlButtonProps) {
     const t = useTranslations();
     const [copied, setCopied] = React.useState(false);
     const [copyFailed, setCopyFailed] = React.useState(false);
     const idleLabel = label ?? t('Copy URL');
+    const titleLabel = title ?? t('Copy URL');
     return (
         <button
             type='button'
-            title={t('Copy URL')}
+            title={titleLabel}
             onClick={async () => {
                 try {
                     if (navigator.clipboard?.writeText) {

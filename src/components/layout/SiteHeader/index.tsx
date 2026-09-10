@@ -1,6 +1,8 @@
 import styles from './index.module.scss';
+import { ProjectControls } from '@/features/projects/components/ProjectControls';
 import { LocaleSwitcher } from '@/features/settings/components/LocaleSwitcher';
 import { ThemeToggle } from '@/features/settings/components/ThemeToggle';
+import { StudioHeaderMenu } from '@/features/studio/components/StudioHeaderMenu';
 import type { AppLocale } from '@/i18n/routing';
 import { UserRound } from 'lucide-react';
 import { getTranslations } from 'next-intl/server';
@@ -22,6 +24,8 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
                     <span className={styles.wordmark}>Xcity</span>
                     <span className={styles.product}>{t('Video Studio')}</span>
                 </a>
+                <ProjectControls />
+                <StudioHeaderMenu locale={locale} />
                 <nav aria-label={t('Main navigation')} className={styles.navigation}>
                     {links.map((link) => (
                         <a key={link.href} href={link.href} rel='noopener' className={styles.navigationLink}>

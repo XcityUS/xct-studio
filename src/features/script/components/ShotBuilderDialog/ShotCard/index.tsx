@@ -121,11 +121,12 @@ export function ShotCard({
             </div>
             {characters.length > 0 && (
                 <fieldset className={styles.characterList}>
-                    <legend>{t('Characters in this shot')}</legend>
+                    <legend>{t('Characters appearing in this shot')}</legend>
+                    <p>{t('These selections decide which bound character assets are attached when this shot is generated')}</p>
                     {characters.map((character) => {
                         const selected = shot.characterIds?.includes(character.id) ?? false;
                         return (
-                            <label key={character.id}>
+                            <label className={styles.characterOption} key={character.id}>
                                 <input
                                     type='checkbox'
                                     checked={selected}
@@ -137,7 +138,8 @@ export function ShotCard({
                                         })
                                     }
                                 />
-                                {character.name}
+                                <span>{character.name}</span>
+                                <em title={character.assetId ? t('Bound') : t('Not bound')} data-bound={character.assetId ? 'true' : 'false'} />
                             </label>
                         );
                     })}

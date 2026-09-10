@@ -5,14 +5,14 @@ import { CopyUrlButton } from '../CopyUrlButton';
 import type { AssetListItem, AssetReviewState } from '../asset-list';
 import { formatBytes, formatDate } from '../utils';
 import { AssetPreview } from './AssetPreview';
+import { CopyAssetButton } from './CopyAssetButton';
 import styles from './index.module.scss';
 import type { ProviderAssetReviewInput } from '@/features/assets/hooks/use-provider-asset-review';
-import type { InlineReviewOrigin } from '@/features/assets/reference/origin';
+import { assetIdFromReferenceUrl, type InlineReviewOrigin } from '@/features/assets/reference/origin';
 import type { ReferenceUseOptions } from '@/features/assets/components/AssetsPanel/types';
 import { cn } from '@/shared/utils/classnames';
 import {
     AlertCircle,
-    Boxes,
     Clock3,
     ImagePlus,
     Loader2,
@@ -33,7 +33,6 @@ export type AssetGridProps = {
     onSaveCharacter: (asset: AssetListItem['asset'], referenceUrl: string) => void;
     onUseImage: (sourceUrl: string, providerReferenceUrl?: string, options?: ReferenceUseOptions) => void;
     onUseVideo: (sourceUrl: string, providerReferenceUrl?: string) => void;
-    onAttachProjectAsset?: (item: AssetListItem) => void;
     checkingAssetId: string | null;
     onCheckReviewStatus: (portrait: NonNullable<AssetListItem['portrait']>) => Promise<void>;
 };
@@ -62,6 +61,8 @@ function ReviewActionShortLabel({ state }: { state: AssetReviewState }) {
     return t('Review');
 }
 
+const assetIdForItem = (item: AssetListItem): string | undefined =>
+    item.providerAsset?.assetId ?? item.portrait?.assetId ?? assetIdFromReferenceUrl(item.referenceUrl ?? '');
 export function AssetGrid({
     items,
     onDelete,
@@ -69,7 +70,6 @@ export function AssetGrid({
     onSaveCharacter,
     onUseImage,
     onUseVideo,
-    onAttachProjectAsset,
     checkingAssetId,
     onCheckReviewStatus
 }: AssetGridProps) {
@@ -108,7 +108,10 @@ export function AssetGrid({
             <div className={styles.grid}>
                 {items.map((item) => {
                     const { asset } = item;
-                    const canUse = Boolean(item.referenceUrl);
+                    const referenceUrl = item.referenceUrl;
+                    const canUse = Boolean(referenceUrl);
+                    const hasAssetId = Boolean(assetIdForItem(item));
+                    const canSubmitForAssetId = asset.kind === 'image' && canUse && !hasAssetId;
                     const isReferenceMedia = asset.kind === 'image' || asset.kind === 'video';
                     const isChecking = item.portrait?.assetId === checkingAssetId;
                     const canDelete = item.source === 'cloud' || item.source === 'provider';
@@ -153,22 +156,7 @@ export function AssetGrid({
                                     </div>
                                 </div>
                             </div>
-                            <div
-                                className={cn(
-                                    styles.actions,
-                                    asset.kind !== 'image' && !onAttachProjectAsset && styles.twoActions,
-                                    onAttachProjectAsset && styles.withProjectAction
-                                )}>
-                                {onAttachProjectAsset && (
-                                    <button
-                                        type='button'
-                                        className={styles.action}
-                                        onClick={() => onAttachProjectAsset(item)}
-                                        title={t('Attach to current project')}>
-                                        <Boxes />
-                                        <span className={styles.actionLabel}>{t('Project')}</span>
-                                    </button>
-                                )}
+                            <div className={styles.actions}>
                                 {asset.kind === 'image' && (
                                     <>
                                         <button
@@ -189,32 +177,35 @@ export function AssetGrid({
                                                 <ReviewActionShortLabel state={item.reviewState} />
                                             </span>
                                         </button>
+                                        <CopyAssetButton item={item} className={styles.action} labelClassName={styles.actionLabel} />
+                                        {canSubmitForAssetId && (
+                                            <button
+                                                type='button'
+                                                className={styles.action}
+                                                onClick={() => setReviewItem(item)}>
+                                                <ReviewIcon state='missing' />
+                                                <span className={styles.actionLabel}>{t('Review')}</span>
+                                            </button>
+                                        )}
                                         {asset.url && (
                                             <CopyUrlButton
                                                 url={asset.url}
-                                                label={t('Copy')}
+                                                title={t('Copy URL')}
+                                                label={t('Copy URL')}
                                                 className={styles.action}
                                                 labelClassName={styles.actionLabel}
                                             />
                                         )}
-                                        <button
-                                            type='button'
-                                            title={
-                                                canUse
-                                                    ? t('Save this image as a named character')
-                                                    : t('Submit review before use')
-                                            }
-                                            className={styles.action}
-                                            onClick={() =>
-                                                canUse && item.referenceUrl
-                                                    ? onSaveCharacter(asset, item.referenceUrl)
-                                                    : setReviewItem(item)
-                                            }>
-                                            {canUse ? <UserPlus /> : <ReviewIcon state={item.reviewState} />}
-                                            <span className={styles.actionLabel}>
-                                                {canUse ? t('Role') : <ReviewActionShortLabel state={item.reviewState} />}
-                                            </span>
-                                        </button>
+                                        {canUse && referenceUrl && (
+                                            <button
+                                                type='button'
+                                                title={t('Save this image as a named character')}
+                                                className={styles.action}
+                                                onClick={() => onSaveCharacter(asset, referenceUrl)}>
+                                                <UserPlus />
+                                                <span className={styles.actionLabel}>{t('Role')}</span>
+                                            </button>
+                                        )}
                                     </>
                                 )}
                                 {asset.kind === 'video' && (
@@ -237,10 +228,14 @@ export function AssetGrid({
                                         </span>
                                     </button>
                                 )}
+                                {asset.kind !== 'image' && (
+                                    <CopyAssetButton item={item} className={styles.action} labelClassName={styles.actionLabel} />
+                                )}
                                 {asset.kind !== 'image' && asset.url && (
                                     <CopyUrlButton
                                         url={asset.url}
-                                        label={t('Copy')}
+                                        title={t('Copy URL')}
+                                        label={t('Copy URL')}
                                         className={styles.action}
                                         labelClassName={styles.actionLabel}
                                     />

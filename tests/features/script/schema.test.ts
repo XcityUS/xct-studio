@@ -66,4 +66,69 @@ describe('shot breakdown normalization', () => {
             shots: [{ id: 'shot_1', sceneId: 'scene_1', characterIds: ['character_1'] }]
         });
     });
+
+    it('maps shot character names and dialogue speakers to extracted character ids', () => {
+        expect(
+            normalizeScriptAnalysis({
+                characters: [
+                    {
+                        id: 'character_1',
+                        name: '林夏',
+                        aliases: ['小夏'],
+                        description: '二十多岁，白衬衫，神情紧张',
+                        evidence: ['林夏说：行情可以止损。'],
+                        major: true
+                    },
+                    {
+                        id: 'character_2',
+                        name: '陈远',
+                        aliases: [],
+                        description: '三十岁左右，深色夹克',
+                        evidence: ['陈远沉默地看着她。'],
+                        major: true
+                    }
+                ],
+                scenes: [{ id: 'scene_1', name: '交易办公室', description: '夜晚，屏幕冷光' }],
+                shots: [
+                    {
+                        id: 'shot_1',
+                        description: '林夏和陈远在屏幕前对峙',
+                        prompt: '中景，冷光，紧张对峙',
+                        scene_id: 'scene_1',
+                        characters: [{ name: '小夏' }, { characterName: '陈远' }],
+                        dialogues: [{ speaker: '林夏', text: '行情可以止损，感情什么时候该止损？' }],
+                        duration_seconds: 6
+                    }
+                ]
+            })
+        ).toMatchObject({
+            shots: [
+                {
+                    id: 'shot_1',
+                    sceneId: 'scene_1',
+                    characterIds: ['character_1', 'character_2'],
+                    dialogues: [{ speakerCharacterId: 'character_1' }]
+                }
+            ]
+        });
+    });
+
+    it('maps shot scene names to extracted scene ids', () => {
+        expect(
+            normalizeScriptAnalysis({
+                characters: [],
+                scenes: [
+                    { id: 'scene_1', name: '办公室 上午', description: '开放式办公室' },
+                    { id: 'scene_2', name: '会议室 上午', description: '封闭会议室' }
+                ],
+                shots: [
+                    {
+                        id: 'shot_1',
+                        sceneName: '会议室 上午',
+                        description: '封闭会议室，核心四人在场，气氛凝重'
+                    }
+                ]
+            }).shots
+        ).toMatchObject([{ id: 'shot_1', sceneId: 'scene_2' }]);
+    });
 });

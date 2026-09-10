@@ -8,7 +8,6 @@ import {
     writeProjectState
 } from '../storage';
 import type { ReferenceOrigin } from '@/features/assets/reference/origin';
-import type { UserAsset } from '@/lib/media-archive';
 import type {
     ProductionSnapshot,
     ProjectAsset,
@@ -34,21 +33,6 @@ type RegisterAssetInput = {
     note?: string;
 };
 
-function displayNameFromAsset(asset: UserAsset): string {
-    return asset.name?.trim() || asset.key.split('/').pop() || asset.key || 'Project asset';
-}
-
-function kindFromUserAsset(asset: UserAsset): ProjectAssetKind {
-    if (asset.kind === 'audio') return 'audio';
-    if (asset.kind === 'video') return 'video';
-    if (asset.kind === 'image') return 'image';
-    return 'other';
-}
-
-function sourceTypeFromAsset(asset: UserAsset): ProjectAssetSourceType {
-    return asset.key.startsWith('video_') ? 'generated' : 'upload';
-}
-
 function referenceUrlForAsset(asset: ProjectAsset): string | undefined {
     return asset.providerReferenceUrl || asset.sourceUrl;
 }
@@ -63,6 +47,13 @@ function bindingForAsset(asset: ProjectAsset): ShotAssetBinding | null {
         referenceUrl,
         providerAssetId: asset.providerAssetId
     };
+}
+
+function shotIncludesAsset(shotAssetIds: string[] | undefined, asset: ProjectAsset) {
+    if (!shotAssetIds) return true;
+    if (shotAssetIds.length === 0) return false;
+    const providerAssetUrl = asset.providerAssetId ? `asset://${asset.providerAssetId}` : undefined;
+    return shotAssetIds.includes(asset.id) || Boolean(asset.providerAssetId && shotAssetIds.includes(asset.providerAssetId)) || Boolean(providerAssetUrl && shotAssetIds.includes(providerAssetUrl));
 }
 
 export function useShortDramaProject() {
@@ -193,20 +184,6 @@ export function useShortDramaProject() {
         [activeProject.id, state.assets]
     );
 
-    const attachUserAsset = React.useCallback(
-        (asset: UserAsset, providerReferenceUrl?: string): ProjectAsset =>
-            registerProjectAsset({
-                name: displayNameFromAsset(asset),
-                kind: kindFromUserAsset(asset),
-                sourceType: sourceTypeFromAsset(asset),
-                status: providerReferenceUrl?.startsWith('asset://') ? 'active' : 'uploaded',
-                mediaKey: asset.key,
-                sourceUrl: asset.url,
-                providerReferenceUrl
-            }),
-        [registerProjectAsset]
-    );
-
     const updateProjectAssetKind = React.useCallback((assetId: string, kind: ProjectAssetKind) => {
         setState((current) => ({
             ...current,
@@ -228,6 +205,19 @@ export function useShortDramaProject() {
                 updatedAt: Date.now()
             }))
         }));
+    }, []);
+
+    const syncProjectAssetStatuses = React.useCallback((statusesByProviderAssetId: Record<string, ProjectAssetStatus>) => {
+        setState((current) => {
+            let changed = false;
+            const assets = current.assets.map((asset) => {
+                const nextStatus = asset.providerAssetId ? statusesByProviderAssetId[asset.providerAssetId] : undefined;
+                if (!nextStatus || asset.status === nextStatus) return asset;
+                changed = true;
+                return { ...asset, status: nextStatus, updatedAt: Date.now() };
+            });
+            return changed ? { ...current, assets } : current;
+        });
     }, []);
 
     const createCharacterReferencePack = React.useCallback(
@@ -256,7 +246,7 @@ export function useShortDramaProject() {
             project: activeProject,
             shot,
             assetBindings: projectAssets
-                .filter((asset) => !shot?.assetIds?.length || shot.assetIds.includes(asset.id))
+                .filter((asset) => shotIncludesAsset(shot?.assetIds, asset))
                 .filter((asset) => asset.status === 'active' || asset.status === 'uploaded')
                 .map(bindingForAsset)
                 .filter((binding): binding is ShotAssetBinding => Boolean(binding)),
@@ -275,9 +265,9 @@ export function useShortDramaProject() {
         deleteProject,
         updateActiveProject,
         registerProjectAsset,
-        attachUserAsset,
         updateProjectAssetKind,
         archiveProjectAsset,
+        syncProjectAssetStatuses,
         createCharacterReferencePack,
         buildProductionSnapshot
     };

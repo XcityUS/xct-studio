@@ -37,7 +37,7 @@
 | 项目 | `features/projects/storage.ts`、`hooks/use-short-drama-project.ts` | 有创建/切换/重命名/删除、项目素材和引用包，但仅 localStorage，无服务端 owner/revision/config 事务 |
 | 数据合同 | `shared/contracts/production.ts` | 有 ProjectAsset、CharacterVersion、ProductionSnapshot；CharacterVersion 无独立 Character 身份且可修改，不能直接视作不可变版本 |
 | 文件导入 | `/api/script/extract`、`server/script/extract.ts`、`features/script/schema.ts` | 已支持 txt/md/doc/docx/pdf、20 MiB、空文本/提取失败；缺原文件持久化、ScriptVersion、导入与解析任务 |
-| AI 拆分 | `/api/script/breakdown` → `server/script/breakdown.ts` → `server/providers/xcity/script-breakdown.ts` | 经服务端访问 LiteLLM `/v1/chat/completions`，本地 localhost 是应用入口而非另一个模型供应商 |
+| AI 拆分 | `src/lib/script-breakdown.ts` → TokenHub `/v1/chat/completions` | 当前 UI 与普通视频 Prompt 优化保持一致：浏览器使用用户 SSO/manual key 直连 TokenHub；`/api/script/breakdown` 仅为保留兼容入口 |
 | 拆分合同 | `features/script/types.ts`、`schema.ts` | 仅 description/camera/audio/durationSeconds；提示词要求 2–12 镜头，校验静默截取前 20 条，缺角色/场景 ID、对白、完整覆盖检查 |
 | 模型策略 | `server/script/breakdown.ts`、provider adapter | 环境变量优先，fallback 首项 deepseek-v4-pro-260425；temperature 0.3/max_tokens 4000。旧架构的默认 gpt-5-mini 描述已过时；不据此判断线上模型可用 |
 | 分镜队列 | `CreationForm/shot-queue.ts`、`CreationForm/index.tsx` 的 processShotQueue | 全局 localStorage key；顺序 await 提交后出队，不等待视频完成，无服务端并发上限/依赖/租约/幂等保障 |
@@ -171,7 +171,7 @@ P0 默认 context 连续：锁相同角色包/场景与上下镜头叙事上下�
 
 ## 8. API 合同
 
-新持久化业务使用 `/api/v1/drama`；保留原 `/api/script/extract` 与 `/api/script/breakdown` 为 Normal 兼容入口。以下均为拟新增合同，不是现存服务声明。
+新持久化业务使用 `/api/v1/drama`；保留原 `/api/script/extract` 与 `/api/script/breakdown` 为兼容入口。当前短剧 UI 拆分主链路直连 TokenHub `/v1/chat/completions`，以下均为拟新增合同，不是现存服务声明。
 
 | 方法与路径（相对 /api/v1/drama） | 行为 |
 | --- | --- |

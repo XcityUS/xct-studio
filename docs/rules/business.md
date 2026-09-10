@@ -48,6 +48,16 @@ Idea / Novel / Imported Script
 
 Do not require professional cinematography knowledge for the basic workflow. Do not reduce the workflow to an opaque one-click generation task that loses intermediate edits or recovery points.
 
+## Script Breakdown Runtime Contract
+
+- Script breakdown must return a structured draft containing `characters`, `scenes`, and `shots`. Each Shot should reference extracted characters through stable `characterIds` and its scene through `sceneId`; names returned by the model must be normalized to the extracted ids before generation.
+- Treat extracted characters and scenes as reviewable drafts, not generation-ready assets. Users must be able to confirm and bind character, location, prop, or style assets before batch video generation.
+- Current Studio UI script breakdown follows the same browser-direct TokenHub pattern as prompt optimization: use the user's resolved SSO/manual key and call `NEXT_PUBLIC_OPENAI_API_BASE_URL` `/v1/chat/completions`. Do not change the UI back to `localhost` or `/api/script/breakdown` unless the product explicitly moves the whole flow behind a server-owned API and updates `docs/rules/core-conventions.md` in the same change.
+- Prefer a dedicated TokenHub/LiteLLM business endpoint such as `/v1/drama/script/breakdown` only after it is deployed and smoke-tested. Until then, the stable OpenAI-compatible `/v1/chat/completions` path is the production path for browser breakdown.
+- Keep the default browser breakdown fallback list within models normally allowed for Studio user keys. Stronger restricted models such as `gpt-5-mini` may be used only as an explicit environment override after TokenHub key permissions are updated.
+- A TokenHub 401/403 in browser-direct mode means the resolved user key is invalid, expired, missing permissions, or the browser is still using a stale locally stored key. Key resolution must prefer a fresh SSO key when SSO is enabled, then fall back to a manual key.
+- Release checks for script breakdown must include an end-to-end browser smoke check and verify that the Network request goes to TokenHub `/v1/chat/completions`, not `/api/script/breakdown`, and that the response includes nonempty `shots` plus parseable `characters` and `scenes` when the input script contains named people and locations.
+
 ## IP And Continuity
 
 - Character identity, wardrobe, reference packs, voice identity, locations, props, and visual style must have explicit reusable records and version references.

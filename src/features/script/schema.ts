@@ -5,6 +5,7 @@ import type {
     ScriptSceneDraft,
     ShotDraft
 } from '@/features/script/types';
+import { inferShotSceneId, resolveSceneId } from './scene-matching';
 
 export const MAX_SCRIPT_FILE_BYTES = 20 * 1024 * 1024;
 
@@ -50,24 +51,73 @@ function texts(value: unknown): string[] {
     return Array.isArray(value) ? value.map(text).filter(Boolean) : [];
 }
 
-function normalizeDialogues(value: unknown): ScriptDialogueDraft[] {
+function referenceTexts(value: unknown): string[] {
+    if (!Array.isArray(value)) return [];
+    return value.flatMap((item) => {
+        if (typeof item === 'string') return text(item) ? [text(item)] : [];
+        if (!item || typeof item !== 'object') return [];
+        const record = item as Record<string, unknown>;
+        return [
+            text(record.id),
+            text(record.characterId),
+            text(record.character_id),
+            text(record.characterName),
+            text(record.character_name),
+            text(record.name)
+        ].filter(Boolean);
+    });
+}
+
+function referenceKey(value: string): string {
+    return value.trim().toLowerCase();
+}
+
+function characterLookup(characters: ScriptCharacterDraft[]): Map<string, string> {
+    const lookup = new Map<string, string>();
+    characters.forEach((character) => {
+        [character.id, character.name, ...character.aliases].forEach((value) => {
+            const key = referenceKey(value);
+            if (key) lookup.set(key, character.id);
+        });
+    });
+    return lookup;
+}
+
+function normalizeReferenceIds(values: string[], lookup: Map<string, string>): string[] {
+    return Array.from(new Set(values.map((value) => lookup.get(referenceKey(value)) ?? text(value)).filter(Boolean)));
+}
+
+function normalizeDialogues(value: unknown, lookup = new Map<string, string>()): ScriptDialogueDraft[] {
     if (!Array.isArray(value)) return [];
     return value.flatMap((item) => {
         if (!item || typeof item !== 'object') return [];
         const record = item as Record<string, unknown>;
         const dialogueText = text(record.text);
         if (!dialogueText) return [];
+        const speakerReference = [
+            text(record.speakerCharacterId),
+            text(record.speaker_character_id),
+            text(record.speaker),
+            text(record.speakerName),
+            text(record.speaker_name),
+            text(record.character),
+            text(record.characterName),
+            text(record.character_name)
+        ].find(Boolean);
+        const speakerCharacterId = speakerReference
+            ? lookup.get(referenceKey(speakerReference)) ?? speakerReference
+            : '';
         return [
             {
                 text: dialogueText,
-                ...(text(record.speakerCharacterId) ? { speakerCharacterId: text(record.speakerCharacterId) } : {}),
+                ...(speakerCharacterId ? { speakerCharacterId } : {}),
                 ...(text(record.emotion) ? { emotion: text(record.emotion) } : {})
             }
         ];
     });
 }
 
-export function normalizeShotDrafts(value: unknown): ShotDraft[] {
+export function normalizeShotDrafts(value: unknown, characters: ScriptCharacterDraft[] = [], scenes: ScriptSceneDraft[] = []): ShotDraft[] {
     const source = Array.isArray(value)
         ? value
         : value && typeof value === 'object' && Array.isArray((value as { shots?: unknown }).shots)
@@ -75,6 +125,7 @@ export function normalizeShotDrafts(value: unknown): ShotDraft[] {
           : null;
     if (!source?.length) throw new Error('The model response did not include any shots.');
 
+    const lookup = characterLookup(characters);
     return source.slice(0, 80).map((item, index) => {
         if (!item || typeof item !== 'object') throw new Error(`Shot ${index + 1} is invalid.`);
         const record = item as Record<string, unknown>;
@@ -86,21 +137,37 @@ export function normalizeShotDrafts(value: unknown): ShotDraft[] {
         const id = text(record.id) || `shot_draft_${index + 1}`;
         const durationRaw = record.durationSeconds ?? record.duration_seconds ?? record.seconds;
         const duration = typeof durationRaw === 'number' ? durationRaw : Number(durationRaw);
-        return {
+        const characterIds = normalizeReferenceIds(
+            [
+                ...texts(record.characterIds),
+                ...texts(record.character_ids),
+                ...texts(record.characterNames),
+                ...texts(record.character_names),
+                ...referenceTexts(record.characters),
+                ...normalizeDialogues(record.dialogues, lookup).flatMap((dialogue) =>
+                    dialogue.speakerCharacterId ? [dialogue.speakerCharacterId] : []
+                )
+            ],
+            lookup
+        );
+        const dialogues = normalizeDialogues(record.dialogues, lookup);
+        const shot = {
             id,
             description,
             ...(prompt ? { prompt } : {}),
             ...(camera ? { camera } : {}),
             ...(audio ? { audio } : {}),
             ...(Number.isFinite(duration) && duration > 0 ? { durationSeconds: Math.round(duration) } : {}),
-            ...(text(record.sceneId) ? { sceneId: text(record.sceneId) } : {}),
-            ...(texts(record.characterIds).length ? { characterIds: texts(record.characterIds) } : {}),
-            ...(normalizeDialogues(record.dialogues).length ? { dialogues: normalizeDialogues(record.dialogues) } : {}),
+            ...(characterIds.length ? { characterIds } : {}),
+            ...(dialogues.length ? { dialogues } : {}),
             ...(text(record.subtitle) ? { subtitle: text(record.subtitle) } : {}),
-            ...(text(record.continuitySourceShotId)
-                ? { continuitySourceShotId: text(record.continuitySourceShotId) }
+            ...(text(record.continuitySourceShotId ?? record.continuity_source_shot_id)
+                ? { continuitySourceShotId: text(record.continuitySourceShotId ?? record.continuity_source_shot_id) }
                 : {})
         };
+        const sceneReference = text(record.sceneId ?? record.scene_id ?? record.sceneName ?? record.scene_name ?? record.scene ?? record.location);
+        const sceneId = sceneReference ? resolveSceneId(sceneReference, scenes) ?? sceneReference : inferShotSceneId(shot, scenes);
+        return sceneId ? { ...shot, sceneId } : shot;
     });
 }
 
@@ -124,7 +191,10 @@ function normalizeCharacters(value: unknown): ScriptCharacterDraft[] {
                     presence === 'voice_over' || presence === 'narrator' || presence === 'mentioned'
                         ? presence
                         : 'on_screen',
-                major: record.major === true
+                major: record.major === true,
+                ...(text(record.assetId ?? record.asset_id ?? record.projectAssetId ?? record.project_asset_id)
+                    ? { assetId: text(record.assetId ?? record.asset_id ?? record.projectAssetId ?? record.project_asset_id) }
+                    : {})
             }
         ];
     });
@@ -142,7 +212,10 @@ function normalizeScenes(value: unknown): ScriptSceneDraft[] {
                 id: text(record.id) || `scene_draft_${index + 1}`,
                 name,
                 description: text(record.description),
-                evidence: texts(record.evidence)
+                evidence: texts(record.evidence),
+                ...(text(record.assetId ?? record.asset_id ?? record.projectAssetId ?? record.project_asset_id)
+                    ? { assetId: text(record.assetId ?? record.asset_id ?? record.projectAssetId ?? record.project_asset_id) }
+                    : {})
             }
         ];
     });
@@ -153,6 +226,6 @@ export function normalizeScriptAnalysis(value: unknown): ScriptAnalysisDraft {
     const record = value as Record<string, unknown>;
     const characters = normalizeCharacters(record.characters);
     const scenes = normalizeScenes(record.scenes);
-    const shots = normalizeShotDrafts(record.shots);
+    const shots = normalizeShotDrafts(record.shots, characters, scenes);
     return { version: 1, characters, scenes, shots };
 }

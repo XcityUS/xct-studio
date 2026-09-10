@@ -1,6 +1,6 @@
 'use client';
 
-import { useSyncExternalStore } from 'react';
+import * as React from 'react';
 
 type VideoMode = 'normal' | 'drama';
 let mode: VideoMode = 'normal';
@@ -17,6 +17,7 @@ function readMode(): VideoMode {
 
 function subscribe(listener: () => void) {
     listeners.add(listener);
+    queueMicrotask(listener);
     const handleStorage = (event: StorageEvent) => {
         if (event.key !== 'xctStudioVideoMode') return;
         mode = readMode();
@@ -29,11 +30,7 @@ function subscribe(listener: () => void) {
     };
 }
 export function useVideoMode() {
-    const value = useSyncExternalStore(
-        subscribe,
-        readMode,
-        (): VideoMode => 'normal'
-    );
+    const value = React.useSyncExternalStore(subscribe, readMode, () => mode);
     return [
         value,
         (next: VideoMode) => {

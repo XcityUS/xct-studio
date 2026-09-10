@@ -156,18 +156,18 @@ Evidence: [AIDrama Studio overview](https://github.com/EvoLinkAI/ai-short-drama/
 | TTS/BGM/finalization helpers | `src/lib/tts.ts`, FinalizeDialog, AssemblyEditor | Phase 2 post-production adapters |
 | Locale-aware shell | `src/i18n` and locale routes | Keep UI locale independent from script/subtitle/audio locale |
 
-At the research baseline, the existing script breakdown defaulted to `gpt-4o-mini`, requested 2–8 JSON shots with description/camera/audio, and ran through a browser-enabled OpenAI client. The 2026-09-09 follow-up added TXT/Markdown/DOC/DOCX/PDF extraction, moved breakdown behind a same-origin server API, and changed its default candidate to `gpt-5-mini`. It still has no Episode, ScriptVersion, narrative Scene, asset mapping, durable draft, provenance or retry record. It remains an interim prompt workflow, not the production pipeline.
+At the research baseline, the existing script breakdown defaulted to `gpt-4o-mini`, requested 2–8 JSON shots with description/camera/audio, and ran through a browser-enabled OpenAI client. The 2026-09-09 follow-up added TXT/Markdown/DOC/DOCX/PDF extraction, structured `characters` and `scenes`, and changed its default candidate to `gpt-5-mini`. The active Studio UI follows the same browser-direct TokenHub `/v1/chat/completions` path as prompt optimization, using the resolved user SSO/manual key. It still has no Episode, ScriptVersion, narrative Scene, durable cloud draft, provenance or retry record. It remains an interim prompt workflow, not the production pipeline.
 
 ### 4.2 Current LLM answer and recommended model policy
 
-Yes, XCT Studio currently calls an LLM for script breakdown. `ShotBuilderDialog` invokes the client application API and lets the user edit the returned shot list; the provider SDK now runs in `src/server/providers/xcity`, behind `/api/script/breakdown`. This is a prompt helper, not the Episode breakdown pipeline described in this proposal.
+Yes, XCT Studio currently calls an LLM for script breakdown. `ShotBuilderDialog` invokes the browser-side breakdown client and lets the user edit the returned shot list; the current production path calls TokenHub `/v1/chat/completions` directly with the user's resolved key. A retained `/api/script/breakdown` compatibility route exists, but the UI does not use it as the main path. This is a prompt helper, not the Episode breakdown pipeline described in this proposal.
 
-The server-side default is now `gpt-5-mini`, overridable with `SCRIPT_BREAKDOWN_MODEL`. The inspected gateway configuration declares aliases including `gpt-4.1-mini`, `gpt-5-mini`, `gpt-5`, `gpt-5.5`, `claude-sonnet-4-6`, `gemini-2.5-flash/pro`, `deepseek-v3.2`, `glm-5` and `kimi-k2.6`; configuration does not prove that every production credential, entitlement or route is active.
+The browser-side default now uses the first allowed fallback model, currently `deepseek-v4-pro-260425`, and can be overridden with `NEXT_PUBLIC_SCRIPT_BREAKDOWN_MODEL`. The inspected gateway configuration declares aliases including `gpt-4.1-mini`, `gpt-5-mini`, `gpt-5`, `gpt-5.5`, `claude-sonnet-4-6`, `gemini-2.5-flash/pro`, `deepseek-v3.2`, `glm-5` and `kimi-k2.6`; configuration does not prove that every production credential, entitlement or user key can access every alias.
 
 Recommended policy:
 
 - use deterministic parsing for file normalization and obvious headings/dialogue boundaries;
-- make **`gpt-5-mini` the first evaluation candidate** for Chinese entity extraction and structured Scene/Shot drafts because an XCT gateway alias already exists;
+- make **the first user-key-allowed chat model** the production default for Chinese entity extraction and structured Scene/Shot drafts, currently `deepseek-v4-pro-260425`; evaluate `gpt-5-mini` only after TokenHub keys used by Studio are allowed to access it;
 - evaluate `deepseek-v3.2`, `glm-5` and `kimi-k2.6` on the same Chinese short-drama fixture set as cost/latency candidates;
 - reserve a higher-quality configured model such as `gpt-5`/`gpt-5.5` or `claude-sonnet-4-6` for ambiguous replanning or an optional quality tier, not every parse;
 - select by a versioned task policy (`script_analysis`, `entity_mapping`, `shot_planning`, `repair`) instead of a global UI environment variable;

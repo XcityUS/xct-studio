@@ -12,10 +12,10 @@ Forked from [alasano/sora-2-playground](https://github.com/alasano/sora-2-playgr
 - **🖼️ Image-to-video** — drop a local image (stored via the media worker) or paste a URL; the clip starts from that frame.
 - **🎨 Text-to-image tab** *(optional)* — Seedream models through the same gateway; generated images persist in the browser and can be sent straight back into image-to-video ("Animate").
 - **💡 Prompt assistant** — an inspiration library (scene templates, camera moves, style/light phrases) plus one-click AI prompt rewriting via the gateway's chat API, with undo.
-- **📝 Script import and shot breakdown** — paste text or import TXT, Markdown, DOC, DOCX, and PDF files up to 20 MB, then create editable shot rows through a server-side TokenHub call.
+- **📝 Script import and shot breakdown** — paste text or import TXT, Markdown, DOC, DOCX, and PDF files up to 20 MB, then create editable shot rows through TokenHub's chat-completions API with a longer browser timeout for multi-model fallback.
 - **📜 History & cost tracking** — every job with live progress, per-video cost breakdown mirroring the TokenHub price map, status/model filters, one-click **Reuse** (做同款) and **Regenerate**.
 - **☁️ Permanent playback** — Ark's CDN links die after 24 h; finished videos are archived once to R2 and played from there forever.
-- **🔑 No server-held keys** — model calls use the signed-in user's own TokenHub key (SSO), or a manually pasted key; same-origin routes forward it without persisting it.
+- **🔑 No server-held keys for browser generation** — model calls use the signed-in user's own TokenHub key (SSO), or a manually pasted key; compatibility routes that accept a bearer key forward it without persisting it.
 
 ## 🏗️ Architecture
 
@@ -26,10 +26,10 @@ Browser (this app)
   ├──► TokenHub gateway (LiteLLM, tokenhub.xcity.one)
   │      /v1/videos            → BytePlus/Ark Seedance
   │      /v1/images            → Seedream (optional tab)
-  │      /v1/chat/completions  → legacy prompt optimizer
+  │      /v1/chat/completions  → prompt optimizer + short-drama script breakdown
   │
-  ├──► Next /api/script/* → TokenHub /v1/chat/completions
-  │      file text extraction + script breakdown
+  ├──► Next /api/script/*
+  │      file text extraction + retained server-compatible breakdown route
   │
   └──► xcity-media worker (Cloudflare Workers + R2, media-worker/)
          POST /archive   copy a finished video into R2 (key-authenticated)
@@ -37,8 +37,8 @@ Browser (this app)
          GET  /media/*   serve stored media (public, immutable, CORS, ranges)
 ```
 
-- Video/image **bytes** live in the browser (IndexedDB) and in R2; **history metadata** uses browser state and Worker sync. The Next.js app does not yet own a production database. `/api/config` exposes browser-safe runtime configuration; existing portrait and video-content API routes remain in place. Remaining browser-to-gateway AI flows are legacy behavior scheduled for server-side migration.
-- Keys are resolved **at call time** through a ref (`src/features/settings/hooks/use-xcity-key.ts`) — SSO keys arrive async and rotate, so no closure ever trusts a key it captured at render time. Script breakdown forwards the current key through the same-origin route without storing it.
+- Video/image **bytes** live in the browser (IndexedDB) and in R2; **history metadata** uses browser state and Worker sync. The Next.js app does not yet own a production database. `/api/config` exposes browser-safe runtime configuration; existing portrait and video-content API routes remain in place. Prompt optimization and short-drama script breakdown currently share the browser-direct TokenHub chat-completions path.
+- Keys are resolved **at call time** through a ref (`src/features/settings/hooks/use-xcity-key.ts`) — SSO keys arrive async and rotate, so no closure ever trusts a key it captured at render time. When SSO is enabled, call-time resolution fetches the current SSO key before falling back to a browser-stored manual key.
 - Archiving is **reconciliation-based** (`src/features/assets/hooks/use-media-archive.ts`): any completed history item without a permanent URL gets one, with exponential backoff — not a completion callback that can race the CDN link appearing.
 
 ## 🚀 Local development
@@ -87,7 +87,9 @@ Benchmarks live in [bench/](bench/); every pull request gets a performance repor
 | `NEXT_PUBLIC_XCITY_KEY_URL` | no | Override the SSO key endpoint (default `https://xcity.ai/api/me/litellm-key`) |
 | `NEXT_PUBLIC_XCITY_LOGIN_URL` | no | Override the login URL (default `https://xcity.ai/login`) |
 | `XCITY_LITELLM_URL` | no | Server-only TokenHub origin used by provider-asset routes. Defaults to `https://tokenhub.xcity.one`; do not include `/v1`. |
-| `SCRIPT_BREAKDOWN_MODEL` | no | Server-side chat model used for script breakdown (default `gpt-5-mini`). |
+| `XCITY_LITELLM_API_KEY` | no | Server-only TokenHub key for server-side compatibility routes. The current Studio UI does not require it for short-drama breakdown. |
+| `SCRIPT_BREAKDOWN_MODEL` | no | Server-side compatibility-route script breakdown model (default `deepseek-v4-pro-260425`). |
+| `NEXT_PUBLIC_SCRIPT_BREAKDOWN_MODEL` | no | Browser-side TokenHub chat model for short-drama script breakdown. Leave unset to use allowed fallback models starting with `deepseek-v4-pro-260425`; set to `gpt-5-mini` only after the user's TokenHub key is allowed to access it. Each model attempt uses a 300s browser timeout. |
 | `PROVIDER_ASSETS_ENABLED` | no | Set to `true` after TokenHub provider-asset routes and BytePlus credentials are deployed. Enables review, Asset ID status, and portrait-library UI. |
 | `MEDIA_WORKER_URL` | no | Deployed media worker origin. Unset → archiving and local image upload are disabled; playback falls back to 24 h provider links. Read at runtime via `/api/config` — restart, don't rebuild. |
 | `IMAGE_MODELS` | no | Comma-separated TokenHub image model ids, e.g. `seedream-5-0-260128`. Unset → the Image tab is hidden. Read at runtime via `/api/config` — restart, don't rebuild. |

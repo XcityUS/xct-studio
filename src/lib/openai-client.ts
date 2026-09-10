@@ -20,11 +20,11 @@ export class BudgetExceededError extends Error {
 
 const FRONTEND_OPENAI_TIMEOUT_MS = 120_000;
 
-export function createFrontendOpenAI(apiKey: string, baseURL?: string): OpenAI {
+export function createFrontendOpenAI(apiKey: string, baseURL?: string, timeoutMs = FRONTEND_OPENAI_TIMEOUT_MS): OpenAI {
     return new OpenAI({
         apiKey,
         baseURL,
-        timeout: FRONTEND_OPENAI_TIMEOUT_MS,
+        timeout: timeoutMs,
         dangerouslyAllowBrowser: true
     });
 }

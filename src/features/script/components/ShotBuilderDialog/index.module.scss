@@ -1,11 +1,68 @@
 .dialog {
+    display: flex;
+    flex-direction: column;
     width: min(48rem, calc(100vw - 2rem));
     max-width: 48rem;
     max-height: 86dvh;
-    overflow-y: auto;
+    overflow: hidden;
     background: var(--studio-surface);
     color: var(--studio-foreground);
     border-color: var(--studio-border);
+    padding: 0;
+}
+.header {
+    flex: 0 0 auto;
+    border-bottom: 1px solid var(--studio-border);
+    padding: 1.05rem 3.25rem 0.95rem 1.25rem;
+    background: var(--studio-surface);
+}
+.closeButton {
+    position: absolute;
+    top: 0.9rem;
+    right: 1rem;
+    z-index: 2;
+    display: grid;
+    width: 1.8rem;
+    height: 1.8rem;
+    place-items: center;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--studio-muted);
+    font: inherit;
+    font-size: 1.25rem;
+    line-height: 1;
+    cursor: pointer;
+    transition:
+        background 0.15s ease,
+        border-color 0.15s ease,
+        color 0.15s ease;
+}
+.closeButton:hover {
+    border-color: var(--studio-border);
+    background: var(--studio-hover);
+    color: var(--studio-foreground);
+}
+.body {
+    display: grid;
+    flex: 1 1 auto;
+    min-height: 0;
+    gap: 1rem;
+    overflow-y: auto;
+    padding: 1rem 1.25rem;
+    scrollbar-width: auto;
+}
+.body::-webkit-scrollbar {
+    width: 2px;
+    height: 2px;
+}
+.body::-webkit-scrollbar-track {
+    background: transparent;
+}
+.body::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    border: 0;
+    background: color-mix(in srgb, var(--studio-muted) 35%, transparent);
 }
 .editor {
     display: grid;
@@ -46,17 +103,6 @@
     gap: 0.5rem;
     font-size: 0.875rem;
 }
-.language {
-    display: grid;
-    gap: 0.6rem;
-    border: 1px solid var(--studio-border);
-    padding: 0.8rem;
-    border-radius: 0.5rem;
-}
-.language legend {
-    font-size: 0.875rem;
-    padding: 0 0.25rem;
-}
 .toolbar,
 .footer {
     display: flex;
@@ -65,18 +111,34 @@
     align-items: center;
     gap: 0.6rem;
 }
+.toolbarActions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}
 .footer {
     justify-content: flex-end;
     border-top: 1px solid var(--studio-border);
-    padding-top: 1rem;
+    padding: 0.8rem 1.25rem 1rem;
+    background: var(--studio-surface);
+    box-shadow: var(--studio-control-shadow);
 }
 .primary,
 .secondary {
-    padding: 0.6rem 0.85rem;
+    min-height: 2.1rem;
+    padding: 0 0.75rem;
     border: 1px solid var(--studio-border);
-    border-radius: 0.5rem;
-    font-size: 0.875rem;
+    border-radius: 0.6rem;
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 500;
     cursor: pointer;
+    transition:
+        background 0.15s ease,
+        border-color 0.15s ease,
+        color 0.15s ease,
+        opacity 0.15s ease;
 }
 .primary {
     color: var(--studio-background);
@@ -85,6 +147,10 @@
 .secondary {
     color: var(--studio-foreground);
     background: var(--studio-surface);
+}
+.secondary:hover {
+    border-color: var(--studio-border-strong);
+    background: var(--studio-hover);
 }
 .primary:disabled,
 .secondary:disabled {

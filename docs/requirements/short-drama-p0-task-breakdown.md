@@ -6,7 +6,7 @@
 
 此前的 Studio 数据库实验实现已按用户要求撤回。XCT Studio 不接数据库；数据库、业务事务和异步队列属于 xcity-litellm 后端，尚未迁移或部署。
 
-当前状态：Studio 原有 Normal、脚本提取、素材页与媒体归档保持不变。已新增项目独立配置、结构化角色/场景/Shot Review、资产选择和本地 Preflight；xcity-litellm 已新增 `POST /v1/drama/script/breakdown` 解析入口并复用现有鉴权、模型路由和计费链路。Studio `/api/script/breakdown` 只是同源薄代理。完整 P0 仍未交付，尤其没有云端生产数据、后台队列和刷新恢复。
+当前状态：Studio 原有 Normal、脚本提取、素材页与媒体归档保持不变。已新增项目独立配置、结构化角色/场景/Shot Review、资产选择和本地 Preflight；短剧 UI 拆分与普通视频 Prompt 优化保持一致，使用用户 SSO/manual key 直连 TokenHub `/v1/chat/completions`。`/api/script/breakdown` 与 xcity-litellm drama 入口仅作为兼容/后续演进参考。完整 P0 仍未交付，尤其没有云端生产数据、后台队列和刷新恢复。
 
 ## 2. 可复用能力与责任分界
 

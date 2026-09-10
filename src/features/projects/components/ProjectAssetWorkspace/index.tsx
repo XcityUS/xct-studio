@@ -87,7 +87,7 @@ export function ProjectAssetWorkspace({ assets, onChangeKind, onArchive }: Proje
                 <div className={styles.grid}>
                     {assets.map((asset) => (
                         <article key={asset.id} className={styles.asset}>
-                            <div>
+                            <div className={styles.info}>
                                 <div className={styles.name}>{asset.name}</div>
                                 <div className={styles.meta}>
                                     <span>{kindLabel(asset.kind)}</span>

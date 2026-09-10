@@ -1,0 +1,478 @@
+'use client';
+
+import { compileShotPrompt } from '@/features/generation/components/CreationForm/shot-queue';
+import type { SceneAssetBindingProgress, ShotVideoPreview as ShotVideoPreviewItem } from '@/features/generation/components/CreationForm/types';
+import type { EditorDraft } from '@/features/script/components/ShotBuilderDialog/draft';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/Dialog';
+import { Dropdown } from '@/components/ui/Dropdown';
+import type { ProjectAsset } from '@/shared/contracts/production';
+import { Copy, Loader2, Wand2 } from 'lucide-react';
+import { useTranslations } from 'next-intl';
+import * as React from 'react';
+import styles from './index.module.scss';
+
+type Tab = 'shots' | 'characters' | 'scenes';
+
+type Props = {
+    draft?: EditorDraft;
+    assets: ProjectAsset[];
+    onOpenAssets?: () => void;
+    onDraftChange: (draft: EditorDraft) => void;
+    onGenerateShot?: (shot: EditorDraft['shots'][number], index: number) => void | Promise<void>;
+    onGenerateAllShots?: () => void | Promise<void>;
+    isGeneratingShot?: boolean;
+    pendingShotCount?: number;
+    shotVideoPreviews?: ShotVideoPreviewItem[];
+    onContinueShotQueue?: () => void | Promise<void>;
+    onAutoBindSceneAssets?: () => void | Promise<void>;
+    isAutoBindingSceneAssets?: boolean;
+    sceneAssetBindingError?: string | null;
+    sceneAssetBindingProgress?: SceneAssetBindingProgress | null;
+};
+
+function shortAssetId(assetId: string) {
+    return assetId.length > 18 ? `${assetId.slice(0, 8)}…${assetId.slice(-6)}` : assetId;
+}
+
+function normalizeBoundAssetId(assetId: string | undefined) {
+    const value = assetId?.trim() ?? '';
+    return value || undefined;
+}
+
+function ShotVideoPreviewRow({ preview }: { preview?: ShotVideoPreviewItem }) {
+    const t = useTranslations();
+    if (!preview) return null;
+    const labels = {
+        queued: t('Queued'),
+        processing: t('Processing'),
+        completed: t('Completed'),
+        failed: t('Failed')
+    };
+    const copyUrl = async () => {
+        if (preview.videoSrc) await navigator.clipboard.writeText(preview.videoSrc);
+    };
+    const generatedAt = new Date(preview.generatedAt).toLocaleString(undefined, {
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+    return (
+        <div className={styles.videoPreview} data-status={preview.status}>
+            <div>
+                <strong>{labels[preview.status]}</strong>
+                <span>{generatedAt}</span>
+                <span>{preview.hasAudio ? t('With audio') : t('Silent')}</span>
+                {typeof preview.cost === 'number' && <span>${preview.cost.toFixed(4)}</span>}
+                {preview.videoSrc && <button type='button' onClick={copyUrl}>{t('Copy URL')}</button>}
+            </div>
+            <span className={styles.videoProgress}><i style={{ width: `${preview.progress}%` }} /></span>
+            {preview.videoSrc && <video controls poster={preview.thumbnailSrc ?? undefined} src={preview.videoSrc} />}
+            {preview.error && <p>{preview.error}</p>}
+        </div>
+    );
+}
+
+function EpisodeVideoPreview({ previews, shotCount }: { previews: ShotVideoPreviewItem[]; shotCount: number }) {
+    const t = useTranslations();
+    const playlist = React.useMemo(
+        () => previews.filter((preview) => preview.status === 'completed' && preview.videoSrc).sort((a, b) => a.shotIndex - b.shotIndex),
+        [previews]
+    );
+    const [activeIndex, setActiveIndex] = React.useState(0);
+    const [playing, setPlaying] = React.useState(false);
+    const videoRef = React.useRef<HTMLVideoElement>(null);
+    const safeActiveIndex = Math.min(activeIndex, Math.max(playlist.length - 1, 0));
+    const active = playlist[safeActiveIndex];
+    React.useEffect(() => {
+        if (!playing || !videoRef.current) return;
+        videoRef.current.load();
+        void videoRef.current.play().catch(() => setPlaying(false));
+    }, [active?.videoSrc, playing]);
+    if (shotCount === 0) return null;
+    const missing = Math.max(shotCount - playlist.length, 0);
+    return (
+        <aside className={`${styles.videoPreview} ${styles.episodePreview}`}>
+            <div>
+                <strong>{t('Video Output')}</strong>
+                <span>{t('Ready <lcur>ready<rcur><slash><lcur>total<rcur> shots', { ready: playlist.length, total: shotCount })}</span>
+                {missing > 0 && <span>{t('<lcur>count<rcur> missing', { count: missing })}</span>}
+                <button type='button' disabled={!active} onClick={() => { setActiveIndex(0); setPlaying(true); }}>
+                    {t('Play output')}
+                </button>
+            </div>
+            {active ? (
+                <>
+                    <span className={styles.videoProgress}><i style={{ width: `${((safeActiveIndex + 1) / playlist.length) * 100}%` }} /></span>
+                    <video ref={videoRef} controls poster={active.thumbnailSrc ?? undefined} src={active.videoSrc} onEnded={() => (safeActiveIndex + 1 < playlist.length ? setActiveIndex(safeActiveIndex + 1) : setPlaying(false))} />
+                    <p>{t('Shot <lcur>number<rcur>', { number: active.shotIndex })}</p>
+                </>
+            ) : (
+                <p>{t('No completed storyboard videos yet')}</p>
+            )}
+        </aside>
+    );
+}
+
+function AssetIdBindingInput({
+    assetId,
+    ariaLabel,
+    onCommit
+}: {
+    assetId?: string;
+    ariaLabel: string;
+    onCommit: (assetId?: string) => void;
+}) {
+    const t = useTranslations();
+    const [value, setValue] = React.useState('');
+    const [editingValue, setEditingValue] = React.useState('');
+    const [editingOpen, setEditingOpen] = React.useState(false);
+    const normalized = normalizeBoundAssetId(value);
+    const normalizedEditingValue = normalizeBoundAssetId(editingValue);
+    const handleCopyAssetId = async () => {
+        if (!assetId) return;
+        await navigator.clipboard.writeText(assetId);
+    };
+    const handleUpdateAssetId = () => {
+        if (!assetId) return;
+        setEditingValue(assetId);
+        setEditingOpen(true);
+    };
+    const handleConfirmUpdate = () => {
+        if (!normalizedEditingValue) return;
+        onCommit(normalizedEditingValue);
+        setEditingOpen(false);
+    };
+    if (assetId) {
+        return (
+            <>
+                <div className={styles.assetControls} data-bound='true' onClick={(event) => event.stopPropagation()}>
+                    <span className={styles.bound}>{t('Bound')}</span>
+                    <button type='button' className={styles.copyAssetButton} title={assetId} aria-label={t('Copy')} onClick={handleCopyAssetId}>
+                        <code>{shortAssetId(assetId)}</code>
+                        <Copy aria-hidden='true' size={13} />
+                    </button>
+                    <button type='button' onClick={handleUpdateAssetId}>
+                        {t('Update')}
+                    </button>
+                </div>
+                <Dialog open={editingOpen} onOpenChange={setEditingOpen}>
+                    <DialogContent className={styles.assetUpdateContent}>
+                        <DialogHeader>
+                            <DialogTitle>{t('Update')} {t('Asset ID')}</DialogTitle>
+                            <DialogDescription>{t('Paste asset ID from My assets')}</DialogDescription>
+                        </DialogHeader>
+                        <div
+                            className={styles.assetUpdateForm}
+                            onClick={(event) => event.stopPropagation()}>
+                            <label>
+                                <span>{t('Asset ID')}</span>
+                                <input
+                                    autoFocus
+                                    value={editingValue}
+                                    onChange={(event) => setEditingValue(event.currentTarget.value)}
+                                    onKeyDown={(event) => {
+                                        if (event.key !== 'Enter') return;
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        handleConfirmUpdate();
+                                    }}
+                                />
+                            </label>
+                            <div className={styles.assetUpdateActions}>
+                                <button type='button' onClick={() => setEditingOpen(false)}>{t('Cancel')}</button>
+                                <button type='button' disabled={!normalizedEditingValue} onClick={handleConfirmUpdate}>{t('Confirm')}</button>
+                            </div>
+                        </div>
+                    </DialogContent>
+                </Dialog>
+            </>
+        );
+    }
+    return (
+        <div className={styles.assetControls} data-bound='false' onClick={(event) => event.stopPropagation()}>
+            <span className={styles.unbound}>{t('Not bound')}</span>
+            <input
+                aria-label={ariaLabel}
+                value={value}
+                placeholder={t('Paste asset ID from My assets')}
+                onChange={(event) => setValue(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        onCommit(normalized);
+                    }
+                }}
+            />
+            <button type='button' onClick={() => onCommit(normalized)}>
+                {t('Bind')}
+            </button>
+        </div>
+    );
+}
+
+export function StoryboardDraftPanel({
+    draft,
+    onOpenAssets,
+    onDraftChange,
+    onGenerateShot,
+    onGenerateAllShots,
+    isGeneratingShot = false,
+    pendingShotCount = 0,
+    shotVideoPreviews = [],
+    onContinueShotQueue,
+    onAutoBindSceneAssets,
+    isAutoBindingSceneAssets = false,
+    sceneAssetBindingError,
+    sceneAssetBindingProgress
+}: Props) {
+    const t = useTranslations();
+    const [tab, setTab] = React.useState<Tab>('shots');
+    const [editingShotId, setEditingShotId] = React.useState<string | undefined>();
+    if (!draft || draft.shots.length === 0) return null;
+
+    const totalDuration = draft.shots.reduce((sum, shot) => sum + (shot.durationSeconds ?? 0), 0);
+    const sceneBindingPercent = sceneAssetBindingProgress?.total ? Math.round((sceneAssetBindingProgress.done / sceneAssetBindingProgress.total) * 100) : 0;
+    const sceneNames = new Map(draft.scenes.map((scene) => [scene.id, scene.name]));
+    const sceneOptions = [{ value: 'unbound', label: t('No scene') }, ...draft.scenes.map((scene) => ({ value: scene.id, label: scene.name }))];
+    const updateShot = (id: string, patch: Partial<EditorDraft['shots'][number]>) =>
+        onDraftChange({ ...draft, shots: draft.shots.map((shot) => (shot.id === id ? { ...shot, ...patch } : shot)) });
+    const toggleShotCharacter = (shotId: string, characterId: string, selected: boolean) => {
+        const shot = draft.shots.find((item) => item.id === shotId);
+        const currentIds = shot?.characterIds ?? [];
+        updateShot(shotId, {
+            characterIds: selected ? [...currentIds, characterId] : currentIds.filter((id) => id !== characterId)
+        });
+    };
+    const updateCharacterAsset = (id: string, assetId?: string) =>
+        onDraftChange({
+            ...draft,
+            characters: draft.characters.map((character) =>
+                character.id === id ? { ...character, assetId: normalizeBoundAssetId(assetId) } : character
+            )
+        });
+    const updateSceneAsset = (id: string, assetId?: string) =>
+        onDraftChange({
+            ...draft,
+            scenes: draft.scenes.map((scene) =>
+                scene.id === id ? { ...scene, assetId: normalizeBoundAssetId(assetId) } : scene
+            )
+        });
+
+    return (
+        <section className={styles.panel} aria-label={t('Current storyboard draft')}>
+            <div className={styles.header}>
+                <div>
+                    <h3>{t('Current storyboard draft')}</h3>
+                    <p>
+                        {t(
+                            '<lcur>count<rcur> shots<dot> <lcur>number<rcur> characters<dot> <lcur>limit<rcur> scenes<dot> <lcur>seconds<rcur>s',
+                            {
+                                count: draft.shots.length,
+                                number: draft.characters.length,
+                                limit: draft.scenes.length,
+                                seconds: totalDuration
+                            }
+                        )}
+                    </p>
+                </div>
+                {pendingShotCount > 0 && (
+                    <button type='button' className={styles.primaryButton} disabled={isGeneratingShot} onClick={onContinueShotQueue}>
+                        {t('Continue queue <lpar><lcur>count<rcur><rpar>', { count: pendingShotCount })}
+                    </button>
+                )}
+                {pendingShotCount === 0 && onGenerateAllShots && (
+                    <button type='button' className={styles.primaryButton} disabled={isGeneratingShot} onClick={onGenerateAllShots}>
+                        {isGeneratingShot ? t('Generating') : t('Generate storyboard videos')}
+                    </button>
+                )}
+            </div>
+            <div className={styles.tabs} role='tablist' aria-label={t('Storyboard workspace tabs')}>
+                {[
+                    ['shots', t('Storyboard'), draft.shots.length],
+                    ['characters', t('Character binding'), draft.characters.length],
+                    ['scenes', t('Scene binding'), draft.scenes.length]
+                ].map(([value, label, count]) => (
+                    <button
+                        key={value}
+                        type='button'
+                        role='tab'
+                        aria-selected={tab === value}
+                        className={tab === value ? styles.activeTab : undefined}
+                        onClick={() => setTab(value as Tab)}>
+                        {label} <span>{count}</span>
+                    </button>
+                ))}
+            </div>
+            {tab === 'characters' && (
+                <section className={styles.section}>
+                    <div className={styles.sectionTitle}>
+                        <strong>{t('Character asset bindings')}</strong>
+                        {onOpenAssets && (
+                            <button type='button' className={styles.textButton} onClick={onOpenAssets}>
+                                {t('Upload or add image assets')}
+                            </button>
+                        )}
+                    </div>
+                    <div className={styles.stack}>
+                        {draft.characters.length === 0 ? (
+                            <p className={styles.empty}>{t('No characters extracted yet')}</p>
+                        ) : (
+                            draft.characters.map((character) => (
+                                <article className={styles.assetRow} key={character.id}>
+                                    <div>
+                                        <strong title={character.name}>{character.name}</strong>
+                                        <p title={character.description || t('No description')}>
+                                            {character.description || t('No description')}
+                                        </p>
+                                    </div>
+                                    <AssetIdBindingInput
+                                        key={`${character.id}:${character.assetId ?? ''}`}
+                                        assetId={character.assetId}
+                                        ariaLabel={t('Bind character asset')}
+                                        onCommit={(assetId) => updateCharacterAsset(character.id, assetId)}
+                                    />
+                                </article>
+                            ))
+                        )}
+                    </div>
+                </section>
+            )}
+            {tab === 'scenes' && (
+                <section className={styles.section}>
+                    <div className={styles.sectionTitle}>
+                        <strong>{t('Scene asset bindings')}</strong>
+                        {onOpenAssets && (
+                            <button type='button' className={styles.textButton} onClick={onOpenAssets}>
+                                {t('Upload or add image assets')}
+                            </button>
+                        )}
+                        {onAutoBindSceneAssets && draft.scenes.some((scene) => !scene.assetId) && (
+                            <button type='button' className={styles.textButton} disabled={isAutoBindingSceneAssets} onClick={onAutoBindSceneAssets}>
+                                {isAutoBindingSceneAssets ? <Loader2 className={styles.spinner} size={13} /> : <Wand2 size={13} />}
+                                {isAutoBindingSceneAssets ? t('Binding scene assets') : t('Auto bind scene assets')}
+                            </button>
+                        )}
+                    </div>
+                    {sceneAssetBindingProgress && sceneAssetBindingProgress.total > 0 && (
+                        <div className={styles.progress} aria-label={t('Progress')}>
+                            <span style={{ width: `${sceneBindingPercent}%` }} />
+                            <em>{sceneAssetBindingProgress.done}/{sceneAssetBindingProgress.total}</em>
+                        </div>
+                    )}
+                    {sceneAssetBindingError && <p className={styles.empty}>{sceneAssetBindingError}</p>}
+                    <div className={styles.stack}>
+                        {draft.scenes.length === 0 ? (
+                            <p className={styles.empty}>{t('No scenes extracted yet')}</p>
+                        ) : (
+                            draft.scenes.map((scene) => (
+                                <article className={styles.assetRow} key={scene.id}>
+                                    <div>
+                                        <strong title={scene.name}>{scene.name}</strong>
+                                        <p title={scene.description || t('No description')}>{scene.description || t('No description')}</p>
+                                    </div>
+                                    <AssetIdBindingInput
+                                        key={`${scene.id}:${scene.assetId ?? ''}`}
+                                        assetId={scene.assetId}
+                                        ariaLabel={t('Bind scene reference')}
+                                        onCommit={(assetId) => updateSceneAsset(scene.id, assetId)}
+                                    />
+                                </article>
+                            ))
+                        )}
+                    </div>
+                </section>
+            )}
+            {tab === 'shots' && (
+                <section className={styles.section}>
+                    <div className={styles.sectionTitle}>
+                        <strong>{t('Storyboard shot list')}</strong>
+                        <span>{t('View and edit all <lcur>count<rcur> shots', { count: draft.shots.length })}</span>
+                    </div>
+                    <div className={styles.shotList}>
+                        {draft.shots.map((shot, index) => {
+                            const selectedCharacters = draft.characters.filter((character) =>
+                                shot.characterIds?.includes(character.id)
+                            );
+                            const names = selectedCharacters.map((character) => character.name);
+                            const characterAssetsBound =
+                                selectedCharacters.length > 0 && selectedCharacters.every((character) => character.assetId);
+                            const promptPreview = compileShotPrompt(shot, index, draft.shots.length);
+                            const editing = editingShotId === shot.id;
+                            return (
+                                <article className={styles.shotRow} key={shot.id}>
+                                    <div className={styles.shotMeta}>
+                                        <strong>{t('Shot <lcur>number<rcur>', { number: index + 1 })}</strong>
+                                        <span>{shot.durationSeconds ?? 0}s</span>
+                                        <span>{shot.sceneId ? sceneNames.get(shot.sceneId) : t('No scene')}</span>
+                                        <span className={characterAssetsBound ? styles.bound : styles.unbound}>
+                                            {characterAssetsBound ? t('Character assets bound') : t('Character assets not bound')}
+                                        </span>
+                                        <button type='button' onClick={() => setEditingShotId(editing ? undefined : shot.id)}>
+                                            {editing ? t('Done') : t('Edit')}
+                                        </button>
+                                        {onGenerateShot && (
+                                            <button
+                                                type='button'
+                                                disabled={isGeneratingShot || !shot.description.trim()}
+                                                onClick={() => void onGenerateShot(shot, index)}>
+                                                {t('Generate')}
+                                            </button>
+                                        )}
+                                    </div>
+                                    {editing ? (
+                                        <div className={styles.editGrid}>
+                                            <label><span>{t('Description')}</span><textarea value={shot.description} onChange={(event) => updateShot(shot.id, { description: event.currentTarget.value })} /></label>
+                                            <label><span>{t('Prompt')}</span><textarea value={shot.prompt ?? ''} placeholder={promptPreview} onChange={(event) => updateShot(shot.id, { prompt: event.currentTarget.value })} /></label>
+                                            <label><span>{t('Scene')}</span><Dropdown value={shot.sceneId ?? 'unbound'} ariaLabel={t('Scene')} options={sceneOptions} onValueChange={(value) => updateShot(shot.id, { sceneId: value === 'unbound' ? undefined : value })} /></label>
+                                            {draft.characters.length > 0 && (
+                                                <fieldset className={styles.characterSelect}>
+                                                    <legend>{t('Characters appearing in this shot')}</legend>
+                                                    {draft.characters.map((character) => (
+                                                        <label key={character.id}>
+                                                            <input
+                                                                type='checkbox'
+                                                                checked={shot.characterIds?.includes(character.id) ?? false}
+                                                                onChange={(event) =>
+                                                                    toggleShotCharacter(
+                                                                        shot.id,
+                                                                        character.id,
+                                                                        event.currentTarget.checked
+                                                                    )
+                                                                }
+                                                            />
+                                                            <span>{character.name}</span>
+                                                            {character.assetId && <em>{t('Bound')}</em>}
+                                                        </label>
+                                                    ))}
+                                                </fieldset>
+                                            )}
+                                            <label><span>{t('Camera')}</span><input value={shot.camera ?? ''} onChange={(event) => updateShot(shot.id, { camera: event.currentTarget.value })} /></label>
+                                            <label><span>{t('Audio')}</span><input value={shot.audio ?? ''} onChange={(event) => updateShot(shot.id, { audio: event.currentTarget.value })} /></label>
+                                            <label><span>{t('Subtitle')}</span><textarea value={shot.subtitle ?? ''} onChange={(event) => updateShot(shot.id, { subtitle: event.currentTarget.value })} /></label>
+                                            <label><span>{t('Duration')}</span><input type='number' min={1} value={shot.durationSeconds ?? 0} onChange={(event) => updateShot(shot.id, { durationSeconds: Number(event.currentTarget.value) || 1 })} /></label>
+                                        </div>
+                                    ) : (
+                                        <dl className={styles.params}>
+                                            <div><dt>{t('Description')}</dt><dd>{shot.description}</dd></div>
+                                            <div><dt>{t('Prompt')}</dt><dd>{shot.prompt?.trim() || promptPreview}</dd></div>
+                                            <div><dt>{t('Characters')}</dt><dd>{names.length > 0 ? names.join(', ') : t('No characters selected for this shot')}</dd></div>
+                                            <div><dt>{t('Camera')}</dt><dd>{shot.camera || t('Not set')}</dd></div>
+                                            <div><dt>{t('Continuity')}</dt><dd>{shot.continuitySourceShotId || t('Not set')}</dd></div>
+                                            <div><dt>{t('Audio')}</dt><dd>{shot.audio || t('Not set')}</dd></div>
+                                            <div><dt>{t('Subtitle')}</dt><dd>{shot.subtitle || t('Not set')}</dd></div>
+                                            <div><dt>{t('Duration')}</dt><dd>{shot.durationSeconds ?? 0}s</dd></div>
+                                        </dl>
+                                    )}
+                                    <ShotVideoPreviewRow preview={shotVideoPreviews.find((item) => item.shotIndex === index + 1)} />
+                                </article>
+                            );
+                        })}
+                    </div>
+                    <EpisodeVideoPreview previews={shotVideoPreviews} shotCount={draft.shots.length} />
+                </section>
+            )}
+        </section>
+    );
+}

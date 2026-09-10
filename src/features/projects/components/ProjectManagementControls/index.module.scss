@@ -1,0 +1,103 @@
+.panel {
+    display: grid;
+    gap: 0.75rem;
+    border: 1px solid var(--studio-border);
+    border-radius: 0.75rem;
+    background: var(--studio-surface);
+    padding: 0.85rem;
+    color: var(--studio-foreground);
+}
+
+.controls,
+.confirmControls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.55rem;
+    align-items: center;
+}
+
+.dropdown {
+    min-width: min(100%, 17rem);
+    max-width: 20rem;
+    background: var(--studio-surface);
+    color: var(--studio-foreground);
+}
+
+.button,
+.secondaryButton,
+.dangerButton {
+    min-height: 2.25rem;
+    border-radius: 0.55rem;
+    padding: 0 0.8rem;
+    font: inherit;
+    font-size: 0.8125rem;
+    cursor: pointer;
+}
+
+.button {
+    border: 0;
+    background: var(--studio-foreground);
+    color: var(--studio-background);
+}
+
+.secondaryButton {
+    border: 1px solid var(--studio-border);
+    background: var(--studio-surface);
+    color: var(--studio-foreground);
+}
+
+.secondaryButton:hover {
+    background: var(--studio-hover);
+}
+
+.dangerButton {
+    border: 1px solid var(--studio-border);
+    background: transparent;
+    color: var(--studio-muted);
+}
+
+.dangerButton:hover:not(:disabled) {
+    background: var(--studio-danger-soft);
+    color: var(--studio-danger);
+}
+
+.button:disabled,
+.dangerButton:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+.meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem 0.75rem;
+    color: var(--studio-muted);
+    font-size: 0.75rem;
+    line-height: 1.35;
+}
+
+.notice {
+    margin: 0;
+    color: var(--studio-muted);
+    font-size: 0.8125rem;
+}
+
+.dialog {
+    border-color: var(--studio-border);
+    background: var(--studio-surface);
+    color: var(--studio-foreground);
+}
+
+@media (width <= 640px) {
+    .controls {
+        align-items: stretch;
+    }
+
+    .dropdown,
+    .button,
+    .secondaryButton,
+    .dangerButton {
+        width: 100%;
+        max-width: none;
+    }
+}

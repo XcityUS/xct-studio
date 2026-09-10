@@ -57,6 +57,18 @@ Do not introduce a new flat history-only workflow when the same data belongs to 
 - Map provider failures into stable product error codes before they reach feature UI.
 - Never silently discard a failed generation, archive upload, state sync, or export operation.
 
+## AI Business API Contracts
+
+- Treat AI-backed product workflows as server-side business APIs, not as UI button handlers. The UI submits typed application requests; provider credentials, model routing, schema repair, provider fallback, and stable error mapping stay behind same-origin routes and server adapters.
+- XCT Studio user-key TokenHub calls must use `NEXT_PUBLIC_OPENAI_API_BASE_URL` as the gateway base path. This includes browser generation, prompt optimization, script breakdown, captions, TTS, and other flows authenticated by the user's SSO/manual TokenHub key.
+- Do not route user-key TokenHub calls through `localhost`, `/api/*`, or another same-origin wrapper unless the product explicitly reclassifies that flow as a server-owned business API and updates this rule in the same change.
+- Existing browser-direct TokenHub workflows, such as current prompt optimization and short-drama script breakdown, call `NEXT_PUBLIC_OPENAI_API_BASE_URL` from the browser with the user's SSO/manual key. In that mode, do not rely on server-only fallback credentials, and verify the browser Network origin is the configured TokenHub `/v1/*` endpoint.
+- Do not make a new product workflow depend exclusively on a newly introduced or not-yet-proven gateway endpoint. Until that endpoint is deployed and smoke-tested in production, the Studio route must keep a compatible fallback to a stable endpoint or explicitly disable the feature with a clear readiness error.
+- Do not require a browser-stored user key for server-owned workflows that can use a server-side TokenHub key. Prefer request bearer first when present, then server-only credentials, then return a stable unauthorized error. Do not open the manual key dialog merely because a server workflow has no browser key.
+- Every AI business route that crosses repositories must have contract tests for success, missing credentials, upstream 401/403, upstream 404 or provider unavailable, invalid model JSON, and schema normalization. UI-only tests and local build checks are not enough.
+- For multi-repository releases, publish and smoke-test the provider or gateway contract before publishing the Studio code that requires it. If the Studio code ships first, it must include a fallback path that is verified locally and documented in the deployment notes.
+- After deployment, run a production smoke check against the Studio same-origin API, not only the gateway API. Verify the returned JSON shape and user-facing error behavior without exposing secrets in logs, screenshots, or issue comments.
+
 ## Prompt And Media Safety
 
 - Treat user prompts, scripts, filenames, provider responses, and imported metadata as untrusted input.

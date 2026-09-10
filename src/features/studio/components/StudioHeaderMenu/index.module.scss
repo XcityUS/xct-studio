@@ -1,0 +1,36 @@
+.menu {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    min-height: 2rem;
+    border: 1px solid var(--studio-border);
+    border-radius: 0.55rem;
+    background: var(--studio-surface-soft);
+    padding: 0.2rem;
+    flex-shrink: 0;
+}
+
+.item {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 1.6rem;
+    border-radius: 0.4rem;
+    padding: 0 0.7rem;
+    color: var(--studio-muted);
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-decoration: none;
+    transition:
+        background-color 140ms ease,
+        color 140ms ease;
+}
+
+.item:hover {
+    color: var(--studio-foreground);
+}
+
+.item[data-active='true'] {
+    background: var(--studio-foreground);
+    color: var(--studio-background);
+}

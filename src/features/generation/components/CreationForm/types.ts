@@ -3,9 +3,15 @@ import type { PortraitGroup } from '@/features/assets/portrait/api';
 import { type ReferenceDeclaration, type ReferenceOrigin } from '@/features/assets/reference/origin';
 import type { VideoCharacter, VideoPortrait } from '@/features/generation/hooks/use-video-history';
 import type { ScriptAnalysisDraft } from '@/features/script/types';
+import type { EditorDraft } from '@/features/script/components/ShotBuilderDialog/draft';
 import type { TtsVoice } from '@/lib/tts';
 import { type VideoModel, type VideoRatio, type VideoResolution } from '@/shared/config/seedance';
-import type { ProductionSnapshot, ProjectAsset, ShortDramaProject } from '@/shared/contracts/production';
+import type {
+    ProductionSnapshot,
+    ProjectAsset,
+    ShortDramaProject,
+    ShortDramaProjectInput
+} from '@/shared/contracts/production';
 import type { VideoJobCreate } from '@/shared/contracts/video';
 import * as React from 'react';
 
@@ -13,8 +19,38 @@ export type CreationFormData = VideoJobCreate;
 
 export type CreationSubmitOptions = {
     title?: string;
+    replacesItemId?: string;
     rethrowOnError?: boolean;
     onSubmitStage?: (message: string) => void;
+};
+
+export type ShortDramaProjectControls = {
+    project: ShortDramaProject;
+    projects: ShortDramaProject[];
+    projectAssets: ProjectAsset[];
+    onCreateProject: (input: ShortDramaProjectInput) => void;
+    onSelectProject: (projectId: string) => void;
+    onUpdateProject: (input: ShortDramaProjectInput) => void;
+    onDeleteProject: (projectId: string) => void;
+    deletionBlocked?: boolean;
+};
+
+export type SceneAssetBindingProgress = {
+    done: number;
+    total: number;
+};
+
+export type ShotVideoPreview = {
+    shotIndex: number;
+    status: 'queued' | 'processing' | 'completed' | 'failed';
+    progress: number;
+    jobId: string;
+    generatedAt: number;
+    hasAudio: boolean;
+    videoSrc?: string;
+    thumbnailSrc?: string | null;
+    cost?: number;
+    error?: string;
 };
 
 export type CreationFormProps = {
@@ -80,6 +116,11 @@ export type CreationFormProps = {
     onOptimizePrompt?: (prompt: string) => Promise<string>;
     /** Splits a script into Seedance shot rows via the gateway's chat API. */
     onBreakdownScript?: (script: string) => Promise<ScriptAnalysisDraft>;
+    /** Generates/reviews missing scene assets and returns a draft with scene Asset IDs filled. */
+    onAutoBindSceneAssets?: (
+        draft: EditorDraft,
+        onProgress?: (draft: EditorDraft, progress: SceneAssetBindingProgress) => void
+    ) => Promise<EditorDraft>;
     projectAssets?: ProjectAsset[];
     projectConfig?: ShortDramaProject;
     /** Captures the current Project and bound production assets before a generation request is persisted. */
@@ -92,6 +133,15 @@ export type CreationFormProps = {
     }) => ProductionSnapshot;
     /** Opens the Assets tab for portrait-library setup. */
     onOpenAssets?: (referenceKey?: string) => void;
+    /** Short-drama project controls rendered inside the drama creation panel. */
+    projectControls?: ShortDramaProjectControls;
+    /** Optional controlled state for the storyboard editor dialog. */
+    storyboardEditorOpen?: boolean;
+    onStoryboardEditorOpenChange?: (open: boolean) => void;
+    /** Publishes local storyboard draft changes to the outer short-drama workspace. */
+    onStoryboardDraftChange?: (draft: EditorDraft) => void;
+    /** Per-shot video generation previews from history/active jobs. */
+    shotVideoPreviews?: ShotVideoPreview[];
     /** Successful/neutral feedback from non-submit actions, rendered under the Create button. */
     notice?: string | null;
     /** Clears neutral feedback after direct form edits. */

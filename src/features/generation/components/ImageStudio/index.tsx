@@ -12,6 +12,7 @@ import {
     type ImageModel,
     type ImageSizeId
 } from '@/lib/image-service';
+import type { UserAsset } from '@/lib/media-archive';
 import { cn } from '@/shared/utils/classnames';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Clapperboard, Download, ImageIcon, Loader2, Sparkles, Trash2 } from 'lucide-react';
@@ -22,12 +23,25 @@ interface ImageStudioProps {
     imageModels: ImageModel[];
     /** Runs the generation on the user's key; the studio stores the results. */
     onGenerate: (params: { prompt: string; model: string; size: ImageSizeId; n: number }) => Promise<GeneratedImage[]>;
+    /** Cloud images stored by the media worker, shared with the Assets module. */
+    cloudImageAssets?: UserAsset[];
     /**
      * 发送到图生视频 — resolves a public URL for the image and moves it into
      * the video form. Absent when no media worker is configured and the
      * record has no usable remote URL.
      */
     onAnimate?: (record: ImageRecord) => Promise<void>;
+}
+
+function imageRecordFromAsset(asset: UserAsset): ImageRecord {
+    return {
+        id: `asset:${asset.key}`,
+        prompt: asset.name ?? asset.key,
+        model: 'Cloud asset',
+        size: 'cloud',
+        source_url: asset.url,
+        created_at: asset.uploaded ? Date.parse(asset.uploaded) || 0 : 0
+    };
 }
 
 /** Object URLs for stored blobs, created in an effect and revoked on cleanup. */
@@ -70,7 +84,7 @@ function useImageObjectUrls(records: ImageRecord[] | undefined) {
     }, []);
 }
 
-export function ImageStudio({ imageModels, onGenerate, onAnimate }: ImageStudioProps) {
+export function ImageStudio({ imageModels, onGenerate, cloudImageAssets = [], onAnimate }: ImageStudioProps) {
     const [prompt, setPrompt] = React.useState('');
     const [model, setModel] = React.useState('');
     const [size, setSize] = React.useState<ImageSizeId>('1024x1024');
@@ -85,6 +99,14 @@ export function ImageStudio({ imageModels, onGenerate, onAnimate }: ImageStudioP
         []
     );
     const getSrc = useImageObjectUrls(records);
+    const visibleRecords = React.useMemo(() => {
+        const localRecords = records ?? [];
+        const localUrls = new Set(localRecords.map((rec) => rec.source_url).filter(Boolean));
+        const cloudRecords = cloudImageAssets
+            .filter((asset) => asset.kind === 'image' && asset.url && !localUrls.has(asset.url))
+            .map(imageRecordFromAsset);
+        return [...localRecords, ...cloudRecords];
+    }, [cloudImageAssets, records]);
 
     React.useEffect(() => {
         if (model || imageModels.length === 0) return;
@@ -272,19 +294,20 @@ export function ImageStudio({ imageModels, onGenerate, onAnimate }: ImageStudioP
                 <CardHeader className='border-b border-white/10 pb-4'>
                     <CardTitle className='text-lg font-medium text-white'>Images</CardTitle>
                     <CardDescription className='mt-1 text-white/60'>
-                        Stored in your browser. Animate sends one to the video form.
+                        Stored locally and in your cloud assets. Animate sends one to the video form.
                     </CardDescription>
                 </CardHeader>
                 <CardContent className='flex-1 p-4'>
-                    {!records || records.length === 0 ? (
+                    {visibleRecords.length === 0 ? (
                         <div className='flex h-full min-h-[280px] flex-col items-center justify-center text-white/40'>
                             <ImageIcon className='mb-3 h-10 w-10 text-white/20' />
-                            <p>Generated images will appear here.</p>
+                            <p>Generated and cloud images will appear here.</p>
                         </div>
                     ) : (
                         <div className='grid grid-cols-2 gap-4'>
-                            {records.map((rec) => {
+                            {visibleRecords.map((rec) => {
                                 const src = getSrc(rec);
+                                const isCloudAsset = rec.id.startsWith('asset:');
                                 return (
                                     <div key={rec.id} className='flex flex-col'>
                                         <div className='relative aspect-square overflow-hidden rounded-t-md border border-white/20 bg-neutral-900'>
@@ -296,13 +319,15 @@ export function ImageStudio({ imageModels, onGenerate, onAnimate }: ImageStudioP
                                                     expired
                                                 </div>
                                             )}
-                                            <button
-                                                type='button'
-                                                onClick={() => void db.images.delete(rec.id)}
-                                                className='absolute top-1 right-1 rounded-full bg-red-600/80 p-1 text-[var(--studio-status-foreground)] transition-colors hover:bg-red-500/90'
-                                                aria-label='Delete image'>
-                                                <Trash2 size={12} />
-                                            </button>
+                                            {!isCloudAsset && (
+                                                <button
+                                                    type='button'
+                                                    onClick={() => void db.images.delete(rec.id)}
+                                                    className='absolute top-1 right-1 rounded-full bg-red-600/80 p-1 text-[var(--studio-status-foreground)] transition-colors hover:bg-red-500/90'
+                                                    aria-label='Delete image'>
+                                                    <Trash2 size={12} />
+                                                </button>
+                                            )}
                                         </div>
                                         <div className='rounded-b-md border border-t-0 border-white/20 bg-neutral-900/50 p-2'>
                                             <p className='line-clamp-1 text-xs text-white/70' title={rec.prompt}>

@@ -1,13 +1,14 @@
 .dialog {
     display: flex;
     flex-direction: column;
-    width: min(44rem, calc(100vw - 2rem));
-    max-width: 44rem;
+    width: min(48rem, calc(100vw - 2rem));
+    max-width: 48rem;
     max-height: 88dvh;
     overflow: hidden;
     border-color: var(--studio-border);
     background: var(--studio-surface);
     color: var(--studio-foreground);
+    padding: 0;
 }
 
 .form,
@@ -16,11 +17,71 @@
     gap: 0.5rem;
 }
 
+.header {
+    flex: 0 0 auto;
+    border-bottom: 1px solid var(--studio-border);
+    padding: 1.35rem 3.5rem 1rem 1.5rem;
+    background: var(--studio-surface);
+}
+
+.closeButton {
+    position: absolute;
+    top: 1.15rem;
+    right: 1.25rem;
+    z-index: 2;
+    display: grid;
+    width: 1.9rem;
+    height: 1.9rem;
+    place-items: center;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--studio-muted);
+    font: inherit;
+    font-size: 1.35rem;
+    line-height: 1;
+    cursor: pointer;
+    transition:
+        background 0.15s ease,
+        border-color 0.15s ease,
+        color 0.15s ease;
+}
+
+.closeButton:hover {
+    border-color: var(--studio-border);
+    background: var(--studio-hover);
+    color: var(--studio-foreground);
+}
+
 .form {
+    min-height: 0;
+    flex: 1 1 auto;
+    gap: 0;
+    overflow: hidden;
+}
+
+.body {
+    display: grid;
     min-height: 0;
     gap: 1rem;
     overflow-y: auto;
-    padding-right: 0.2rem;
+    padding: 1.2rem 1.5rem;
+    scrollbar-width: auto;
+}
+
+.body::-webkit-scrollbar {
+    width: 2px;
+    height: 2px;
+}
+
+.body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.body::-webkit-scrollbar-thumb {
+    border: 0;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--studio-muted) 35%, transparent);
 }
 
 .grid {
@@ -45,6 +106,7 @@
     color: var(--studio-foreground);
     padding: 0.65rem 0.75rem;
     font: inherit;
+    box-shadow: var(--studio-control-shadow);
 }
 
 .wide {
@@ -60,23 +122,31 @@
 }
 
 .actions {
-    position: sticky;
-    bottom: 0;
+    flex: 0 0 auto;
     display: flex;
     justify-content: flex-end;
     gap: 0.6rem;
     border-top: 1px solid var(--studio-border);
     background: var(--studio-surface);
-    padding-top: 1rem;
+    padding: 1rem 1.5rem 1.25rem;
+    box-shadow: var(--studio-control-shadow);
 }
 
 .primary,
 .secondary {
-    min-height: 2.35rem;
+    min-height: 2.25rem;
     border: 1px solid var(--studio-border);
-    border-radius: 0.55rem;
-    padding: 0 0.9rem;
+    border-radius: 0.65rem;
+    padding: 0 0.95rem;
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 500;
     cursor: pointer;
+    transition:
+        background 0.15s ease,
+        border-color 0.15s ease,
+        color 0.15s ease,
+        opacity 0.15s ease;
 }
 
 .primary {
@@ -88,6 +158,11 @@
 .secondary {
     background: var(--studio-surface);
     color: var(--studio-foreground);
+}
+
+.secondary:hover {
+    border-color: var(--studio-border-strong);
+    background: var(--studio-hover);
 }
 
 .primary:disabled {

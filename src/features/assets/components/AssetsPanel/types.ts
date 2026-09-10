@@ -53,9 +53,9 @@ export type AssetsPanelProps = {
     onAttachAssetId: (input: { assetId: string; origin: ReferenceOrigin; note?: string }) => boolean;
     onUpdateOfficialAssetNote: (key: string, note: string) => void;
     projectAssets?: ProjectAsset[];
-    onAttachProjectAsset?: (asset: UserAsset, providerReferenceUrl?: string) => void;
     onChangeProjectAssetKind?: (assetId: string, kind: ProjectAssetKind) => void;
     onRemoveProjectAsset?: (assetId: string) => void;
+    onSyncProjectAssetStatuses?: (statusesByProviderAssetId: Record<string, ProjectAsset['status']>) => void;
     /** The panel fetches lazily — only once it has actually been shown. */
     active: boolean;
 };
