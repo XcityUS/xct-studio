@@ -1,4 +1,4 @@
-import { DEFAULT_MODEL, DEFAULT_RESOLUTION } from '@/shared/config/seedance';
+import { DEFAULT_RESOLUTION, DEFAULT_SHORT_DRAMA_MODEL, isShortDramaModel } from '@/shared/config/seedance';
 import type {
     CharacterVersion,
     ProjectAsset,
@@ -38,7 +38,7 @@ function defaultProject(): ShortDramaProject {
         subtitleMode: 'source',
         targetRatio: '9:16',
         targetResolution: DEFAULT_RESOLUTION,
-        generationModel: DEFAULT_MODEL,
+        generationModel: DEFAULT_SHORT_DRAMA_MODEL,
         watermark: false,
         basePrompt: '',
         styleNote: '',
@@ -85,6 +85,25 @@ function isProjectAssetSourceType(value: unknown): value is ProjectAssetSourceTy
     );
 }
 
+function isDramaContentLanguage(value: unknown): value is ShortDramaProject['sourceLanguage'] {
+    return (
+        value === 'en-US' ||
+        value === 'zh-CN' ||
+        value === 'ja-JP' ||
+        value === 'ko-KR' ||
+        value === 'es-ES' ||
+        value === 'fr-FR' ||
+        value === 'de-DE' ||
+        value === 'pt-BR' ||
+        value === 'it-IT' ||
+        value === 'ar-SA'
+    );
+}
+
+function normalizeShortDramaModel(value: unknown): string {
+    return typeof value === 'string' && isShortDramaModel(value) ? value : DEFAULT_SHORT_DRAMA_MODEL;
+}
+
 function normalizeProject(value: unknown): ShortDramaProject | null {
     if (!value || typeof value !== 'object') return null;
     const record = value as Partial<ShortDramaProject>;
@@ -93,14 +112,15 @@ function normalizeProject(value: unknown): ShortDramaProject | null {
         id: record.id,
         title: record.title,
         genre: typeof record.genre === 'string' ? record.genre : 'Drama',
-        sourceLanguage:
-            record.sourceLanguage === 'zh-TW' || record.sourceLanguage === 'en-US' ? record.sourceLanguage : 'zh-CN',
+        sourceLanguage: isDramaContentLanguage(record.sourceLanguage) ? record.sourceLanguage : 'zh-CN',
         voiceLanguage:
-            record.voiceLanguage === 'silent' || record.voiceLanguage === 'en-US' ? record.voiceLanguage : 'zh-CN',
+            record.voiceLanguage === 'silent' || isDramaContentLanguage(record.voiceLanguage)
+                ? record.voiceLanguage
+                : 'zh-CN',
         subtitleMode: record.subtitleMode === 'none' ? 'none' : 'source',
         targetRatio: typeof record.targetRatio === 'string' ? record.targetRatio : '9:16',
         targetResolution: typeof record.targetResolution === 'string' ? record.targetResolution : DEFAULT_RESOLUTION,
-        generationModel: typeof record.generationModel === 'string' ? record.generationModel : DEFAULT_MODEL,
+        generationModel: normalizeShortDramaModel(record.generationModel),
         watermark: record.watermark === true,
         watermarkText: typeof record.watermarkText === 'string' ? record.watermarkText : undefined,
         basePrompt: typeof record.basePrompt === 'string' ? record.basePrompt : '',

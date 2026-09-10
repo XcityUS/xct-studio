@@ -115,6 +115,13 @@ export const SEEDANCE_MODELS = [
 
 export type VideoModel = (typeof SEEDANCE_MODELS)[number]['id'];
 
+export const SHORT_DRAMA_MODELS = SEEDANCE_MODELS.filter((model) => model.id !== 'seedance-1-5-pro-251215');
+export const DEFAULT_SHORT_DRAMA_MODEL: VideoModel = 'dreamina-seedance-2-0-260128';
+
+export function isShortDramaModel(id: string): id is VideoModel {
+    return SHORT_DRAMA_MODELS.some((model) => model.id === id);
+}
+
 /** Widest bounds across all models — the slider clamps per selected model. */
 export const MIN_SECONDS = Math.min(...SEEDANCE_MODELS.map((m) => m.minSeconds));
 export const MAX_SECONDS = Math.max(...SEEDANCE_MODELS.map((m) => m.maxSeconds));

@@ -1,0 +1,71 @@
+.panel {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 0.9rem;
+    align-items: center;
+    min-height: 8rem;
+    border: 1px solid var(--studio-border);
+    border-radius: 0.75rem;
+    background: var(--studio-surface-soft);
+    padding: 1rem;
+    color: var(--studio-foreground);
+}
+
+.icon {
+    display: grid;
+    width: 2.75rem;
+    height: 2.75rem;
+    place-items: center;
+    border: 1px solid var(--studio-border);
+    border-radius: 0.65rem;
+    background: var(--studio-surface);
+}
+
+.copy {
+    min-width: 0;
+}
+
+.copy h3,
+.copy p {
+    margin: 0;
+}
+
+.copy h3 {
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+.copy p {
+    margin-top: 0.3rem;
+    color: var(--studio-muted);
+    font-size: 0.8rem;
+    line-height: 1.5;
+}
+
+.button {
+    min-height: 2.5rem;
+    border: 1px solid var(--studio-foreground);
+    border-radius: 0.55rem;
+    background: var(--studio-foreground);
+    padding: 0 0.9rem;
+    color: var(--studio-background);
+    font: inherit;
+    font-size: 0.82rem;
+    cursor: pointer;
+}
+
+.button:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+@media (width <= 640px) {
+    .panel {
+        grid-template-columns: auto minmax(0, 1fr);
+    }
+
+    .button {
+        grid-column: 1 / -1;
+        width: 100%;
+    }
+}

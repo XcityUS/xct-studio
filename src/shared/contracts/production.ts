@@ -59,7 +59,17 @@ export type CharacterVersion = {
     updatedAt: number;
 };
 
-export type DramaContentLanguage = 'zh-CN' | 'zh-TW' | 'en-US';
+export type DramaContentLanguage =
+    | 'en-US'
+    | 'zh-CN'
+    | 'ja-JP'
+    | 'ko-KR'
+    | 'es-ES'
+    | 'fr-FR'
+    | 'de-DE'
+    | 'pt-BR'
+    | 'it-IT'
+    | 'ar-SA';
 export type DramaSubtitleMode = 'none' | 'source';
 
 export type ShortDramaProject = {
@@ -67,7 +77,7 @@ export type ShortDramaProject = {
     title: string;
     genre: string;
     sourceLanguage: DramaContentLanguage;
-    voiceLanguage: Exclude<DramaContentLanguage, 'zh-TW'> | 'silent';
+    voiceLanguage: DramaContentLanguage | 'silent';
     subtitleMode: DramaSubtitleMode;
     targetRatio: string;
     targetResolution: string;

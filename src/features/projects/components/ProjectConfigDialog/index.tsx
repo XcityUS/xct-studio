@@ -3,8 +3,15 @@
 import styles from './index.module.scss';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/Dialog';
 import { Dropdown } from '@/components/ui/Dropdown';
+import { useCreationOptions } from '@/features/generation/components/CreationForm/options';
 import { defaultProjectInput } from '@/features/projects/storage';
-import { RATIOS, RESOLUTIONS, SEEDANCE_MODELS } from '@/shared/config/seedance';
+import {
+    RESOLUTIONS,
+    SHORT_DRAMA_MODELS,
+    modelSupportsResolution,
+    type VideoModel,
+    type VideoResolution
+} from '@/shared/config/seedance';
 import type { ShortDramaProject, ShortDramaProjectInput } from '@/shared/contracts/production';
 import { useTranslations } from 'next-intl';
 import * as React from 'react';
@@ -38,6 +45,7 @@ function projectInput(project?: ShortDramaProject): ShortDramaProjectInput {
 
 export function ProjectConfigDialog({ mode, open, project, titleConflict, onOpenChange, onSave }: Props) {
     const t = useTranslations();
+    const creationOptions = useCreationOptions();
     const [draft, setDraft] = React.useState<ShortDramaProjectInput>(() => projectInput(project));
 
     const update = <Key extends keyof ShortDramaProjectInput>(key: Key, value: ShortDramaProjectInput[Key]) => {
@@ -86,11 +94,7 @@ export function ProjectConfigDialog({ mode, open, project, titleConflict, onOpen
                             <Dropdown
                                 value={draft.sourceLanguage}
                                 ariaLabel={t('Source language')}
-                                options={[
-                                    { value: 'zh-CN', label: t('Simplified Chinese') },
-                                    { value: 'zh-TW', label: t('Traditional Chinese') },
-                                    { value: 'en-US', label: t('English') }
-                                ]}
+                                options={creationOptions.voices.filter((option) => option.value !== 'silent')}
                                 onValueChange={(value) =>
                                     update('sourceLanguage', value as ShortDramaProjectInput['sourceLanguage'])
                                 }
@@ -101,11 +105,7 @@ export function ProjectConfigDialog({ mode, open, project, titleConflict, onOpen
                             <Dropdown
                                 value={draft.voiceLanguage}
                                 ariaLabel={t('Voice language')}
-                                options={[
-                                    { value: 'silent', label: t('Silent') },
-                                    { value: 'zh-CN', label: t('Simplified Chinese') },
-                                    { value: 'en-US', label: t('English') }
-                                ]}
+                                options={creationOptions.voices}
                                 onValueChange={(value) =>
                                     update('voiceLanguage', value as ShortDramaProjectInput['voiceLanguage'])
                                 }
@@ -116,7 +116,7 @@ export function ProjectConfigDialog({ mode, open, project, titleConflict, onOpen
                             <Dropdown
                                 value={draft.targetRatio}
                                 ariaLabel={t('Aspect Ratio')}
-                                options={RATIOS.map((value) => ({ value, label: value }))}
+                                options={creationOptions.ratios}
                                 onValueChange={(value) => update('targetRatio', value)}
                             />
                         </label>
@@ -125,7 +125,15 @@ export function ProjectConfigDialog({ mode, open, project, titleConflict, onOpen
                             <Dropdown
                                 value={draft.targetResolution}
                                 ariaLabel={t('Resolution')}
-                                options={RESOLUTIONS.map((value) => ({ value, label: value }))}
+                                options={RESOLUTIONS.map((value) => ({
+                                    value,
+                                    label: `${value}${
+                                        !modelSupportsResolution(draft.generationModel, value)
+                                            ? ` · ${t('not supported')}`
+                                            : ''
+                                    }`,
+                                    disabled: !modelSupportsResolution(draft.generationModel, value)
+                                }))}
                                 onValueChange={(value) => update('targetResolution', value)}
                             />
                         </label>
@@ -134,8 +142,16 @@ export function ProjectConfigDialog({ mode, open, project, titleConflict, onOpen
                             <Dropdown
                                 value={draft.generationModel}
                                 ariaLabel={t('Video model')}
-                                options={SEEDANCE_MODELS.map((model) => ({ value: model.id, label: model.label }))}
-                                onValueChange={(value) => update('generationModel', value)}
+                                options={creationOptions.models.filter((option) =>
+                                    SHORT_DRAMA_MODELS.some((model) => model.id === option.value)
+                                )}
+                                onValueChange={(value) => {
+                                    const model = value as VideoModel;
+                                    update('generationModel', model);
+                                    if (!modelSupportsResolution(model, draft.targetResolution as VideoResolution)) {
+                                        update('targetResolution', '720p');
+                                    }
+                                }}
                             />
                         </label>
                         <label className={styles.field}>

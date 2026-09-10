@@ -1,7 +1,7 @@
 import {
     RATIOS,
     RESOLUTIONS,
-    getSeedanceModel,
+    isShortDramaModel,
     type VideoModel,
     type VideoRatio,
     type VideoResolution
@@ -35,7 +35,7 @@ export function useProjectConfig(input: {
     } = input;
     React.useEffect(() => {
         if (!enabled || !project) return;
-        if (getSeedanceModel(project.generationModel)) setModel(project.generationModel as VideoModel);
+        if (isShortDramaModel(project.generationModel)) setModel(project.generationModel);
         if (RATIOS.some((value) => value === project.targetRatio)) setRatio(project.targetRatio as VideoRatio);
         if (RESOLUTIONS.some((value) => value === project.targetResolution)) {
             setResolution(project.targetResolution as VideoResolution);
