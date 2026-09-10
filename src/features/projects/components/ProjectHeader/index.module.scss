@@ -53,7 +53,25 @@
     flex-wrap: wrap;
     gap: 0.6rem;
     align-items: center;
-    justify-content: flex-end;
+    justify-content: flex-start;
+}
+
+.dialog {
+    background: var(--studio-surface);
+    color: var(--studio-foreground);
+    border-color: var(--studio-border);
+}
+
+.form {
+    display: grid;
+    gap: 0.75rem;
+}
+.error {
+    color: var(--studio-danger);
+}
+.notice {
+    color: var(--studio-muted);
+    font-size: 0.8125rem;
 }
 
 .input {

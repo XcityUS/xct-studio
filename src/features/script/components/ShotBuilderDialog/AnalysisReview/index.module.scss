@@ -1,0 +1,97 @@
+.root {
+    display: grid;
+    gap: 0.85rem;
+    border: 1px solid var(--studio-border);
+    border-radius: 0.75rem;
+    padding: 1rem;
+    background: var(--studio-background);
+}
+
+.heading,
+.cardTitle,
+.summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.heading p,
+.card blockquote {
+    margin: 0.25rem 0 0;
+    color: var(--studio-muted);
+    font-size: 0.75rem;
+    line-height: 1.45;
+}
+
+.summary span,
+.cardTitle span {
+    border: 1px solid var(--studio-border);
+    border-radius: 999px;
+    padding: 0.2rem 0.5rem;
+    color: var(--studio-muted);
+    font-size: 0.6875rem;
+}
+
+.columns {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.8rem;
+}
+
+.column {
+    display: grid;
+    align-content: start;
+    gap: 0.6rem;
+    min-width: 0;
+}
+
+.column h4 {
+    margin: 0;
+    font-size: 0.8125rem;
+}
+
+.card {
+    display: grid;
+    gap: 0.55rem;
+    min-width: 0;
+    border: 1px solid var(--studio-border);
+    border-radius: 0.65rem;
+    padding: 0.7rem;
+    background: var(--studio-surface);
+}
+
+.card input:not([type='checkbox']),
+.card textarea {
+    width: 100%;
+    min-width: 0;
+    border: 1px solid var(--studio-border);
+    border-radius: 0.45rem;
+    background: var(--studio-background);
+    color: var(--studio-foreground);
+    padding: 0.55rem;
+    font: inherit;
+}
+
+.cardTitle input {
+    flex: 1;
+}
+
+.check {
+    display: flex;
+    gap: 0.45rem;
+    align-items: center;
+    font-size: 0.75rem;
+}
+
+.card blockquote {
+    border-left: 2px solid var(--studio-border);
+    padding-left: 0.55rem;
+}
+
+@media (width <= 700px) {
+    .columns {
+        grid-template-columns: 1fr;
+    }
+}

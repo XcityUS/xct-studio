@@ -35,7 +35,9 @@ export function ShotLanguageModeField({ value, onChange }: ShotLanguageModeField
                 </SelectContent>
             </Select>
             <p className='text-xs leading-5 text-white/45'>
-                {t('Set this once before generating shots so the queue does not inherit an unintended default language')}
+                {t(
+                    'Set this once before generating shots so the queue does not inherit an unintended default language'
+                )}
             </p>
         </div>
     );

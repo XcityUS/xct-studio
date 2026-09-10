@@ -4,9 +4,18 @@ import { CharacterSelectors } from './CharacterSelectors';
 import { InlineError } from './InlineError';
 import { CAMERA_TEMPLATES, nativeCheckboxClass, nativeRangeClass } from './constants';
 import { useCreationOptions } from './options';
-import { appendProjectReferenceUrls, compileShotPrompt, createQueueId, readShotQueue, type ShotQueueItem, withoutGeneratedLanguage, writeShotQueue } from './shot-queue';
-import type { CreationFormData, CreationFormProps, GenerationMode } from './types';
-import { appendCharacterPromptLine } from './utils';
+import {
+    compileShotPrompt,
+    createQueueId,
+    readShotQueue,
+    type ShotQueueItem,
+    withoutGeneratedLanguage,
+    writeShotQueue
+} from './shot-queue';
+import { createSubmissionBuilder } from './submission';
+import type { CreationFormProps, GenerationMode } from './types';
+import { useProjectConfig } from './use-project-config';
+import { appendCharacterPromptLine, referenceLabelsFor, referenceVideoPreviewsFor } from './utils';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Dropdown } from '@/components/ui/Dropdown';
@@ -28,9 +37,9 @@ import {
 import { useReferenceCopy } from '@/features/assets/reference/use-copy';
 import type { VideoCharacter, VideoPortrait } from '@/features/generation/hooks/use-video-history';
 import { calculateVideoCost } from '@/features/generation/utils/cost';
+import { useVideoMode } from '@/features/projects/hooks/use-video-mode';
 import { PromptInspirationDialog } from '@/features/script/components/PromptInspirationDialog';
 import { ShotBuilderDialog } from '@/features/script/components/ShotBuilderDialog';
-import type { ShotDraft } from '@/features/script/types';
 import {
     MAX_TITLE_OVERLAY_TEXT_LENGTH,
     SILENT_VOICE_LANGUAGE,
@@ -43,6 +52,7 @@ import {
 } from '@/features/script/prompt/guards';
 import { applyPromptTemplate } from '@/features/script/prompt/templates';
 import { usePromptTemplateLabels } from '@/features/script/prompt/use-template-labels';
+import type { ShotDraft } from '@/features/script/types';
 import { XCITY_BILLING_URL, shouldShowBillingAction } from '@/features/settings/billing';
 import {
     DEFAULT_MODEL,
@@ -58,7 +68,17 @@ import {
     type VideoResolution
 } from '@/shared/config/seedance';
 import { cn } from '@/shared/utils/classnames';
-import { ChevronDown, Clapperboard, CreditCard, HelpCircle, Lightbulb, Loader2, Sparkles, Undo2, Wand2 } from 'lucide-react';
+import {
+    ChevronDown,
+    Clapperboard,
+    CreditCard,
+    HelpCircle,
+    Lightbulb,
+    Loader2,
+    Sparkles,
+    Undo2,
+    Wand2
+} from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import * as React from 'react';
 
@@ -120,6 +140,8 @@ export function CreationForm({
     onReviewReferenceAsset,
     onOptimizePrompt,
     onBreakdownScript,
+    projectAssets = [],
+    projectConfig,
     buildProductionSnapshot,
     onOpenAssets,
     notice,
@@ -127,6 +149,7 @@ export function CreationForm({
     error
 }: CreationFormProps) {
     const t = useTranslations();
+    const [videoMode] = useVideoMode();
     const creationOptions = useCreationOptions();
     const templateLabel = usePromptTemplateLabels();
     const referenceCopy = useReferenceCopy();
@@ -135,7 +158,6 @@ export function CreationForm({
     const activeSeconds = clampSeconds(seconds, activeModel);
     const modelDef = getSeedanceModel(activeModel);
     const refCap = maxReferenceImages(activeModel);
-    // Ratio is provider-derived only in first-frame mode (exactly one image).
     const isFirstFrameMode = referenceUrls.length === 1;
     const supportsMultiReferenceMedia = refCap > 1;
     const showMultiReferenceMedia = supportsMultiReferenceMedia && referenceUrls.length >= 2;
@@ -183,30 +205,29 @@ export function CreationForm({
     const [isGeneratingShotBatch, setIsGeneratingShotBatch] = React.useState(false);
     const [shotQueue, setShotQueue] = React.useState<ShotQueueItem[]>([]);
     const supportsCameraFixed = activeModel.includes('seedance-1-5');
-    // The prompt as it was before the last AI rewrite, so Undo can restore it.
     const [promptBeforeOptimize, setPromptBeforeOptimize] = React.useState<string | null>(null);
     const [referenceVideoSecondsByUrl, setReferenceVideoSecondsByUrl] = React.useState<Record<string, number>>({});
     const supportsDraftMode = modelSupportsResolution(activeModel, '480p');
     const [generationMode, setGenerationMode] = React.useState<GenerationMode>(() =>
         modelSupportsResolution(activeModel, '480p') ? 'draft' : 'final'
     );
-    const referenceLabels = React.useMemo(() => {
-        const labelsByUrl = new Map<string, string>([
-            ...characters.map((character) => [character.url, character.name] as const),
-            ...portraits.map((portrait) => [portraitReferenceUrl(portrait.assetId), portrait.name] as const)
-        ]);
-        return referenceUrls.map((url) => labelsByUrl.get(url) ?? null);
-    }, [characters, portraits, referenceUrls]);
-    const referenceVideoPreviewUrls = React.useMemo(
-        () =>
-            new Map(
-                portraits
-                    .filter((portrait) => portrait.thumbUrl)
-                    .map((portrait) => [portraitReferenceUrl(portrait.assetId), portrait.thumbUrl] as const)
-            ),
-        [portraits]
+    const referenceLabels = React.useMemo(
+        () => referenceLabelsFor(referenceUrls, characters, portraits),
+        [characters, portraits, referenceUrls]
     );
+    const referenceVideoPreviewUrls = React.useMemo(() => referenceVideoPreviewsFor(portraits), [portraits]);
     const pendingShotCount = shotQueue.length;
+    useProjectConfig({
+        enabled: videoMode === 'drama',
+        project: projectConfig,
+        setModel,
+        setRatio,
+        setResolution,
+        setVoiceLanguage,
+        setCaptionMode,
+        setWatermark,
+        setWatermarkText
+    });
 
     React.useEffect(() => {
         if (model !== activeModel) {
@@ -327,62 +348,35 @@ export function CreationForm({
         [refCap, referenceUrls, setPrompt, setReferenceUrls]
     );
 
-    const buildSubmissionData = (nextPrompt = prompt, nextSeconds = activeSeconds, productionShot?: { id: string; index: number; count: number; durationSeconds: number }): CreationFormData => {
-        const productionSnapshot = buildProductionSnapshot?.(productionShot);
-        const formData: CreationFormData = {
-            model: activeModel,
-            prompt: nextPrompt,
-            ratio,
-            resolution: activeResolution,
-            seconds: clampSeconds(nextSeconds, activeModel),
-            generate_audio: normalizedVoiceLanguage !== SILENT_VOICE_LANGUAGE,
-            camera_fixed: cameraFixed,
-            seed,
-            watermark,
-            watermarkText: watermark ? watermarkText.trim().slice(0, 100) : undefined,
-            avoid_generated_captions: normalizedCaptionMode === 'none',
-            voice_language: normalizedVoiceLanguage,
-            caption_mode: normalizedCaptionMode,
-            title_overlay_enabled: titleOverlayEnabled && Boolean(normalizedTitleOverlayText),
-            title_overlay_text: titleOverlayEnabled ? normalizedTitleOverlayText : undefined,
-            title_overlay_style: titleOverlayEnabled ? normalizedTitleOverlayStyle : undefined,
-            title_overlay_duration: titleOverlayEnabled ? normalizedTitleOverlayDuration : undefined,
-            title_overlay_language: titleOverlayEnabled ? normalizedTitleOverlayLanguage : undefined
-        };
-        if (productionSnapshot) formData.production = productionSnapshot;
-        if (isDraftMode) {
-            formData.draft = true;
-            formData.final_resolution = resolution;
-        }
-        const refs = appendProjectReferenceUrls(referenceUrls, productionSnapshot, refCap);
-        const videos = showReferenceVideos ? referenceVideoUrls.map((u) => u.trim()).filter(Boolean) : [];
-        if (refs.length === 1) {
-            formData.input_reference_url = refs[0];
-            const lastFrame = lastFrameUrl.trim();
-            if (lastFrame) {
-                formData.last_frame_url = lastFrame;
-            }
-        } else if (refs.length > 1) {
-            formData.reference_image_urls = refs;
-            const audio = referenceAudioUrl.trim();
-            if (showReferenceAudio && audio) {
-                formData.reference_audio_url = audio;
-            }
-        }
-        if (videos.length) {
-            formData.reference_video_urls = videos.slice(0, 2);
-            formData.reference_video_seconds = formData.reference_video_urls.map(
-                (url) => referenceVideoSecondsByUrl[url] ?? 0
-            );
-            if (refs.length === 1) {
-                formData.omni_reference_task_type = 'extend';
-                formData.omit_resolution = true;
-                formData.omit_ratio = true;
-                formData.camera_fixed = undefined;
-            }
-        }
-        return formData;
-    };
+    const buildSubmissionData = createSubmissionBuilder({
+        prompt,
+        seconds: activeSeconds,
+        model: activeModel,
+        ratio,
+        resolution: activeResolution,
+        finalResolution: resolution,
+        draft: isDraftMode,
+        voiceLanguage: normalizedVoiceLanguage,
+        captionMode: normalizedCaptionMode,
+        cameraFixed,
+        seed,
+        watermark,
+        watermarkText,
+        titleOverlayEnabled,
+        titleOverlayText: normalizedTitleOverlayText,
+        titleOverlayStyle: normalizedTitleOverlayStyle,
+        titleOverlayDuration: normalizedTitleOverlayDuration,
+        titleOverlayLanguage: normalizedTitleOverlayLanguage,
+        referenceUrls,
+        referenceCap: refCap,
+        lastFrameUrl,
+        referenceAudioUrl,
+        showReferenceAudio,
+        referenceVideoUrls,
+        referenceVideoSecondsByUrl,
+        showReferenceVideos,
+        buildProductionSnapshot: videoMode === 'drama' ? buildProductionSnapshot : undefined
+    });
 
     const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
@@ -430,7 +424,8 @@ export function CreationForm({
                 id: shotId,
                 index: index + 1,
                 count: generatableShots.length,
-                durationSeconds: shotSeconds
+                durationSeconds: shotSeconds,
+                assetIds: shot.assetIds
             });
             return {
                 id: shotId,
@@ -489,14 +484,16 @@ export function CreationForm({
                                     <Lightbulb className='h-3 w-3' />
                                     {t('Inspiration')}
                                 </button>
-                                <button
-                                    type='button'
-                                    onClick={() => setIsShotBuilderOpen(true)}
-                                    disabled={isLoading}
-                                    className='flex items-center gap-1 rounded-md px-2 py-1 text-xs text-white/60 transition-colors hover:bg-white/10 hover:text-white'>
-                                    <Clapperboard className='h-3 w-3' />
-                                    {t('Shots')}
-                                </button>
+                                {videoMode === 'drama' && (
+                                    <button
+                                        type='button'
+                                        onClick={() => setIsShotBuilderOpen(true)}
+                                        disabled={isLoading}
+                                        className='flex items-center gap-1 rounded-md px-2 py-1 text-xs text-white/60 transition-colors hover:bg-white/10 hover:text-white'>
+                                        <Clapperboard className='h-3 w-3' />
+                                        {t('Shots')}
+                                    </button>
+                                )}
                                 {onOptimizePrompt && (
                                     <button
                                         type='button'
@@ -565,23 +562,28 @@ export function CreationForm({
                         }}
                     />
                     <ShotBuilderDialog
-                        isOpen={isShotBuilderOpen}
+                        key={buildProductionSnapshot?.().project.id ?? 'normal'}
+                        draftKey={buildProductionSnapshot?.().project.id ?? 'normal'}
+                        generationSummary={`${activeModel} · ${ratio} · ${activeResolution} · ${normalizedVoiceLanguage} · ${normalizedCaptionMode}`}
+                        isOpen={isShotBuilderOpen && videoMode === 'drama'}
                         onOpenChange={setIsShotBuilderOpen}
                         referenceCount={referenceUrls.length}
                         referenceLabels={referenceLabels}
-                        onApply={(nextPrompt) => {
-                            setPrompt(nextPrompt);
-                            setPromptBeforeOptimize(null);
-                            setIsShotBuilderOpen(false);
-                        }}
                         onGenerateShots={handleGenerateShots}
                         onBreakdownScript={onBreakdownScript}
+                        projectAssets={projectAssets}
                         defaultDurationSeconds={activeSeconds}
                         minDurationSeconds={minSeconds}
                         maxDurationSeconds={maxSeconds}
                         isGeneratingShots={isGeneratingShotBatch || isLoading}
                         pendingShotCount={pendingShotCount}
-                        onContinueShotQueue={() => processShotQueue()}
+                        onContinueShotQueue={
+                            shotQueue.every(
+                                (item) => item.data.production?.project.id === buildProductionSnapshot?.().project.id
+                            )
+                                ? () => processShotQueue()
+                                : undefined
+                        }
                     />
 
                     <div className='space-y-2'>
@@ -595,8 +597,6 @@ export function CreationForm({
                                 const newModel = value as VideoModel;
                                 onClearNotice?.();
                                 setModel((current) => (current === newModel ? current : newModel));
-                                // Pull the current choices back into range instead
-                                // of submitting something the selected model rejects.
                                 if (!modelSupportsResolution(newModel, resolution)) {
                                     setResolution('720p');
                                 }
@@ -604,7 +604,6 @@ export function CreationForm({
                                     const next = clampSeconds(prev, newModel);
                                     return next === prev ? prev : next;
                                 });
-                                // 1.5 Pro takes a single first-frame image only.
                                 setReferenceUrls((prev) => {
                                     const maxImages = maxReferenceImages(newModel);
                                     return prev.length > maxImages ? prev.slice(0, maxImages) : prev;

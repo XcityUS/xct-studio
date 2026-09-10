@@ -1,8 +1,12 @@
 'use client';
 
+import { ProjectConfigDialog } from '../ProjectConfigDialog';
 import styles from './index.module.scss';
+import { titleConflict } from './title';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/Dialog';
 import { Dropdown } from '@/components/ui/Dropdown';
-import type { ProjectAsset, ShortDramaProject } from '@/shared/contracts/production';
+import { useVideoMode } from '@/features/projects/hooks/use-video-mode';
+import type { ProjectAsset, ShortDramaProject, ShortDramaProjectInput } from '@/shared/contracts/production';
 import { useTranslations } from 'next-intl';
 import * as React from 'react';
 
@@ -10,11 +14,12 @@ type ProjectHeaderProps = {
     project: ShortDramaProject;
     projects: ShortDramaProject[];
     projectAssets: ProjectAsset[];
-    onCreateProject: (title: string) => void;
+    onCreateProject: (input: ShortDramaProjectInput) => void;
     onSelectProject: (projectId: string) => void;
-    onRenameProject: (title: string) => void;
+    onUpdateProject: (input: ShortDramaProjectInput) => void;
     onDeleteProject: (projectId: string) => void;
     onOpenAssets?: () => void;
+    deletionBlocked?: boolean;
 };
 
 export function ProjectHeader({
@@ -23,104 +28,135 @@ export function ProjectHeader({
     projectAssets,
     onCreateProject,
     onSelectProject,
-    onRenameProject,
+    onUpdateProject,
     onDeleteProject,
-    onOpenAssets
+    onOpenAssets,
+    deletionBlocked = false
 }: ProjectHeaderProps) {
     const t = useTranslations();
-    const activeAssetCount = projectAssets.filter((asset) => asset.status === 'active').length;
-    const characterAssetCount = projectAssets.filter((asset) => asset.kind === 'character').length;
-    const titleInputRef = React.useRef<HTMLInputElement>(null);
-    const projectOptions = projects
-        .filter((item, index, list) => {
-            const key = item.title.trim().toLocaleLowerCase();
-            const preferred =
-                list.find((candidate) => candidate.id === project.id && candidate.title.trim().toLocaleLowerCase() === key) ??
-                list.find((candidate) => candidate.title.trim().toLocaleLowerCase() === key);
-            return preferred?.id === item.id;
-        })
-        .map((item) => ({ value: item.id, label: item.title }));
-    const saveTitle = (value: string) => {
-        const title = value.trim();
-        const existingProject = projects.find(
-            (item) => item.id !== project.id && item.title.trim().toLocaleLowerCase() === title.toLocaleLowerCase()
-        );
-        if (existingProject) {
-            onSelectProject(existingProject.id);
-            return;
-        }
-        if (title && title !== project.title) {
-            onRenameProject(title);
-        }
+    const [mode, setMode] = useVideoMode();
+    const [action, setAction] = React.useState<'create' | 'edit' | 'delete' | null>(null);
+    const [targetId, setTargetId] = React.useState(project.id);
+    const openAction = (next: 'create' | 'edit' | 'delete') => {
+        setTargetId(project.id);
+        setAction(next);
     };
 
     return (
         <section className={styles.panel} aria-label={t('Short<dash>drama project')}>
-            <div className={styles.main}>
-                <div className={styles.content}>
-                    <div className={styles.titleBlock}>
-                        <div className={styles.label}>{t('Current short<dash>drama project')}</div>
-                        <h2 className={styles.title}>{project.title}</h2>
-                        <div className={styles.meta}>
-                            <span>{project.sourceLanguage}</span>
-                            <span>{project.targetRatio}</span>
-                            <span>{t('Local production draft')}</span>
-                        </div>
+            <Dropdown
+                value={mode}
+                onValueChange={(value) => setMode(value === 'drama' ? 'drama' : 'normal')}
+                ariaLabel={t('Video mode')}
+                options={[
+                    { value: 'normal', label: t('Normal') },
+                    { value: 'drama', label: t('Short Drama') }
+                ]}
+            />
+            {mode === 'drama' && (
+                <>
+                    <div className={styles.controls}>
+                        <Dropdown
+                            value={project.id}
+                            options={projects.map((item) => ({ value: item.id, label: item.title }))}
+                            ariaLabel={t('Select project')}
+                            triggerClassName={styles.dropdown}
+                            onValueChange={onSelectProject}
+                        />
+                        <button type='button' className={styles.button} onClick={() => openAction('create')}>
+                            {t('New project')}
+                        </button>
+                        <button type='button' className={styles.secondaryButton} onClick={() => openAction('edit')}>
+                            {t('Project settings')}
+                        </button>
+                        <button
+                            type='button'
+                            className={styles.dangerButton}
+                            disabled={projects.length <= 1 || deletionBlocked}
+                            onClick={() => openAction('delete')}>
+                            {t('Delete project')}
+                        </button>
                     </div>
-                    <div className={styles.stats}>
-                        <span className={styles.stat}>
-                            <strong>{projectAssets.length}</strong>
-                            {t('Project assets')}
+                    <div className={styles.meta}>
+                        <span>{project.sourceLanguage}</span>
+                        <span>{project.targetRatio}</span>
+                        <span>{project.targetResolution}</span>
+                        <span>{t('Local production draft')}</span>
+                        <span>
+                            {t('Project assets')}: {projectAssets.length}
                         </span>
-                        <span className={styles.stat}>
-                            <strong>{activeAssetCount}</strong>
-                            {t('Provider<dash>ready')}
-                        </span>
-                        <span className={styles.stat}>
-                            <strong>{characterAssetCount}</strong>
-                            {t('Character assets')}
+                        <span>
+                            {t('Character assets')}:{' '}
+                            {projectAssets.filter((asset) => asset.kind === 'character').length}
                         </span>
                     </div>
-                </div>
-                <div className={styles.controls}>
-                    <Dropdown
-                        value={project.id}
-                        options={projectOptions}
-                        ariaLabel={t('Select project')}
-                        triggerClassName={styles.dropdown}
-                        onValueChange={onSelectProject}
-                    />
-                    <input
-                        key={project.id}
-                        ref={titleInputRef}
-                        className={styles.input}
-                        defaultValue={project.title}
-                        aria-label={t('Project title')}
-                        onBlur={(event) => saveTitle(event.currentTarget.value)}
-                    />
-                    <button
-                        type='button'
-                        className={styles.button}
-                        onClick={() => onCreateProject(titleInputRef.current?.value || t('Untitled short<dash>drama project'))}>
-                        {t('New project')}
-                    </button>
-                    <button
-                        type='button'
-                        className={styles.dangerButton}
-                        disabled={projects.length <= 1}
-                        onClick={() => onDeleteProject(project.id)}>
-                        {t('Delete project')}
-                    </button>
-                </div>
-            </div>
-            <div className={styles.guide}>
-                <span>{t('Import a script first<comma> let AI extract characters and shots<comma> then bind assets for character consistency')}</span>
-                {onOpenAssets ? (
-                    <button type='button' className={styles.secondaryButton} onClick={onOpenAssets}>
-                        {t('Open Assets')}
-                    </button>
-                ) : null}
-            </div>
+                    {deletionBlocked && (
+                        <p className={styles.notice}>{t('Finish active video tasks before deleting a project')}</p>
+                    )}
+                    <div className={styles.guide}>
+                        <span>
+                            {t(
+                                'Review script characters and scenes<comma> then choose their reference assets before generating shots'
+                            )}
+                        </span>
+                        {onOpenAssets && (
+                            <button type='button' className={styles.secondaryButton} onClick={onOpenAssets}>
+                                {t('Open Assets')}
+                            </button>
+                        )}
+                    </div>
+                    {(action === 'create' || action === 'edit') && (
+                        <ProjectConfigDialog
+                            mode={action}
+                            open
+                            project={action === 'edit' ? project : undefined}
+                            titleConflict={(value) =>
+                                titleConflict(projects, value, action === 'edit' ? targetId : undefined)
+                            }
+                            onOpenChange={(open) => {
+                                if (!open) setAction(null);
+                            }}
+                            onSave={(input) => {
+                                if (action === 'create') onCreateProject(input);
+                                else if (targetId === project.id) onUpdateProject(input);
+                                setAction(null);
+                            }}
+                        />
+                    )}
+                    <Dialog
+                        open={action === 'delete'}
+                        onOpenChange={(open) => {
+                            if (!open) setAction(null);
+                        }}>
+                        <DialogContent className={styles.dialog}>
+                            <DialogHeader>
+                                <DialogTitle>{t('Delete project')}</DialogTitle>
+                                <DialogDescription>
+                                    {t('Remove this local project draft<q> Shared media will not be deleted')}
+                                </DialogDescription>
+                            </DialogHeader>
+                            <div className={styles.controls}>
+                                <button
+                                    type='button'
+                                    className={styles.secondaryButton}
+                                    onClick={() => setAction(null)}>
+                                    {t('Cancel')}
+                                </button>
+                                <button
+                                    type='button'
+                                    className={styles.dangerButton}
+                                    disabled={deletionBlocked || targetId !== project.id}
+                                    onClick={() => {
+                                        onDeleteProject(targetId);
+                                        setAction(null);
+                                    }}>
+                                    {t('Confirm deletion')}
+                                </button>
+                            </div>
+                        </DialogContent>
+                    </Dialog>
+                </>
+            )}
         </section>
     );
 }

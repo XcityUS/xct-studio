@@ -86,7 +86,7 @@ import { useVideoJobs } from '@/features/generation/hooks/use-video-jobs';
 import { calculateVideoCost } from '@/features/generation/utils/cost';
 import { estimateVideoProgress } from '@/features/generation/utils/progress';
 import { burnBrandingWatermarkIntoVideo } from '@/features/post-production/assembly/client';
-import { ProjectHeader } from '@/features/projects/components/ProjectHeader';
+import { ProjectControls } from '@/features/projects/components/ProjectControls';
 import { useShortDramaProject } from '@/features/projects/hooks/use-short-drama-project';
 import {
     DEFAULT_CAPTION_MODE,
@@ -182,10 +182,6 @@ type StudioWorkspaceProps = {
 export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
     const t = useTranslations();
     const { activeTab, navigateToTab } = useStudioTabRouting(locale);
-    // Errors are shown next to whatever raised them: 'create' renders under
-    // the Create Video button, 'output' under the output panel's action row.
-    // A single alert at the top of the right column meant every failed click
-    // sent the user scrolling back up to find out why.
     const [errorState, setErrorState] = React.useState<{ message: string; scope: ErrorScope } | null>(null);
     const setError = React.useCallback((message: string | null, scope: ErrorScope = 'create') => {
         setErrorState(message ? { message, scope } : null);
@@ -193,9 +189,6 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
     const createError = errorState?.scope === 'create' ? errorState.message : null;
     const outputError = errorState?.scope === 'output' ? errorState.message : null;
 
-    // Completed videos the gateway has no playable link for. State, not a ref:
-    // the output panel renders a retry instead of spinning "loading preview…"
-    // forever, which is what it did whenever a probe came back empty.
     const [unresolvedPreviewIds, setUnresolvedPreviewIds] = React.useState<Set<string>>(new Set());
     const unresolvedPreviewIdsRef = React.useRef(unresolvedPreviewIds);
     unresolvedPreviewIdsRef.current = unresolvedPreviewIds;
@@ -364,16 +357,21 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
     const handleAttachAssetIdToProject = React.useCallback(
         (input: { assetId: string; origin: ReferenceOrigin; note?: string }) => {
             const attached = handleAttachAssetId(input);
-            return attached && Boolean(projectDraft.registerProjectAsset({
-                    name: input.note?.trim() || input.assetId,
-                    kind: 'character',
-                    sourceType: input.origin === 'official-asset' ? 'official' : 'provider',
-                    status: 'active',
-                    providerReferenceUrl: `asset://${input.assetId}`,
-                    providerAssetId: input.assetId,
-                    origin: input.origin,
-                    note: input.note
-                }));
+            return (
+                attached &&
+                Boolean(
+                    projectDraft.registerProjectAsset({
+                        name: input.note?.trim() || input.assetId,
+                        kind: 'character',
+                        sourceType: input.origin === 'official-asset' ? 'official' : 'provider',
+                        status: 'active',
+                        providerReferenceUrl: `asset://${input.assetId}`,
+                        providerAssetId: input.assetId,
+                        origin: input.origin,
+                        note: input.note
+                    })
+                )
+            );
         },
         [handleAttachAssetId, projectDraft]
     );
@@ -396,9 +394,6 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         [declarations, setDeclaration]
     );
 
-    // Showcase → creation form. Settings are reconciled against the target
-    // model first (see gallery-preset), because programmatic setState skips
-    // the form's own Select-driven correction.
     const creationFormRef = React.useRef<HTMLDivElement>(null);
     const scrollToCreationForm = React.useCallback(() => {
         return new Promise<void>((resolve) => {
@@ -1035,7 +1030,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                 throw new Error('Sign in at xcity.ai (or set an API key) to use script breakdown.');
             }
             try {
-                return await breakdownScript(script, key);
+                return await breakdownScript(script, key, projectDraft.activeProject.sourceLanguage);
             } catch (error) {
                 if (error instanceof InvalidApiKeyError) {
                     invalidateKey();
@@ -1044,7 +1039,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                 throw error;
             }
         },
-        [invalidateKey, resolveKey]
+        [invalidateKey, projectDraft.activeProject.sourceLanguage, resolveKey]
     );
 
     const handleTranscribeVideo = React.useCallback(
@@ -1194,8 +1189,8 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                 try {
                     const key = await resolveKey();
                     if (key) {
-                            const assetName = historyItem?.title?.trim() || job.id;
-                            const archivedOriginal = await archiveLocalVideo(job.id, blob, key, `${assetName}.mp4`);
+                        const assetName = historyItem?.title?.trim() || job.id;
+                        const archivedOriginal = await archiveLocalVideo(job.id, blob, key, `${assetName}.mp4`);
                         if (archivedOriginal?.url) {
                             originalArchiveUrl = archivedOriginal.url;
                             if (!shouldAddBranding) {
@@ -3360,6 +3355,8 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                                 onReviewReferenceAsset={isPortraitEnabled ? handleReviewReferenceAsset : undefined}
                                 onOptimizePrompt={handleOptimizePrompt}
                                 onBreakdownScript={handleBreakdownScript}
+                                projectAssets={projectDraft.projectAssets}
+                                projectConfig={projectDraft.activeProject}
                                 buildProductionSnapshot={projectDraft.buildProductionSnapshot}
                                 // Only offer the jump when the Assets tab actually exists —
                                 // it is gated on the media worker / portrait library.
@@ -3529,14 +3526,10 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
             </Dialog>
 
             <div className='mx-auto w-full max-w-7xl space-y-6 px-4 md:px-6'>
-                <ProjectHeader
-                    project={projectDraft.activeProject}
-                    projects={projectDraft.projects}
-                    projectAssets={projectDraft.projectAssets}
-                    onCreateProject={projectDraft.addProject}
-                    onSelectProject={projectDraft.setActiveProjectId}
-                    onRenameProject={(title) => projectDraft.updateActiveProject({ title })} onDeleteProject={projectDraft.deleteProject}
-                    onOpenAssets={() => navigateToTab('assets')}
+                <ProjectControls
+                    draft={projectDraft}
+                    busy={isSubmitting || activeJobs.size > 0}
+                    onOpenAssets={uploadEnabled || isPortraitEnabled ? () => navigateToTab('assets') : undefined}
                 />
                 {imageGenerationEnabled || uploadEnabled || isPortraitEnabled ? (
                     <Tabs value={activeTab} onValueChange={(value) => navigateToTab(value as StudioTab)}>

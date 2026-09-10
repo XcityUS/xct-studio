@@ -1,21 +1,25 @@
-import type { ShotDraft } from '@/features/script/types';
+import { normalizeScriptAnalysis } from '@/features/script/schema';
+import type { ScriptAnalysisDraft } from '@/features/script/types';
 import { InvalidApiKeyError } from '@/shared/errors';
 
-type BreakdownResponse = {
-    shots?: ShotDraft[];
+type BreakdownResponse = Partial<ScriptAnalysisDraft> & {
     error?: {
         message?: string;
     };
 };
 
-export async function breakdownScript(script: string, apiKey: string): Promise<ShotDraft[]> {
+export async function breakdownScript(
+    script: string,
+    apiKey: string,
+    sourceLanguage: string
+): Promise<ScriptAnalysisDraft> {
     const response = await fetch('/api/script/breakdown', {
         method: 'POST',
         headers: {
             Authorization: `Bearer ${apiKey}`,
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ script })
+        body: JSON.stringify({ script, sourceLanguage })
     });
     const body = (await response.json().catch(() => ({}))) as BreakdownResponse;
 
@@ -25,8 +29,5 @@ export async function breakdownScript(script: string, apiKey: string): Promise<S
     if (!response.ok) {
         throw new Error(body.error?.message || 'Script breakdown failed.');
     }
-    if (!body.shots?.length) {
-        throw new Error('Script breakdown did not return any shots.');
-    }
-    return body.shots;
+    return normalizeScriptAnalysis(body);
 }

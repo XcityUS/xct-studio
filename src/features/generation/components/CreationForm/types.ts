@@ -2,10 +2,10 @@ import type { ProviderAssetReviewInput } from '@/features/assets/hooks/use-provi
 import type { PortraitGroup } from '@/features/assets/portrait/api';
 import { type ReferenceDeclaration, type ReferenceOrigin } from '@/features/assets/reference/origin';
 import type { VideoCharacter, VideoPortrait } from '@/features/generation/hooks/use-video-history';
-import type { ShotDraft } from '@/features/script/types';
+import type { ScriptAnalysisDraft } from '@/features/script/types';
 import type { TtsVoice } from '@/lib/tts';
-import type { ProductionSnapshot } from '@/shared/contracts/production';
 import { type VideoModel, type VideoRatio, type VideoResolution } from '@/shared/config/seedance';
+import type { ProductionSnapshot, ProjectAsset, ShortDramaProject } from '@/shared/contracts/production';
 import type { VideoJobCreate } from '@/shared/contracts/video';
 import * as React from 'react';
 
@@ -79,13 +79,16 @@ export type CreationFormProps = {
     /** Rewrites the prompt via the gateway's chat API. Absent = button hidden. */
     onOptimizePrompt?: (prompt: string) => Promise<string>;
     /** Splits a script into Seedance shot rows via the gateway's chat API. */
-    onBreakdownScript?: (script: string) => Promise<ShotDraft[]>;
+    onBreakdownScript?: (script: string) => Promise<ScriptAnalysisDraft>;
+    projectAssets?: ProjectAsset[];
+    projectConfig?: ShortDramaProject;
     /** Captures the current Project and bound production assets before a generation request is persisted. */
     buildProductionSnapshot?: (shot?: {
         id: string;
         index: number;
         count: number;
         durationSeconds: number;
+        assetIds?: string[];
     }) => ProductionSnapshot;
     /** Opens the Assets tab for portrait-library setup. */
     onOpenAssets?: (referenceKey?: string) => void;

@@ -7,6 +7,8 @@ import {
     readProjectState,
     writeProjectState
 } from '../storage';
+import type { ReferenceOrigin } from '@/features/assets/reference/origin';
+import type { UserAsset } from '@/lib/media-archive';
 import type {
     ProductionSnapshot,
     ProjectAsset,
@@ -14,11 +16,9 @@ import type {
     ProjectAssetSourceType,
     ProjectAssetStatus,
     ProjectState,
-    ShortDramaProject,
+    ShortDramaProjectInput,
     ShotAssetBinding
 } from '@/shared/contracts/production';
-import type { ReferenceOrigin } from '@/features/assets/reference/origin';
-import type { UserAsset } from '@/lib/media-archive';
 import * as React from 'react';
 
 type RegisterAssetInput = {
@@ -87,14 +87,28 @@ export function useShortDramaProject() {
         [activeProject.id, state.characterVersions]
     );
 
-    const addProject = React.useCallback((title: string) => {
-        const project = createProject(title, state.projects.map((item) => item.title));
-        setState((current) => ({
-            ...current,
-            activeProjectId: project.id,
-            projects: [...current.projects, project]
-        }));
-    }, [state.projects]);
+    const addProject = React.useCallback(
+        (input: ShortDramaProjectInput) => {
+            const normalizedTitle = input.title.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+            if (
+                state.projects.some(
+                    (project) => project.title.trim().replace(/\s+/g, ' ').toLocaleLowerCase() === normalizedTitle
+                )
+            ) {
+                return;
+            }
+            const project = createProject(
+                input,
+                state.projects.map((item) => item.title)
+            );
+            setState((current) => ({
+                ...current,
+                activeProjectId: project.id,
+                projects: [...current.projects, project]
+            }));
+        },
+        [state.projects]
+    );
 
     const setActiveProjectId = React.useCallback((projectId: string) => {
         setState((current) =>
@@ -119,7 +133,7 @@ export function useShortDramaProject() {
         });
     }, []);
 
-    const updateActiveProject = React.useCallback((patch: Partial<Pick<ShortDramaProject, 'title' | 'styleNote'>>) => {
+    const updateActiveProject = React.useCallback((patch: Partial<ShortDramaProjectInput>) => {
         setState((current) => ({
             ...current,
             projects: current.projects.map((project) =>
@@ -133,7 +147,9 @@ export function useShortDramaProject() {
             const providerReferenceUrl = input.providerReferenceUrl?.trim();
             const providerAssetId =
                 input.providerAssetId?.trim() ||
-                (providerReferenceUrl?.startsWith('asset://') ? providerReferenceUrl.slice('asset://'.length) : undefined);
+                (providerReferenceUrl?.startsWith('asset://')
+                    ? providerReferenceUrl.slice('asset://'.length)
+                    : undefined);
             const sourceUrl = input.sourceUrl?.trim();
             const existing = state.assets.find(
                 (asset) =>
@@ -214,23 +230,33 @@ export function useShortDramaProject() {
         }));
     }, []);
 
-    const createCharacterReferencePack = React.useCallback((name: string, assetIds: string[], providerGroupId?: string) => {
-        const version = createCharacterVersion({
-            projectId: activeProject.id,
-            name: name.trim() || 'Character',
-            providerGroupId,
-            referenceAssetIds: assetIds
-        });
-        setState((current) => ({ ...current, characterVersions: [...current.characterVersions, version] }));
-    }, [activeProject.id]);
+    const createCharacterReferencePack = React.useCallback(
+        (name: string, assetIds: string[], providerGroupId?: string) => {
+            const version = createCharacterVersion({
+                projectId: activeProject.id,
+                name: name.trim() || 'Character',
+                providerGroupId,
+                referenceAssetIds: assetIds
+            });
+            setState((current) => ({ ...current, characterVersions: [...current.characterVersions, version] }));
+        },
+        [activeProject.id]
+    );
 
     const buildProductionSnapshot = React.useCallback(
-        (shot?: { id: string; index: number; count: number; durationSeconds: number }): ProductionSnapshot => ({
+        (shot?: {
+            id: string;
+            index: number;
+            count: number;
+            durationSeconds: number;
+            assetIds?: string[];
+        }): ProductionSnapshot => ({
             version: 1,
             source: 'local-draft',
             project: activeProject,
             shot,
             assetBindings: projectAssets
+                .filter((asset) => !shot?.assetIds?.length || shot.assetIds.includes(asset.id))
                 .filter((asset) => asset.status === 'active' || asset.status === 'uploaded')
                 .map(bindingForAsset)
                 .filter((binding): binding is ShotAssetBinding => Boolean(binding)),

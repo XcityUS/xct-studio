@@ -59,15 +59,28 @@ export type CharacterVersion = {
     updatedAt: number;
 };
 
+export type DramaContentLanguage = 'zh-CN' | 'zh-TW' | 'en-US';
+export type DramaSubtitleMode = 'none' | 'source';
+
 export type ShortDramaProject = {
     id: string;
     title: string;
-    sourceLanguage: string;
+    genre: string;
+    sourceLanguage: DramaContentLanguage;
+    voiceLanguage: Exclude<DramaContentLanguage, 'zh-TW'> | 'silent';
+    subtitleMode: DramaSubtitleMode;
     targetRatio: string;
+    targetResolution: string;
+    generationModel: string;
+    watermark: boolean;
+    watermarkText?: string;
+    basePrompt: string;
     styleNote: string;
     createdAt: number;
     updatedAt: number;
 };
+
+export type ShortDramaProjectInput = Omit<ShortDramaProject, 'id' | 'createdAt' | 'updatedAt'>;
 
 export type ShotAssetBinding = {
     projectAssetId: string;
@@ -86,6 +99,7 @@ export type ProductionSnapshot = {
         index: number;
         count: number;
         durationSeconds: number;
+        assetIds?: string[];
     };
     assetBindings: ShotAssetBinding[];
     capturedAt: number;

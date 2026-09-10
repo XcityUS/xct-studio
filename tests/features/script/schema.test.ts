@@ -1,5 +1,6 @@
 import {
     MAX_SCRIPT_FILE_BYTES,
+    normalizeScriptAnalysis,
     normalizeShotDrafts,
     ScriptFileError,
     validateScriptFile
@@ -27,10 +28,42 @@ describe('shot breakdown normalization', () => {
             normalizeShotDrafts({
                 shots: [{ description: '  Hero enters  ', camera: ' tracking ', audio: '  ', durationSeconds: 4 }]
             })
-        ).toEqual([{ description: 'Hero enters', camera: 'tracking', durationSeconds: 4 }]);
+        ).toEqual([{ id: 'shot_draft_1', description: 'Hero enters', camera: 'tracking', durationSeconds: 4 }]);
     });
 
     it('rejects malformed shots', () => {
         expect(() => normalizeShotDrafts({ shots: [{ camera: 'pan' }] })).toThrow('missing a description');
+    });
+
+    it('keeps character and scene identities linkable from shots', () => {
+        expect(
+            normalizeScriptAnalysis({
+                characters: [
+                    {
+                        id: 'character_1',
+                        name: '李雪',
+                        description: '黑色短发，深蓝外套',
+                        aliases: ['小雪'],
+                        evidence: ['李雪推门进入'],
+                        major: true
+                    }
+                ],
+                scenes: [{ id: 'scene_1', name: '办公室', description: '冷色办公室' }],
+                shots: [
+                    {
+                        id: 'shot_1',
+                        description: '李雪进入办公室',
+                        prompt: '中景，冷色电影光',
+                        sceneId: 'scene_1',
+                        characterIds: ['character_1'],
+                        durationSeconds: 5
+                    }
+                ]
+            })
+        ).toMatchObject({
+            characters: [{ id: 'character_1', major: true }],
+            scenes: [{ id: 'scene_1' }],
+            shots: [{ id: 'shot_1', sceneId: 'scene_1', characterIds: ['character_1'] }]
+        });
     });
 });

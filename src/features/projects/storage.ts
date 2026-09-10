@@ -1,3 +1,4 @@
+import { DEFAULT_MODEL, DEFAULT_RESOLUTION } from '@/shared/config/seedance';
 import type {
     CharacterVersion,
     ProjectAsset,
@@ -5,6 +6,7 @@ import type {
     ProjectAssetSourceType,
     ProjectAssetStatus,
     ProjectState,
+    ShortDramaProjectInput,
     ShortDramaProject
 } from '@/shared/contracts/production';
 
@@ -25,24 +27,20 @@ function titleKey(title: string): string {
     return title.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
 }
 
-function uniqueProjectTitle(title: string, existingTitles: string[]): string {
-    const baseTitle = title.trim() || 'Untitled short-drama project';
-    const used = new Set(existingTitles.map(titleKey));
-    if (!used.has(titleKey(baseTitle))) return baseTitle;
-    for (let index = 2; index < 1000; index += 1) {
-        const candidate = `${baseTitle} ${index}`;
-        if (!used.has(titleKey(candidate))) return candidate;
-    }
-    return `${baseTitle} ${now()}`;
-}
-
 function defaultProject(): ShortDramaProject {
     const timestamp = now();
     return {
         id: DEFAULT_PROJECT_ID,
         title: 'Untitled short-drama project',
+        genre: 'Drama',
         sourceLanguage: 'zh-CN',
+        voiceLanguage: 'zh-CN',
+        subtitleMode: 'source',
         targetRatio: '9:16',
+        targetResolution: DEFAULT_RESOLUTION,
+        generationModel: DEFAULT_MODEL,
+        watermark: false,
+        basePrompt: '',
         styleNote: '',
         createdAt: timestamp,
         updatedAt: timestamp
@@ -94,8 +92,18 @@ function normalizeProject(value: unknown): ShortDramaProject | null {
     return {
         id: record.id,
         title: record.title,
-        sourceLanguage: typeof record.sourceLanguage === 'string' ? record.sourceLanguage : 'zh-CN',
+        genre: typeof record.genre === 'string' ? record.genre : 'Drama',
+        sourceLanguage:
+            record.sourceLanguage === 'zh-TW' || record.sourceLanguage === 'en-US' ? record.sourceLanguage : 'zh-CN',
+        voiceLanguage:
+            record.voiceLanguage === 'silent' || record.voiceLanguage === 'en-US' ? record.voiceLanguage : 'zh-CN',
+        subtitleMode: record.subtitleMode === 'none' ? 'none' : 'source',
         targetRatio: typeof record.targetRatio === 'string' ? record.targetRatio : '9:16',
+        targetResolution: typeof record.targetResolution === 'string' ? record.targetResolution : DEFAULT_RESOLUTION,
+        generationModel: typeof record.generationModel === 'string' ? record.generationModel : DEFAULT_MODEL,
+        watermark: record.watermark === true,
+        watermarkText: typeof record.watermarkText === 'string' ? record.watermarkText : undefined,
+        basePrompt: typeof record.basePrompt === 'string' ? record.basePrompt : '',
         styleNote: typeof record.styleNote === 'string' ? record.styleNote : '',
         createdAt: typeof record.createdAt === 'number' ? record.createdAt : now(),
         updatedAt: typeof record.updatedAt === 'number' ? record.updatedAt : now()
@@ -117,8 +125,7 @@ function normalizeProjectAsset(value: unknown): ProjectAsset | null {
         sourceType: isProjectAssetSourceType(record.sourceType) ? record.sourceType : 'manual',
         mediaKey: typeof record.mediaKey === 'string' ? record.mediaKey : undefined,
         sourceUrl: typeof record.sourceUrl === 'string' ? record.sourceUrl : undefined,
-        providerReferenceUrl:
-            typeof record.providerReferenceUrl === 'string' ? record.providerReferenceUrl : undefined,
+        providerReferenceUrl: typeof record.providerReferenceUrl === 'string' ? record.providerReferenceUrl : undefined,
         providerAssetId: typeof record.providerAssetId === 'string' ? record.providerAssetId : undefined,
         origin: record.origin,
         note: typeof record.note === 'string' ? record.note : undefined,
@@ -181,7 +188,8 @@ function normalizeState(value: unknown): ProjectState {
         : [];
     const safeProjects = projects.length ? projects : [fallback];
     const activeProjectId =
-        typeof record.activeProjectId === 'string' && safeProjects.some((project) => project.id === record.activeProjectId)
+        typeof record.activeProjectId === 'string' &&
+        safeProjects.some((project) => project.id === record.activeProjectId)
             ? record.activeProjectId
             : safeProjects[0].id;
     return {
@@ -211,22 +219,39 @@ export function writeProjectState(state: ProjectState): void {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizeState(state)));
 }
 
-export function createProject(title: string, existingTitles: string[] = []): ShortDramaProject {
+export function createProject(input: ShortDramaProjectInput, existingTitles: string[] = []): ShortDramaProject {
+    const title = input.title.trim() || 'Untitled short-drama project';
+    if (existingTitles.some((existingTitle) => titleKey(existingTitle) === titleKey(title))) {
+        throw new Error('DUPLICATE_PROJECT_TITLE');
+    }
     const timestamp = now();
     return {
         id: createId('project'),
-        title: uniqueProjectTitle(title, existingTitles),
-        sourceLanguage: 'zh-CN',
-        targetRatio: '9:16',
-        styleNote: '',
+        ...input,
+        title,
         createdAt: timestamp,
         updatedAt: timestamp
     };
 }
 
-export function createProjectAsset(
-    input: Omit<ProjectAsset, 'id' | 'createdAt' | 'updatedAt'>
-): ProjectAsset {
+export function defaultProjectInput(title = ''): ShortDramaProjectInput {
+    const project = defaultProject();
+    return {
+        title,
+        genre: project.genre,
+        sourceLanguage: project.sourceLanguage,
+        voiceLanguage: project.voiceLanguage,
+        subtitleMode: project.subtitleMode,
+        targetRatio: project.targetRatio,
+        targetResolution: project.targetResolution,
+        generationModel: project.generationModel,
+        watermark: project.watermark,
+        basePrompt: project.basePrompt,
+        styleNote: project.styleNote
+    };
+}
+
+export function createProjectAsset(input: Omit<ProjectAsset, 'id' | 'createdAt' | 'updatedAt'>): ProjectAsset {
     const timestamp = now();
     return { ...input, id: createId('project_asset'), createdAt: timestamp, updatedAt: timestamp };
 }

@@ -1,6 +1,6 @@
 import type { CreationFormData } from './types';
-import type { ShotDraft } from '@/features/script/types';
 import { SILENT_VOICE_LANGUAGE } from '@/features/script/prompt/guards';
+import type { ShotDraft } from '@/features/script/types';
 import type { ProductionSnapshot } from '@/shared/contracts/production';
 
 const SHOT_QUEUE_STORAGE_KEY = 'xctStudioShotGenerationQueue';
@@ -28,9 +28,14 @@ function cleanShotAudioCue(audio: string): string {
 export function compileShotPrompt(shot: ShotDraft, index: number, total: number): string {
     const parts = [
         `Shot ${index + 1}/${total}.`,
+        shot.prompt?.trim(),
         shot.description.trim(),
         shot.camera?.trim(),
-        shot.audio ? `Audio: ${cleanShotAudioCue(shot.audio)}` : ''
+        shot.audio ? `Audio: ${cleanShotAudioCue(shot.audio)}` : '',
+        shot.dialogues
+            ?.map((dialogue) => `${dialogue.emotion ? `${dialogue.emotion}: ` : ''}${dialogue.text}`)
+            .join(' '),
+        shot.subtitle?.trim() ? `Subtitle: ${shot.subtitle.trim()}` : ''
     ].filter(Boolean);
     return parts.join(' ');
 }

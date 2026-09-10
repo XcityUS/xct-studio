@@ -1,0 +1,111 @@
+.dialog {
+    display: flex;
+    flex-direction: column;
+    width: min(44rem, calc(100vw - 2rem));
+    max-width: 44rem;
+    max-height: 88dvh;
+    overflow: hidden;
+    border-color: var(--studio-border);
+    background: var(--studio-surface);
+    color: var(--studio-foreground);
+}
+
+.form,
+.field {
+    display: grid;
+    gap: 0.5rem;
+}
+
+.form {
+    min-height: 0;
+    gap: 1rem;
+    overflow-y: auto;
+    padding-right: 0.2rem;
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.9rem;
+}
+
+.field {
+    min-width: 0;
+    color: var(--studio-foreground);
+    font-size: 0.8125rem;
+}
+
+.field input,
+.field textarea {
+    width: 100%;
+    min-width: 0;
+    border: 1px solid var(--studio-border);
+    border-radius: 0.55rem;
+    background: var(--studio-background);
+    color: var(--studio-foreground);
+    padding: 0.65rem 0.75rem;
+    font: inherit;
+}
+
+.wide {
+    grid-column: 1 / -1;
+}
+
+.check {
+    display: flex;
+    gap: 0.55rem;
+    align-items: center;
+    color: var(--studio-foreground);
+    font-size: 0.8125rem;
+}
+
+.actions {
+    position: sticky;
+    bottom: 0;
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.6rem;
+    border-top: 1px solid var(--studio-border);
+    background: var(--studio-surface);
+    padding-top: 1rem;
+}
+
+.primary,
+.secondary {
+    min-height: 2.35rem;
+    border: 1px solid var(--studio-border);
+    border-radius: 0.55rem;
+    padding: 0 0.9rem;
+    cursor: pointer;
+}
+
+.primary {
+    border-color: var(--studio-foreground);
+    background: var(--studio-foreground);
+    color: var(--studio-background);
+}
+
+.secondary {
+    background: var(--studio-surface);
+    color: var(--studio-foreground);
+}
+
+.primary:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+.error {
+    color: var(--studio-danger);
+    font-size: 0.75rem;
+}
+
+@media (width <= 640px) {
+    .grid {
+        grid-template-columns: 1fr;
+    }
+
+    .wide {
+        grid-column: auto;
+    }
+}

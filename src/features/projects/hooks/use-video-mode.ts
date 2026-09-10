@@ -1,0 +1,49 @@
+'use client';
+
+import { useSyncExternalStore } from 'react';
+
+type VideoMode = 'normal' | 'drama';
+let mode: VideoMode = 'normal';
+const listeners = new Set<() => void>();
+
+function readMode(): VideoMode {
+    if (typeof window === 'undefined') return mode;
+    try {
+        return localStorage.getItem('xctStudioVideoMode') === 'drama' ? 'drama' : 'normal';
+    } catch {
+        return mode;
+    }
+}
+
+function subscribe(listener: () => void) {
+    listeners.add(listener);
+    const handleStorage = (event: StorageEvent) => {
+        if (event.key !== 'xctStudioVideoMode') return;
+        mode = readMode();
+        listener();
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => {
+        listeners.delete(listener);
+        window.removeEventListener('storage', handleStorage);
+    };
+}
+export function useVideoMode() {
+    const value = useSyncExternalStore(
+        subscribe,
+        readMode,
+        (): VideoMode => 'normal'
+    );
+    return [
+        value,
+        (next: VideoMode) => {
+            mode = next;
+            try {
+                localStorage.setItem('xctStudioVideoMode', next);
+            } catch {
+                /* Keep the in-memory selection. */
+            }
+            listeners.forEach((listener) => listener());
+        }
+    ] as const;
+}

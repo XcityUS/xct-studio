@@ -8,6 +8,10 @@ Project -> Project Assets -> IP -> Episode -> Scene -> Shot -> Candidate -> Sele
 
 ## Reading Order
 
+Current delivery tracking: [Short Drama P0 task breakdown and backend ownership](requirements/short-drama-p0-task-breakdown.md). XCT Studio does not connect to a database; business persistence and execution belong to xcity-litellm. The checklist maps all 18 P0 acceptance items to tasks.
+
+For the current short-drama P0 work, start with [P0 requirements](requirements/short-drama-p0-requirements.md), then [P0 Implementation Plan](architecture/short-drama-p0-implementation-plan.md). The plan records current `/video` evidence, data models, state machines, APIs, module boundaries, migration, and task dependencies. It is proposed, not an implementation-completion claim. P0 requirements take precedence over conflicting older product scopes and sequencing.
+
 Start with [the required engineering baseline](rules/core-conventions.md): TypeScript, no Tailwind CSS, Server Components preferred, and AI provider calls behind server application services.
 
 Follow [file naming and size rules](rules/files.md): PascalCase component folders with `index.tsx` / `index.module.scss`, short owned filenames without repeated business prefixes, classified line limits, and explicit legacy handling.
@@ -27,6 +31,8 @@ The current research-backed proposal for the next production chain is
 It is a proposed design awaiting human approval; it does not override the accepted business rules or authorize implementation.
 
 ## Directory Ownership
+
+Current boundary decision: [Short-drama backend ownership](architecture/short-drama-infrastructure.md). The experimental Studio database/API/worker implementation was withdrawn; it has not been migrated or deployed to LiteLLM.
 
 | Directory     | Purpose                                                             |
 | ------------- | ------------------------------------------------------------------- |

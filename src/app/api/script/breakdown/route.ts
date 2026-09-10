@@ -1,5 +1,5 @@
-import { createScriptBreakdown, ScriptBreakdownError } from '@/server/script/breakdown';
 import { scriptBreakdownGatewayUrl } from '@/server/providers/xcity/script-breakdown';
+import { createScriptBreakdown, ScriptBreakdownError } from '@/server/script/breakdown';
 
 const MAX_SCRIPT_CHARACTERS = 120_000;
 const UPSTREAM_HEADERS = {
@@ -22,7 +22,7 @@ export async function POST(request: Request) {
     }
 
     try {
-        const body = (await request.json().catch(() => null)) as { script?: unknown } | null;
+        const body = (await request.json().catch(() => null)) as { script?: unknown; sourceLanguage?: unknown } | null;
         if (!body) {
             return Response.json(
                 { error: { code: 'VALIDATION_FAILED', message: 'Request body must be valid JSON.' } },
@@ -44,7 +44,10 @@ export async function POST(request: Request) {
             );
         }
 
-        return Response.json({ shots: await createScriptBreakdown(script, bearer) }, { headers: UPSTREAM_HEADERS });
+        const sourceLanguage = typeof body.sourceLanguage === 'string' ? body.sourceLanguage : 'zh-CN';
+        return Response.json(await createScriptBreakdown(script, bearer, sourceLanguage), {
+            headers: UPSTREAM_HEADERS
+        });
     } catch (error) {
         if (error instanceof ScriptBreakdownError) {
             return Response.json(

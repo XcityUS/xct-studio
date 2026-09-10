@@ -2,6 +2,8 @@
 
 Last updated: 2026-09-07
 
+> 2026-09-10 P0 planning update: follow [Short-drama P0 Implementation Plan](short-drama-p0-implementation-plan.md) for the current delivery. Its scope follows the latest P0 requirements: server persistence and durable execution precede the production UI; full selection/assembly/localization follow P0. The stages below remain historical integrated-platform context, not the current P0 execution order.
+
 ## Outcome
 
 Evolve the current Studio into an integrated short-drama production workstation without replacing working generation, archive, or assembly behavior in one rewrite.

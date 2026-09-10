@@ -4,6 +4,8 @@ Last updated: 2026-09-07
 
 ## Current Boundaries
 
+2026-09-10 ownership decision: short-drama Project/Script/Shot/Binding/Preflight/Batch business APIs and durable execution belong to xcity-litellm. XCT Studio may expose thin authenticated proxies but MUST NOT own database access, business transactions or the background queue. The previously added local `/api/v1/drama/*` implementation has been removed; backend endpoint contracts still require implementation and verification. See [the backend boundary decision](../architecture/short-drama-infrastructure.md).
+
 Xct Studio currently has three distinct integration layers:
 
 | Layer | Owner | Purpose |

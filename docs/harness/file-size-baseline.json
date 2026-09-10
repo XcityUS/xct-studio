@@ -8,7 +8,7 @@
         "reason": "Legacy asset panel; split media listing, portrait authorization, and selection UI. Tracked in docs/requirements/xct-studio-task-list.md."
     },
     "src/features/generation/components/CreationForm/index.tsx": {
-        "maxLines": 1118,
+        "maxLines": 1111,
         "reason": "Legacy generation form; extract model settings, references, and submission state. Tracked in docs/requirements/xct-studio-task-list.md."
     },
     "src/features/assets/components/ReferenceImagesInput/index.tsx": {
@@ -16,7 +16,7 @@
         "reason": "Legacy reference input; split upload, ordering, and asset selection. Tracked in docs/requirements/xct-studio-task-list.md."
     },
     "src/features/studio/components/StudioWorkspace/index.tsx": {
-        "maxLines": 3642,
+        "maxLines": 3635,
         "reason": "Behavior-preserving move from app/page.tsx during locale upgrade; move workflows into owning features. Tracked in docs/requirements/xct-studio-task-list.md."
     },
     "src/features/generation/components/VideoHistoryPanel/index.tsx": {

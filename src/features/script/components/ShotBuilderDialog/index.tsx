@@ -1,60 +1,44 @@
 'use client';
 
-import { InlineError } from './InlineError';
+import { AnalysisReview } from './AnalysisReview';
 import { ScriptImportField } from './ScriptImportField';
-import { type ShotLanguageMode, ShotLanguageModeField } from './ShotLanguageModeField';
-import { appendImageToken, compilePrompt, createEmptyShot, isPresetCamera } from './helpers';
-import { Button } from '@/components/ui/Button';
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle
-} from '@/components/ui/Dialog';
-import { Input } from '@/components/ui/Input';
-import { Label } from '@/components/ui/Label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select';
-import { Textarea } from '@/components/ui/Textarea';
-import { PROMPT_TEMPLATE_CATEGORIES } from '@/features/script/prompt/templates';
-import { usePromptTemplateLabels } from '@/features/script/prompt/use-template-labels';
-import type { ShotDraft } from '@/features/script/types';
+import { ShotCard } from './ShotCard';
+import { recalledDraft, rememberDraft, validShots, type EditorDraft, type EditorShot } from './draft';
+import styles from './index.module.scss';
+import { inspectDraft } from './preflight';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/Dialog';
+import type { ScriptAnalysisDraft, ShotDraft } from '@/features/script/types';
+import type { ProjectAsset } from '@/shared/contracts/production';
 import { InvalidApiKeyError } from '@/shared/errors';
-import { cn } from '@/shared/utils/classnames';
-import { ArrowDown, ArrowUp, ChevronDown, Loader2, Plus, Trash2, Wand2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import * as React from 'react';
 
-type ShotBuilderDialogProps = {
+type Props = {
     isOpen: boolean;
     onOpenChange: (open: boolean) => void;
     referenceCount: number;
     referenceLabels?: (string | null)[];
-    onApply: (prompt: string) => void;
     onGenerateShots?: (
         shots: ShotDraft[],
         globalNote: string,
         options: { useFormLanguageSettings: boolean }
     ) => Promise<void>;
-    onBreakdownScript?: (script: string) => Promise<ShotDraft[]>;
+    onBreakdownScript?: (script: string) => Promise<ScriptAnalysisDraft>;
+    projectAssets?: ProjectAsset[];
     defaultDurationSeconds: number;
     minDurationSeconds: number;
     maxDurationSeconds: number;
     isGeneratingShots?: boolean;
     pendingShotCount?: number;
     onContinueShotQueue?: () => Promise<void>;
+    draftKey?: string;
+    generationSummary?: string;
 };
-
-const CAMERA_TEMPLATES = PROMPT_TEMPLATE_CATEGORIES.find((category) => category.id === 'camera')?.templates ?? [];
-const NO_CAMERA_VALUE = '__no_camera__';
 
 export function ShotBuilderDialog({
     isOpen,
     onOpenChange,
     referenceCount,
-    referenceLabels,
-    onApply,
     onGenerateShots,
     onBreakdownScript,
     defaultDurationSeconds,
@@ -62,412 +46,369 @@ export function ShotBuilderDialog({
     maxDurationSeconds,
     isGeneratingShots = false,
     pendingShotCount = 0,
-    onContinueShotQueue
-}: ShotBuilderDialogProps) {
+    onContinueShotQueue,
+    draftKey = 'normal',
+    generationSummary,
+    projectAssets = []
+}: Props) {
     const t = useTranslations();
-    const templateLabel = usePromptTemplateLabels();
-    const [shots, setShots] = React.useState<ShotDraft[]>([createEmptyShot(defaultDurationSeconds)]);
-    const [globalNote, setGlobalNote] = React.useState('');
-    const [isAutoOpen, setIsAutoOpen] = React.useState(false);
-    const [script, setScript] = React.useState('');
-    const [isBreakingDown, setIsBreakingDown] = React.useState(false);
-    const [breakdownError, setBreakdownError] = React.useState<string | null>(null);
-    const [shotLanguageMode, setShotLanguageMode] = React.useState<ShotLanguageMode>('silent');
-
-    const compiledPrompt = React.useMemo(() => compilePrompt(globalNote, shots), [globalNote, shots]);
-
-    const updateShot = (index: number, patch: Partial<ShotDraft>) => {
-        setShots((current) => current.map((shot, i) => (i === index ? { ...shot, ...patch } : shot)));
+    const newShot = (): EditorShot => ({
+        id: crypto.randomUUID(),
+        description: '',
+        durationSeconds: defaultDurationSeconds
+    });
+    const [draft, setDraft] = React.useState<EditorDraft>(() => {
+        const recalled = recalledDraft(draftKey);
+        return recalled
+            ? { ...recalled, characters: recalled.characters ?? [], scenes: recalled.scenes ?? [] }
+            : {
+                  shots: [{ id: 'initial', description: '', durationSeconds: defaultDurationSeconds }],
+                  script: '',
+                  globalNote: '',
+                  automatic: false,
+                  language: 'silent',
+                  characters: [],
+                  scenes: []
+              };
+    });
+    const [error, setError] = React.useState<string | null>(null);
+    const [busy, setBusy] = React.useState(false);
+    const [confirm, setConfirm] = React.useState<'generate' | 'replace' | null>(null);
+    const lock = React.useRef(false);
+    React.useEffect(() => {
+        rememberDraft(draftKey, draft);
+    }, [draftKey, draft]);
+    const update = (patch: Partial<EditorDraft>) => setDraft((current) => ({ ...current, ...patch }));
+    const ready = validShots(draft.shots, minDurationSeconds, maxDurationSeconds);
+    const preflight = inspectDraft(draft);
+    const disabled = busy || isGeneratingShots;
+    const updateShot = (id: string, patch: Partial<EditorShot>) =>
+        update({ shots: draft.shots.map((shot) => (shot.id === id ? { ...shot, ...patch } : shot)) });
+    const move = (index: number, direction: -1 | 1) => {
+        const next = [...draft.shots];
+        [next[index], next[index + direction]] = [next[index + direction], next[index]];
+        update({ shots: next });
     };
-
-    const addShot = () => {
-        setShots((current) => [...current, createEmptyShot(defaultDurationSeconds)]);
-    };
-
-    const removeShot = (index: number) => {
-        setShots((current) => {
-            if (current.length === 1) {
-                return current;
-            }
-            return current.filter((_, i) => i !== index);
-        });
-    };
-
-    const moveShot = (index: number, direction: -1 | 1) => {
-        setShots((current) => {
-            const target = index + direction;
-            if (target < 0 || target >= current.length) {
-                return current;
-            }
-            const next = [...current];
-            [next[index], next[target]] = [next[target], next[index]];
-            return next;
-        });
-    };
-
-    const handleBreakdown = async () => {
-        if (!onBreakdownScript || !script.trim() || isBreakingDown) return;
-
-        setIsBreakingDown(true);
-        setBreakdownError(null);
+    const breakdown = async () => {
+        if (!onBreakdownScript || lock.current || !draft.script.trim()) return;
+        lock.current = true;
+        setBusy(true);
+        setError(null);
+        setConfirm(null);
         try {
-            const nextShots = await onBreakdownScript(script);
-            setShots(
-                nextShots.length
-                    ? nextShots.map((shot) => ({ ...shot, durationSeconds: shot.durationSeconds ?? defaultDurationSeconds }))
-                    : [createEmptyShot(defaultDurationSeconds)]
-            );
-        } catch (error) {
-            setBreakdownError(
-                error instanceof InvalidApiKeyError
+            const result = await onBreakdownScript(draft.script);
+            if (!result.shots.length || result.shots.some((shot) => !shot.description.trim()))
+                throw new Error(t('Script breakdown failed'));
+            update({
+                characters: result.characters,
+                scenes: result.scenes,
+                shots: result.shots.map((shot) => ({
+                    ...shot,
+                    id: shot.id || crypto.randomUUID(),
+                    durationSeconds: shot.durationSeconds ?? defaultDurationSeconds
+                }))
+            });
+        } catch (cause) {
+            setError(
+                cause instanceof InvalidApiKeyError
                     ? t('Your Xcity API key is invalid or expired<dot> Configure a new key and retry')
-                    : error instanceof Error
-                      ? error.message
-                      : t('Script breakdown failed')
+                    : t('Script breakdown failed')
             );
         } finally {
-            setIsBreakingDown(false);
+            lock.current = false;
+            setBusy(false);
         }
     };
-
-    const updateDuration = (index: number, value: string) => {
-        const parsed = Math.round(Number(value));
-        const durationSeconds = Number.isFinite(parsed)
-            ? Math.min(maxDurationSeconds, Math.max(minDurationSeconds, parsed))
-            : defaultDurationSeconds;
-        updateShot(index, { durationSeconds });
-    };
-
-    const handleGenerateShots = async () => {
-        if (!onGenerateShots || isGeneratingShots) return;
-        setBreakdownError(null);
+    const generate = async (continuing = false) => {
+        if (lock.current || isGeneratingShots || (!continuing && !ready)) return;
+        lock.current = true;
+        setBusy(true);
+        setError(null);
         try {
-            await onGenerateShots(shots, globalNote, { useFormLanguageSettings: shotLanguageMode === 'form' });
+            if (continuing) await onContinueShotQueue?.();
+            else
+                await onGenerateShots?.(
+                    draft.shots.map((shot) => {
+                        const characterAssetIds = draft.characters
+                            .filter((character) => shot.characterIds?.includes(character.id) && character.assetId)
+                            .map((character) => character.assetId as string);
+                        const sceneAssetId = draft.scenes.find((scene) => scene.id === shot.sceneId)?.assetId;
+                        return {
+                            ...shot,
+                            assetIds: Array.from(
+                                new Set([...characterAssetIds, ...(sceneAssetId ? [sceneAssetId] : [])])
+                            )
+                        };
+                    }),
+                    draft.globalNote,
+                    {
+                        useFormLanguageSettings: draft.language === 'form'
+                    }
+                );
+            setConfirm(null);
             onOpenChange(false);
-        } catch (error) {
-            setBreakdownError(error instanceof Error ? error.message : t('Script breakdown failed'));
-        }
-    };
-
-    const handleContinueShotQueue = async () => {
-        if (!onContinueShotQueue || isGeneratingShots) return;
-        setBreakdownError(null);
-        try {
-            await onContinueShotQueue();
-            onOpenChange(false);
-        } catch (error) {
-            setBreakdownError(error instanceof Error ? error.message : t('Script breakdown failed'));
+        } catch {
+            setError(t('Could not complete the operation<dot> Your draft is still available'));
+        } finally {
+            lock.current = false;
+            setBusy(false);
         }
     };
 
     return (
-        <Dialog open={isOpen} onOpenChange={onOpenChange}>
-            <DialogContent className='max-h-[86vh] overflow-y-auto border-white/20 bg-black text-white sm:max-w-[760px]'>
+        <Dialog
+            open={isOpen}
+            onOpenChange={(open) => {
+                setConfirm(null);
+                onOpenChange(open);
+            }}>
+            <DialogContent className={styles.dialog}>
                 <DialogHeader>
-                    <DialogTitle className='text-white'>{t('Shot Builder')}</DialogTitle>
-                    <DialogDescription className='text-white/60'>
-                        {t(
-                            'Compose numbered Seedance shots with camera moves<comma> audio cues<comma> and reference image citations'
-                        )}
+                    <DialogTitle>{t('Shot Builder')}</DialogTitle>
+                    <DialogDescription>
+                        {t('Edit one shot per video<dot> Closing keeps this draft in this tab<comma> not in the cloud')}
                     </DialogDescription>
                 </DialogHeader>
-
-                {onBreakdownScript && (
-                    <div className='rounded-md border border-white/10 bg-white/[0.03]'>
+                {error && (
+                    <p className={styles.error} role='alert'>
+                        {error}
+                    </p>
+                )}
+                {pendingShotCount > 0 && !onContinueShotQueue && (
+                    <p role='status'>{t('Pending shots belong to another project<dot> Switch back to continue')}</p>
+                )}
+                <fieldset className={styles.editor} disabled={disabled}>
+                    {onBreakdownScript && (
+                        <label className={styles.check}>
+                            <input
+                                type='checkbox'
+                                checked={draft.automatic}
+                                onChange={(event) => update({ automatic: event.target.checked })}
+                            />
+                            {t('Auto breakdown from script')}
+                        </label>
+                    )}
+                    {draft.automatic && onBreakdownScript && (
+                        <section className={styles.import}>
+                            <label className={styles.field}>
+                                {t('Paste a short script or scene outline')}
+                                <textarea
+                                    rows={5}
+                                    value={draft.script}
+                                    onChange={(event) => update({ script: event.target.value })}
+                                />
+                            </label>
+                            <ScriptImportField
+                                disabled={disabled}
+                                value={draft.script}
+                                onChange={(script) => update({ script })}
+                                onError={setError}
+                            />
+                            <button
+                                type='button'
+                                className={styles.primary}
+                                disabled={!draft.script.trim()}
+                                onClick={() =>
+                                    draft.shots.some(
+                                        (shot) => shot.description.trim() || shot.camera?.trim() || shot.audio?.trim()
+                                    )
+                                        ? setConfirm('replace')
+                                        : void breakdown()
+                                }>
+                                {busy ? t('Breaking down<hellip>') : t('Break into shots')}
+                            </button>
+                        </section>
+                    )}
+                    <label className={styles.field}>
+                        {t('Global style <slash> continuity')}
+                        <textarea
+                            rows={2}
+                            value={draft.globalNote}
+                            onChange={(event) => update({ globalNote: event.target.value })}
+                        />
+                    </label>
+                    <AnalysisReview
+                        characters={draft.characters}
+                        scenes={draft.scenes}
+                        assets={projectAssets}
+                        updateCharacter={(id, patch) =>
+                            update({
+                                characters: draft.characters.map((character) =>
+                                    character.id === id ? { ...character, ...patch } : character
+                                )
+                            })
+                        }
+                        updateScene={(id, patch) =>
+                            update({
+                                scenes: draft.scenes.map((scene) => (scene.id === id ? { ...scene, ...patch } : scene))
+                            })
+                        }
+                    />
+                    <fieldset className={styles.language}>
+                        <legend>{t('Shot language <slash> subtitles')}</legend>
+                        <label className={styles.check}>
+                            <input
+                                type='radio'
+                                name='shot-language'
+                                checked={draft.language === 'silent'}
+                                onChange={() => update({ language: 'silent' })}
+                            />
+                            {t('No generated speech or subtitles')}
+                        </label>
+                        <label className={styles.check}>
+                            <input
+                                type='radio'
+                                name='shot-language'
+                                checked={draft.language === 'form'}
+                                onChange={() => update({ language: 'form' })}
+                            />
+                            {t('Use current video language and subtitle settings')}
+                        </label>
+                    </fieldset>
+                    <div className={styles.toolbar}>
+                        <strong>
+                            {t('Shots')} ({draft.shots.length})
+                        </strong>
+                        {!draft.automatic && (
+                            <button
+                                type='button'
+                                className={styles.secondary}
+                                onClick={() => update({ shots: [...draft.shots, newShot()] })}>
+                                {t('Add shot')}
+                            </button>
+                        )}
+                    </div>
+                    {draft.shots.map((shot, index) => (
+                        <ShotCard
+                            key={shot.id}
+                            shot={shot}
+                            index={index}
+                            count={draft.shots.length}
+                            min={minDurationSeconds}
+                            max={maxDurationSeconds}
+                            referenceCount={referenceCount}
+                            characters={draft.characters}
+                            scenes={draft.scenes}
+                            previousShotId={index > 0 ? draft.shots[index - 1].id : undefined}
+                            update={(patch) => updateShot(shot.id, patch)}
+                            move={(direction) => move(index, direction)}
+                            remove={() => update({ shots: draft.shots.filter((item) => item.id !== shot.id) })}
+                            duplicate={() =>
+                                update({
+                                    shots: [
+                                        ...draft.shots.slice(0, index + 1),
+                                        { ...shot, id: crypto.randomUUID() },
+                                        ...draft.shots.slice(index + 1)
+                                    ]
+                                })
+                            }
+                        />
+                    ))}
+                </fieldset>
+                {!ready && (
+                    <p className={styles.notice}>
+                        {t('Every shot needs a description and a supported whole<dash>second duration')}
+                    </p>
+                )}
+                {confirm && (
+                    <section className={styles.confirm} role='region' aria-label={t('Confirm operation')}>
+                        <strong>
+                            {confirm === 'replace'
+                                ? t('Replace the current shot draft<q>')
+                                : t('Confirm video generation')}
+                        </strong>
+                        <p>
+                            {confirm === 'replace'
+                                ? t('AI breakdown will replace your edited shots only after it succeeds')
+                                : t('Each shot creates a separate video request and may incur charges')}
+                        </p>
+                        {confirm === 'generate' && (
+                            <>
+                                <p>{generationSummary}</p>
+                                <p>
+                                    {t('Shots')}: {draft.shots.length} · {t('Duration')}:{' '}
+                                    {draft.shots.reduce((sum, shot) => sum + (shot.durationSeconds ?? 0), 0)} s
+                                </p>
+                                <p>
+                                    {draft.language === 'silent'
+                                        ? t('No generated speech or subtitles')
+                                        : t('Use current video language and subtitle settings')}
+                                </p>
+                                {preflight.blocking.length > 0 && (
+                                    <p className={styles.error} role='alert'>
+                                        {t('Main characters without assets')}: {preflight.blocking.join(', ')}
+                                    </p>
+                                )}
+                                {preflight.warnings.length > 0 && (
+                                    <p>
+                                        {t('Unbound optional references')}: {preflight.warnings.join(', ')}
+                                    </p>
+                                )}
+                                <p>
+                                    {t(
+                                        'This legacy queue requires this tab to stay open<dot> Background execution is not connected yet'
+                                    )}
+                                </p>
+                            </>
+                        )}
+                        <div className={styles.toolbar}>
+                            <button
+                                type='button'
+                                className={styles.secondary}
+                                disabled={disabled || (confirm === 'generate' && preflight.blocking.length > 0)}
+                                onClick={() => setConfirm(null)}>
+                                {t('Cancel')}
+                            </button>
+                            <button
+                                type='button'
+                                className={styles.primary}
+                                disabled={disabled}
+                                onClick={() => (confirm === 'replace' ? void breakdown() : void generate())}>
+                                {t('Confirm')}
+                            </button>
+                        </div>
+                    </section>
+                )}
+                <div className={styles.footer}>
+                    <button
+                        type='button'
+                        className={styles.secondary}
+                        onClick={() => {
+                            setConfirm(null);
+                            onOpenChange(false);
+                        }}>
+                        {t('Close and keep draft')}
+                    </button>
+                    <button
+                        type='button'
+                        className={styles.secondary}
+                        disabled={disabled}
+                        onClick={() => {
+                            rememberDraft(draftKey, draft);
+                            setConfirm(null);
+                            onOpenChange(false);
+                        }}>
+                        {t('Save draft in this tab')}
+                    </button>
+                    {onGenerateShots && (
                         <button
                             type='button'
-                            onClick={() => setIsAutoOpen((open) => !open)}
-                            className='flex w-full items-center justify-between px-3 py-2 text-left text-sm text-white/80 transition-colors hover:bg-white/5'
-                            aria-expanded={isAutoOpen}>
-                            <span className='flex items-center gap-2'>
-                                <Wand2 className='h-4 w-4 text-white/50' />
-                                {t('Auto breakdown from script')}
-                            </span>
-                            <ChevronDown
-                                className={cn('h-4 w-4 text-white/50 transition-transform', isAutoOpen && 'rotate-180')}
-                            />
+                            className={styles.primary}
+                            disabled={disabled || !ready || pendingShotCount > 0}
+                            onClick={() => setConfirm('generate')}>
+                            {t('Generate each shot')}
                         </button>
-                        {isAutoOpen && (
-                            <div className='space-y-3 border-t border-white/10 p-3'>
-                                <Textarea
-                                    value={script}
-                                    onChange={(event) => setScript(event.target.value)}
-                                    placeholder={t('Paste a short script or scene outline')}
-                                    className='min-h-[100px] resize-none rounded-md border border-white/20 bg-black text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
-                                />
-                                <ScriptImportField
-                                    disabled={isBreakingDown}
-                                    value={script}
-                                    onChange={setScript}
-                                    onError={setBreakdownError}
-                                />
-                                <div className='flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center'>
-                                    <Button
-                                        type='button'
-                                        size='sm'
-                                        onClick={() => void handleBreakdown()}
-                                        disabled={isBreakingDown || !script.trim()}
-                                        className='bg-white text-black hover:bg-white/90 disabled:bg-white/40'>
-                                        {isBreakingDown ? (
-                                            <Loader2 className='h-4 w-4 animate-spin' />
-                                        ) : (
-                                            <Wand2 className='h-4 w-4' />
-                                        )}
-                                        {isBreakingDown ? t('Breaking down<hellip>') : t('Break into shots')}
-                                    </Button>
-                                </div>
-                                {breakdownError && <InlineError>{breakdownError}</InlineError>}
-                            </div>
-                        )}
-                    </div>
-                )}
-
-                <div className='space-y-2'>
-                    <Label htmlFor='shot-global-note' className='text-white/80'>
-                        {t('Global style <slash> continuity')}
-                    </Label>
-                    <Textarea
-                        id='shot-global-note'
-                        value={globalNote}
-                        onChange={(event) => setGlobalNote(event.target.value)}
-                        placeholder={t(
-                            'e<dot>g<dot><comma> Consistent warm dusk lighting<comma> same character wardrobe across all shots'
-                        )}
-                        className='min-h-[72px] resize-none rounded-md border border-white/20 bg-black text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
-                    />
-                </div>
-
-                <ShotLanguageModeField value={shotLanguageMode} onChange={setShotLanguageMode} />
-
-                <div className='space-y-3'>
-                    <div className='flex items-center justify-between'>
-                        <Label className='text-white/80'>{t('Shots')}</Label>
-                        <Button
-                            type='button'
-                            size='sm'
-                            onClick={addShot}
-                            className='bg-white/10 text-white hover:bg-white/20'>
-                            <Plus className='h-4 w-4' />
-                            {t('Add shot')}
-                        </Button>
-                    </div>
-
-                    <div className='space-y-3'>
-                        {shots.map((shot, index) => {
-                            const customCamera =
-                                shot.camera?.trim() && !isPresetCamera(shot.camera.trim(), CAMERA_TEMPLATES);
-
-                            return (
-                                <div key={index} className='rounded-md border border-white/10 bg-white/[0.03] p-3'>
-                                    <div className='mb-3 flex items-center justify-between gap-3'>
-                                        <p className='text-sm font-medium text-white'>
-                                            {t('Shot <lcur>number<rcur>', { number: index + 1 })}
-                                        </p>
-                                        <div className='flex items-center gap-1'>
-                                            <button
-                                                type='button'
-                                                onClick={() => moveShot(index, -1)}
-                                                disabled={index === 0}
-                                                title={t('Move shot up')}
-                                                aria-label={t('Move shot <lcur>number<rcur> up', { number: index + 1 })}
-                                                className='rounded-md p-1.5 text-white/50 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-30'>
-                                                <ArrowUp className='h-4 w-4' />
-                                            </button>
-                                            <button
-                                                type='button'
-                                                onClick={() => moveShot(index, 1)}
-                                                disabled={index === shots.length - 1}
-                                                title={t('Move shot down')}
-                                                aria-label={t('Move shot <lcur>number<rcur> down', {
-                                                    number: index + 1
-                                                })}
-                                                className='rounded-md p-1.5 text-white/50 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-30'>
-                                                <ArrowDown className='h-4 w-4' />
-                                            </button>
-                                            <button
-                                                type='button'
-                                                onClick={() => removeShot(index)}
-                                                disabled={shots.length === 1}
-                                                title={t('Remove shot')}
-                                                aria-label={t('Remove shot <lcur>number<rcur>', { number: index + 1 })}
-                                                className='rounded-md p-1.5 text-white/50 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-30'>
-                                                <Trash2 className='h-4 w-4' />
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    <div className='space-y-3'>
-                                        <div className='space-y-2'>
-                                            <Label htmlFor={`shot-description-${index}`} className='text-white/70'>
-                                                {t('Description')}
-                                            </Label>
-                                            <Textarea
-                                                id={`shot-description-${index}`}
-                                                value={shot.description}
-                                                onChange={(event) =>
-                                                    updateShot(index, { description: event.target.value })
-                                                }
-                                                placeholder={t(
-                                                    'Medium tracking shot<colon> subject action<comma> setting<comma> lighting'
-                                                )}
-                                                className='min-h-[88px] resize-none rounded-md border border-white/20 bg-black text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
-                                            />
-                                        </div>
-
-                                        {referenceCount > 0 && (
-                                            <div className='flex flex-wrap items-center gap-1.5'>
-                                                <span className='text-xs text-white/40'>
-                                                    {t('Insert reference<colon>')}
-                                                </span>
-                                                {Array.from({ length: referenceCount }, (_, i) => i + 1).map((n) => {
-                                                    const label = referenceLabels?.[n - 1]?.trim();
-                                                    return (
-                                                        <button
-                                                            key={n}
-                                                            type='button'
-                                                            title={
-                                                                label
-                                                                    ? t(
-                                                                          'Image <lcur>number<rcur><colon> <lcur>label<rcur>',
-                                                                          {
-                                                                              number: n,
-                                                                              label
-                                                                          }
-                                                                      )
-                                                                    : t('Image <lcur>number<rcur>', { number: n })
-                                                            }
-                                                            onClick={() =>
-                                                                updateShot(index, {
-                                                                    description: appendImageToken(shot.description, n)
-                                                                })
-                                                            }
-                                                            className='inline-flex max-w-full items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2 py-1 text-xs text-white/70 transition-colors hover:border-white/30 hover:bg-white/10 hover:text-white'>
-                                                            <span className='shrink-0'>[Image {n}]</span>
-                                                            {label && (
-                                                                <span className='max-w-24 truncate text-white/45'>
-                                                                    {label}
-                                                                </span>
-                                                            )}
-                                                        </button>
-                                                    );
-                                                })}
-                                            </div>
-                                        )}
-
-                                        <div className='grid grid-cols-1 gap-3 sm:grid-cols-3'>
-                                            <div className='space-y-2'>
-                                                <Label htmlFor={`shot-duration-${index}`} className='text-white/70'>
-                                                    {t('Duration')}
-                                                </Label>
-                                                <Input
-                                                    id={`shot-duration-${index}`}
-                                                    type='number'
-                                                    min={minDurationSeconds}
-                                                    max={maxDurationSeconds}
-                                                    value={shot.durationSeconds ?? defaultDurationSeconds}
-                                                    onChange={(event) => updateDuration(index, event.target.value)}
-                                                    className='rounded-md border border-white/20 bg-black text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
-                                                />
-                                            </div>
-                                            <div className='space-y-2'>
-                                                <Label htmlFor={`shot-camera-${index}`} className='text-white/70'>
-                                                    {t('Camera')}
-                                                </Label>
-                                                <Select
-                                                    value={shot.camera?.trim() || NO_CAMERA_VALUE}
-                                                    onValueChange={(value) =>
-                                                        updateShot(index, {
-                                                            camera: value === NO_CAMERA_VALUE ? undefined : value
-                                                        })
-                                                    }>
-                                                    <SelectTrigger
-                                                        id={`shot-camera-${index}`}
-                                                        className='w-full rounded-md border border-white/20 bg-black text-white focus:border-white/50 focus:ring-white/50'>
-                                                        <SelectValue />
-                                                    </SelectTrigger>
-                                                    <SelectContent className='border-white/20 bg-black text-white'>
-                                                        <SelectItem
-                                                            value={NO_CAMERA_VALUE}
-                                                            className='focus:bg-white/10 focus:text-white'>
-                                                            {t('None')}
-                                                        </SelectItem>
-                                                        {customCamera && (
-                                                            <SelectItem
-                                                                value={shot.camera?.trim() ?? ''}
-                                                                className='focus:bg-white/10 focus:text-white'>
-                                                                {shot.camera}
-                                                            </SelectItem>
-                                                        )}
-                                                        {CAMERA_TEMPLATES.map((template) => (
-                                                            <SelectItem
-                                                                key={template.label}
-                                                                value={template.text}
-                                                                className='focus:bg-white/10 focus:text-white'>
-                                                                {templateLabel(template.label)}
-                                                            </SelectItem>
-                                                        ))}
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-
-                                            <div className='space-y-2'>
-                                                <Label htmlFor={`shot-audio-${index}`} className='text-white/70'>
-                                                    {t('Audio cue')}
-                                                </Label>
-                                                <Input
-                                                    id={`shot-audio-${index}`}
-                                                    value={shot.audio ?? ''}
-                                                    onChange={(event) =>
-                                                        updateShot(index, { audio: event.target.value })
-                                                    }
-                                                    placeholder={t('spoken line or BGM description')}
-                                                    className='rounded-md border border-white/20 bg-black text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
-                                                />
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
-
-                <DialogFooter className='border-t border-white/10 pt-4'>
-                    <Button
-                        type='button'
-                        variant='secondary'
-                        onClick={() => onOpenChange(false)}
-                        className='bg-white/10 text-white hover:bg-white/20'>
-                        {t('Cancel')}
-                    </Button>
-                    <Button
-                        type='button'
-                        onClick={() => onApply(compiledPrompt)}
-                        disabled={!compiledPrompt.trim()}
-                        className='bg-white text-black hover:bg-white/90 disabled:bg-white/40'>
-                        {t('Apply to prompt')}
-                    </Button>
-                    {onGenerateShots && (
-                        <Button
-                            type='button'
-                            onClick={() => void handleGenerateShots()}
-                            disabled={isGeneratingShots || !compiledPrompt.trim()}
-                            className='bg-white text-black hover:bg-white/90 disabled:bg-white/40'>
-                            {isGeneratingShots && <Loader2 className='h-4 w-4 animate-spin' />}
-                            {isGeneratingShots ? t('Generating shots<hellip>') : t('Generate each shot')}
-                        </Button>
                     )}
                     {onContinueShotQueue && pendingShotCount > 0 && (
-                        <Button
+                        <button
                             type='button'
-                            onClick={() => void handleContinueShotQueue()}
-                            disabled={isGeneratingShots}
-                            className='bg-white text-black hover:bg-white/90 disabled:bg-white/40'>
-                            {isGeneratingShots && <Loader2 className='h-4 w-4 animate-spin' />}
+                            className={styles.primary}
+                            disabled={disabled}
+                            onClick={() => void generate(true)}>
                             {t('Continue queue <lpar><lcur>count<rcur><rpar>', { count: pendingShotCount })}
-                        </Button>
+                        </button>
                     )}
-                </DialogFooter>
+                </div>
             </DialogContent>
         </Dialog>
     );

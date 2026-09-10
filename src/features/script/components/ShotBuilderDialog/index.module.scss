@@ -1,0 +1,101 @@
+.dialog {
+    width: min(48rem, calc(100vw - 2rem));
+    max-width: 48rem;
+    max-height: 86dvh;
+    overflow-y: auto;
+    background: var(--studio-surface);
+    color: var(--studio-foreground);
+    border-color: var(--studio-border);
+}
+.editor {
+    display: grid;
+    gap: 1rem;
+    min-width: 0;
+    border: 0;
+    padding: 0;
+    margin: 0;
+}
+.import,
+.confirm {
+    display: grid;
+    gap: 0.75rem;
+    border: 1px solid var(--studio-border);
+    border-radius: 0.7rem;
+    padding: 1rem;
+}
+.confirm {
+    background: var(--studio-background);
+}
+.field {
+    display: grid;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+}
+.field textarea {
+    width: 100%;
+    border: 1px solid var(--studio-border);
+    background: var(--studio-background);
+    color: var(--studio-foreground);
+    border-radius: 0.4rem;
+    padding: 0.65rem;
+    font: inherit;
+}
+.check {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+}
+.language {
+    display: grid;
+    gap: 0.6rem;
+    border: 1px solid var(--studio-border);
+    padding: 0.8rem;
+    border-radius: 0.5rem;
+}
+.language legend {
+    font-size: 0.875rem;
+    padding: 0 0.25rem;
+}
+.toolbar,
+.footer {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.6rem;
+}
+.footer {
+    justify-content: flex-end;
+    border-top: 1px solid var(--studio-border);
+    padding-top: 1rem;
+}
+.primary,
+.secondary {
+    padding: 0.6rem 0.85rem;
+    border: 1px solid var(--studio-border);
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    cursor: pointer;
+}
+.primary {
+    color: var(--studio-background);
+    background: var(--studio-foreground);
+}
+.secondary {
+    color: var(--studio-foreground);
+    background: var(--studio-surface);
+}
+.primary:disabled,
+.secondary:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+.error {
+    color: var(--studio-danger);
+}
+.notice,
+.confirm p {
+    font-size: 0.8125rem;
+    color: var(--studio-muted);
+}

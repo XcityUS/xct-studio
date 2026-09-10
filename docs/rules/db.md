@@ -4,6 +4,8 @@ Last updated: 2026-09-07
 
 ## Current Persistence Topology
 
+2026-09-10 ownership decision: XCT Studio MUST NOT connect to a database or run database migrations. Short-drama persistence, transactions, snapshots and durable queues belong to the xcity-litellm backend. Studio consumes authenticated application APIs; its browser stores remain compatibility state/cache only. See [the backend boundary decision](../architecture/short-drama-infrastructure.md).
+
 The current Studio has deliberately lightweight persistence. Its responsibilities must remain clear during migration.
 
 | Store | Current role | Rule |
@@ -15,7 +17,7 @@ The current Studio has deliberately lightweight persistence. Its responsibilitie
 
 ## Future Source Of Truth
 
-Before implementing collaborative, multi-device, or durable short-drama production data, introduce a server-side database.
+Before implementing collaborative, multi-device, or durable short-drama production data, provide persistence through the xcity-litellm backend. Do not introduce a database client, database credentials or a migration runner into XCT Studio.
 
 The minimum relational domain should support:
 
