@@ -12,6 +12,8 @@ import { Loader2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import * as React from 'react';
 
+const ASSET_BATCH_SIZE = 15;
+
 type AssetLibraryProps = Omit<AssetGridProps, 'items'> & {
     items: AssetListItem[];
     providerAssets: ProviderLibraryAsset[];
@@ -34,7 +36,26 @@ type AssetLibraryBodyProps = {
     onUpdateOfficialAssetNote: (key: string, note: string) => void;
     source: AssetSource;
     visible: AssetListItem[];
+    visibleCount: number;
+    isLoadingNextPage: boolean;
 };
+
+function AssetGridSkeleton({ count }: { count: number }) {
+    return (
+        <div className={styles.skeletonGrid} aria-hidden='true'>
+            {Array.from({ length: count }).map((_, index) => (
+                <div className={styles.skeletonCard} key={`asset-skeleton-${index}`}>
+                    <div className={styles.skeletonPreview} />
+                    <div className={styles.skeletonActions}>
+                        <div />
+                        <div />
+                        <div />
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+}
 
 function AssetMetrics({
     assets,
@@ -101,7 +122,9 @@ function AssetLibraryBody({
     onKindFilterChange,
     onUpdateOfficialAssetNote,
     source,
-    visible
+    visible,
+    visibleCount,
+    isLoadingNextPage
 }: AssetLibraryBodyProps) {
     if (source === 'seedance') {
         return (
@@ -122,9 +145,18 @@ function AssetLibraryBody({
                 onChange={onKindFilterChange}
             />
             {visible.length === 0 ? (
-                <AssetLibraryEmpty hasItems={items.length > 0} isLoading={isLoading} />
+                isLoading ? (
+                    <AssetGridSkeleton count={ASSET_BATCH_SIZE} />
+                ) : (
+                    <AssetLibraryEmpty hasItems={items.length > 0} isLoading={isLoading} />
+                )
             ) : (
-                <AssetGrid items={visible} {...gridProps} />
+                <>
+                    <AssetGrid items={visible.slice(0, visibleCount)} {...gridProps} />
+                    {isLoadingNextPage && (
+                        <AssetGridSkeleton count={Math.min(ASSET_BATCH_SIZE, visible.length - visibleCount)} />
+                    )}
+                </>
             )}
         </>
     );
@@ -137,6 +169,10 @@ export function AssetLibrary(props: AssetLibraryProps) {
     const [kindFilter, setKindFilter] = React.useState<AssetKind>('all');
     const [availableOnly, setAvailableOnly] = React.useState(false);
     const [source, setSource] = React.useState<AssetSource>('xcity');
+    const [visibleCount, setVisibleCount] = React.useState(ASSET_BATCH_SIZE);
+    const [isLoadingNextPage, setIsLoadingNextPage] = React.useState(false);
+    const rootRef = React.useRef<HTMLElement | null>(null);
+    const loadingTimerRef = React.useRef<number | null>(null);
     const visible = React.useMemo(
         () =>
             items.filter(
@@ -148,8 +184,68 @@ export function AssetLibrary(props: AssetLibraryProps) {
     );
     const availableCount = React.useMemo(() => items.filter((item) => Boolean(item.referenceUrl)).length, [items]);
     const metricProps = { assets: providerAssets, availableCount, itemCount: items.length, isLoading };
+    const hasMoreAssets = source === 'xcity' && visibleCount < visible.length;
+
+    React.useEffect(() => {
+        setVisibleCount(Math.min(ASSET_BATCH_SIZE, visible.length));
+        setIsLoadingNextPage(false);
+        if (loadingTimerRef.current) {
+            window.clearTimeout(loadingTimerRef.current);
+            loadingTimerRef.current = null;
+        }
+    }, [availableOnly, kindFilter, source, visible.length]);
+
+    const loadMoreAssets = React.useCallback(() => {
+        if (!hasMoreAssets || isLoadingNextPage) return;
+        setIsLoadingNextPage(true);
+        if (loadingTimerRef.current) {
+            window.clearTimeout(loadingTimerRef.current);
+            loadingTimerRef.current = null;
+        }
+        loadingTimerRef.current = window.setTimeout(() => {
+            setVisibleCount((current) => Math.min(current + ASSET_BATCH_SIZE, visible.length));
+            setIsLoadingNextPage(false);
+            loadingTimerRef.current = null;
+        }, 180);
+    }, [hasMoreAssets, isLoadingNextPage, visible.length]);
+
+    React.useEffect(() => {
+        if (!hasMoreAssets) return;
+        const root = rootRef.current;
+        if (!root) return;
+        const scrollParent = root.closest('.overflow-y-auto');
+
+        const handleScroll = () => {
+            if (scrollParent instanceof HTMLElement) {
+                const remaining = scrollParent.scrollHeight - scrollParent.scrollTop - scrollParent.clientHeight;
+                if (remaining <= 160) loadMoreAssets();
+                return;
+            }
+
+            const remaining = root.getBoundingClientRect().bottom - window.innerHeight;
+            if (remaining <= 160) loadMoreAssets();
+        };
+
+        if (scrollParent instanceof HTMLElement) {
+            scrollParent.addEventListener('scroll', handleScroll, { passive: true });
+            return () => scrollParent.removeEventListener('scroll', handleScroll);
+        }
+
+        window.addEventListener('scroll', handleScroll, { passive: true });
+        return () => window.removeEventListener('scroll', handleScroll);
+    }, [hasMoreAssets, loadMoreAssets]);
+
+    React.useEffect(() => {
+        return () => {
+            if (loadingTimerRef.current) {
+                window.clearTimeout(loadingTimerRef.current);
+                loadingTimerRef.current = null;
+            }
+        };
+    }, []);
+
     return (
-        <section className={styles.root} aria-labelledby='asset-library-heading'>
+        <section ref={rootRef} className={styles.root} aria-labelledby='asset-library-heading'>
             <div className={styles.header}>
                 <h3 id='asset-library-heading' className={styles.title}>
                     {t('Assets')}
@@ -172,6 +268,8 @@ export function AssetLibrary(props: AssetLibraryProps) {
                 referenceImageUrls={referenceImageUrls}
                 source={source}
                 visible={visible}
+                visibleCount={visibleCount}
+                isLoadingNextPage={isLoadingNextPage}
             />
         </section>
     );

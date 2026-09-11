@@ -1,0 +1,127 @@
+.skeletonCard {
+    --skeleton-card: color-mix(in srgb, var(--studio-surface) 92%, var(--studio-foreground) 8%);
+    --skeleton-panel: color-mix(in srgb, var(--studio-surface-soft) 88%, var(--studio-foreground) 12%);
+    --skeleton-block: color-mix(in srgb, var(--studio-surface) 84%, var(--studio-foreground) 10%);
+    --skeleton-shine: color-mix(in srgb, var(--studio-foreground) 10%, transparent);
+
+    overflow: hidden;
+    border: 1px solid var(--studio-border);
+    border-radius: 6px;
+    background: var(--skeleton-panel);
+    box-shadow: var(--studio-control-shadow);
+    animation: community-skeleton-enter 260ms ease-out both;
+}
+
+.skeletonCard:nth-child(2n) {
+    animation-delay: 35ms;
+}
+
+.skeletonCard:nth-child(3n) {
+    animation-delay: 70ms;
+}
+
+.skeletonPreview,
+.skeletonTitle,
+.skeletonPrompt,
+.skeletonMeta,
+.skeletonActions > div {
+    position: relative;
+    overflow: hidden;
+    animation:
+        community-skeleton-shimmer 1.15s ease-in-out infinite,
+        community-skeleton-pulse 1.6s ease-in-out infinite;
+    background:
+        linear-gradient(100deg, transparent 24%, var(--skeleton-shine) 38%, transparent 52%),
+        linear-gradient(0deg, var(--skeleton-block), var(--skeleton-block));
+    background-position:
+        140% 0,
+        0 0;
+    background-size:
+        220% 100%,
+        100% 100%;
+}
+
+.skeletonPreview {
+    aspect-ratio: 1;
+    background-color: var(--skeleton-card);
+}
+
+.skeletonBody {
+    display: flex;
+    min-height: 124px;
+    flex-direction: column;
+    padding: 12px;
+}
+
+.skeletonTitle,
+.skeletonPrompt,
+.skeletonMeta {
+    border-radius: 999px;
+}
+
+.skeletonTitle {
+    width: 82%;
+    height: 16px;
+}
+
+.skeletonPrompt {
+    width: 94%;
+    height: 14px;
+    margin-top: 10px;
+}
+
+.skeletonMeta {
+    width: 72%;
+    height: 12px;
+    margin-top: auto;
+}
+
+.skeletonActions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.skeletonActions > div {
+    height: 34px;
+    border: 1px solid var(--studio-border);
+    border-radius: 4px;
+}
+
+@keyframes community-skeleton-enter {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes community-skeleton-pulse {
+    0%,
+    100% {
+        opacity: 0.58;
+    }
+
+    50% {
+        opacity: 1;
+    }
+}
+
+@keyframes community-skeleton-shimmer {
+    0% {
+        background-position:
+            140% 0,
+            0 0;
+    }
+
+    100% {
+        background-position:
+            -120% 0,
+            0 0;
+    }
+}

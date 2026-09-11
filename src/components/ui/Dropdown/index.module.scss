@@ -86,6 +86,8 @@
 .item {
     position: relative;
     display: flex;
+    width: 100%;
+    min-width: 0;
     min-height: 36px;
     align-items: center;
     padding: 8px 34px 8px 10px;
@@ -114,8 +116,24 @@
 }
 
 .itemText {
+    display: block;
+    width: 100%;
+    max-width: 100%;
     min-width: 0;
     flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    > * {
+        width: 100%;
+        max-width: 100%;
+    }
+}
+
+.itemText > span,
+.itemText [data-radix-select-item-text] {
+    min-width: 0;
 }
 
 .indicator {

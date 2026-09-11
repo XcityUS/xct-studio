@@ -15,3 +15,7 @@ export function studioTabFromPathname(pathname: string): StudioTab {
 export function studioPath(locale: AppLocale, tab: StudioTab): string {
     return `/${locale}/${tab}`;
 }
+
+export function studioVideoSharePath(locale: AppLocale, id: string): string {
+    return `${studioPath(locale, 'video')}/${encodeURIComponent(id)}`;
+}

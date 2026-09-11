@@ -1,5 +1,6 @@
 'use client';
 
+import { CardSkeleton } from './CardSkeleton';
 import { TileTitle } from './TileTitle';
 import { TotalCostDialog } from './TotalCostDialog';
 import { WatermarkDialog } from './WatermarkDialog';
@@ -47,9 +48,12 @@ import {
 import { useTranslations } from 'next-intl';
 import * as React from 'react';
 
+const VIDEO_PAGE_SIZE = 15;
+
 export function VideoHistoryPanel({
     history,
     activeJobs,
+    isInitialLoad = false,
     onSelectVideo,
     onClearHistory,
     getVideoSrc,
@@ -87,6 +91,10 @@ export function VideoHistoryPanel({
     const [watermarkDialogItem, setWatermarkDialogItem] = React.useState<VideoMetadata | null>(null);
     const [useCustomWatermark, setUseCustomWatermark] = React.useState(false);
     const [customWatermarkText, setCustomWatermarkText] = React.useState('');
+    const [visibleCount, setVisibleCount] = React.useState(VIDEO_PAGE_SIZE);
+    const [isLoadingNextPage, setIsLoadingNextPage] = React.useState(false);
+    const contentRef = React.useRef<HTMLDivElement>(null);
+    const loadingTimerRef = React.useRef<number | null>(null);
 
     const openWatermarkDialog = React.useCallback((item: VideoMetadata) => {
         setWatermarkDialogItem(item);
@@ -160,6 +168,14 @@ export function VideoHistoryPanel({
             return true;
         });
     }, [history, statusFilter, modelFilter, promptQuery, activeJobs, getMediaState, getVideoSrc, hasLocalCopy]);
+
+    const visibleHistory = React.useMemo(() => {
+        return filteredHistory.slice(0, visibleCount);
+    }, [filteredHistory, visibleCount]);
+    const hasMoreHistory = visibleCount < filteredHistory.length;
+    const loadingPlaceholderCount = isLoadingNextPage
+        ? Math.min(VIDEO_PAGE_SIZE, filteredHistory.length - visibleCount)
+        : 0;
 
     const selectedItems = React.useMemo(() => {
         return selectedClipIds
@@ -250,6 +266,63 @@ export function VideoHistoryPanel({
             return next.length === current.length ? current : next;
         });
     }, [historyById, activeJobs, canAssembleItem]);
+
+    React.useEffect(() => {
+        setVisibleCount(Math.min(VIDEO_PAGE_SIZE, filteredHistory.length));
+        setIsLoadingNextPage(false);
+        if (loadingTimerRef.current) {
+            window.clearTimeout(loadingTimerRef.current);
+            loadingTimerRef.current = null;
+        }
+    }, [filteredHistory]);
+
+    const loadMoreVideos = React.useCallback(() => {
+        if (!hasMoreHistory || isLoadingNextPage) return;
+        setIsLoadingNextPage(true);
+        if (loadingTimerRef.current) {
+            window.clearTimeout(loadingTimerRef.current);
+            loadingTimerRef.current = null;
+        }
+
+        loadingTimerRef.current = window.setTimeout(() => {
+            setVisibleCount((current) => Math.min(current + VIDEO_PAGE_SIZE, filteredHistory.length));
+            setIsLoadingNextPage(false);
+            loadingTimerRef.current = null;
+        }, 180);
+    }, [filteredHistory.length, hasMoreHistory, isLoadingNextPage]);
+
+    const handleHistoryScroll = React.useCallback(
+        (event: React.UIEvent<HTMLDivElement>) => {
+            const target = event.currentTarget;
+            const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
+            if (remaining <= 120) loadMoreVideos();
+        },
+        [loadMoreVideos]
+    );
+
+    React.useEffect(() => {
+        if (!hasMoreHistory) return;
+
+        const handleWindowScroll = () => {
+            const target = contentRef.current;
+            if (!target || target.scrollHeight > target.clientHeight + 1) return;
+
+            const remaining = target.getBoundingClientRect().bottom - window.innerHeight;
+            if (remaining <= 160) loadMoreVideos();
+        };
+
+        window.addEventListener('scroll', handleWindowScroll, { passive: true });
+        return () => window.removeEventListener('scroll', handleWindowScroll);
+    }, [hasMoreHistory, loadMoreVideos]);
+
+    React.useEffect(() => {
+        return () => {
+            if (loadingTimerRef.current) {
+                window.clearTimeout(loadingTimerRef.current);
+                loadingTimerRef.current = null;
+            }
+        };
+    }, []);
 
     React.useEffect(() => {
         if (completedClipCount < 2 && isAssembleMode) {
@@ -356,8 +429,15 @@ export function VideoHistoryPanel({
                     )}
                 </div>
             </CardHeader>
-            <CardContent className='flex-grow overflow-y-auto p-4'>
-                {history.length === 0 ? (
+            <CardContent className='flex-grow p-4'>
+                <div className='h-full overflow-y-auto' ref={contentRef} onScroll={handleHistoryScroll}>
+                {isInitialLoad ? (
+                    <div className='grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5'>
+                        {Array.from({ length: VIDEO_PAGE_SIZE }).map((_, index) => (
+                            <CardSkeleton key={`history-initial-skeleton-${index}`} />
+                        ))}
+                    </div>
+                ) : history.length === 0 ? (
                     <div className='flex h-full items-center justify-center text-white/40'>
                         <p>{t('Generated videos will appear here')}</p>
                     </div>
@@ -441,8 +521,9 @@ export function VideoHistoryPanel({
                                 <p>{t('No videos match the current filter')}</p>
                             </div>
                         ) : (
+                            <>
                             <div className='grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5'>
-                                {filteredHistory.map((item) => {
+                                {visibleHistory.map((item) => {
                                     const thumbnailUrl = getThumbnailSrc ? getThumbnailSrc(item.id) : undefined;
                                     const videoUrl = getVideoSrc(item.id) ?? item.storedUrl;
                                     const job = activeJobs?.get(item.id);
@@ -1034,7 +1115,12 @@ export function VideoHistoryPanel({
                                         </div>
                                     );
                                 })}
+                                {isLoadingNextPage &&
+                                    Array.from({ length: loadingPlaceholderCount }).map((_, index) => (
+                                        <CardSkeleton key={`history-page-skeleton-${index}`} />
+                                    ))}
                             </div>
+                            </>
                         )}
                         {isAssembleMode && (
                             <div className='sticky bottom-0 z-40 mt-4 rounded-md border border-white/15 bg-neutral-950/95 p-3 shadow-lg backdrop-blur'>
@@ -1078,6 +1164,7 @@ export function VideoHistoryPanel({
                         )}
                     </>
                 )}
+                </div>
             </CardContent>
             <WatermarkDialog
                 open={Boolean(watermarkDialogItem)}

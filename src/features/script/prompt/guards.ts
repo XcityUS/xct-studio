@@ -3,6 +3,8 @@ export const AVOID_GENERATED_CAPTIONS_PROMPT =
 const GENERATED_CAPTIONS_PROMPT_HEADER = 'Caption overlay instructions:';
 const LANGUAGE_PROMPT_HEADER = 'Language instructions:';
 const TITLE_OVERLAY_PROMPT_HEADER = 'Title overlay instructions:';
+const DIALOGUE_PACING_PROMPT =
+    'Dialogue pacing: keep spoken lines short and sequential. Only one person may speak at a time; never overlap two voices or play simultaneous dialogue. Leave brief natural pauses between speakers. For clips under 8 seconds, use at most one short sentence per speaker, and prefer ambient sound over long narration.';
 const SUBTITLE_LAYOUT_PROMPT =
     'Subtitle pacing and styling: do not display the full transcript at once. Split long dialogue into short timed subtitle segments and show only the current segment. If one subtitle segment is too long for the character limits, split it into two consecutive subtitle screens instead of fitting everything into one frame. Keep subtitles within the bottom safe area and never let subtitle lines overlap. Use compact small subtitle text with a dark outline or shadow for readability. English subtitles must use readable English words, not hashes or filenames. Chinese subtitles must use valid Simplified Chinese sentences, not mojibake, random Han characters, pinyin, Japanese kana, or mixed corrupted text.';
 const BILINGUAL_SUBTITLE_LAYOUT_PROMPT =
@@ -235,6 +237,7 @@ export function promptWithLanguageControls(
             ? 'Audio: no spoken dialogue, no voiceover, no generated speech.'
             : `Audio: use natural ${voice?.promptLabel ?? 'American English'} for spoken dialogue by default.`
     ];
+    if (voiceLanguage !== SILENT_VOICE_LANGUAGE) lines.push(DIALOGUE_PACING_PROMPT);
 
     if (captionMode === 'none') {
         lines.push('Subtitles: no subtitles, no captions, no on-screen subtitle text.');
@@ -259,7 +262,7 @@ export function promptWithLanguageControls(
             `Opening title: "${titleText.replace(/"/g, "'")}".`,
             `Title language: ${language?.promptLabel ?? 'keep the title exactly in the language and wording provided by the user'}. Do not translate it unless the user-provided title text is already in that language.`,
             `Title style: ${style?.promptLabel ?? 'cinematic title card typography'}.`,
-            `Title timing: start the title on the first real video frame with visible scene content; do not create a black screen, blank intro, or separate title card. Show the title ${duration?.promptLabel ?? 'only during the opening 1 second'}, then remove it completely.`,
+            `Title timing: the title must be visible immediately on frame 1 of the video, with no delay, fade-in, black screen, blank intro, or separate title card. Overlay it on the first visible scene frame ${duration?.promptLabel ?? 'only during the opening 1 second'}, then remove it completely.`,
             'Title layout: overlay it centered on top of the first video frame, large and readable, with automatic font-size reduction if the text is too long.',
             'Do not overlap the title with subtitles; keep subtitles in the bottom safe area.'
         );

@@ -112,6 +112,7 @@ import { useXcityKey } from '@/features/settings/hooks/use-xcity-key';
 import { XCITY_SSO_ENABLED } from '@/features/settings/sso';
 import { useAssetIdIntake } from '@/features/studio/hooks/use-asset-id-intake';
 import { useStudioTabRouting } from '@/features/studio/hooks/use-studio-tab-routing';
+import { studioVideoSharePath } from '@/features/studio/routing';
 import { autoBindSceneAssets } from './scene-asset-autobind';
 import { shotVideoPreviewsForProject } from './shot-video-previews';
 import type { AppLocale } from '@/i18n/routing';
@@ -2269,7 +2270,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                     activeKey
                 );
                 setShareDialogId(share.id);
-                setShareDialogUrl(share.url);
+                setShareDialogUrl(`${window.location.origin}${studioVideoSharePath(locale, share.id)}`);
                 if (promptWasShortened) {
                     setSharePlatformNotice('Prompt was shortened to 4000 characters for this share link.');
                 }
@@ -3433,6 +3434,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                 <VideoHistoryPanel
                     history={history}
                     activeJobs={activeJobs}
+                    isInitialLoad={isInitialLoad}
                     onSelectVideo={handleHistorySelect}
                     onClearHistory={handleClearHistory}
                     getVideoSrc={getVideoSrc}

@@ -21,7 +21,6 @@ import type { PortraitGroup, PortraitGroupType } from '@/features/assets/portrai
 import { createAndTrackPortraitAsset } from '@/features/assets/portrait/track';
 import { assetIdFromReferenceUrl, refKey } from '@/features/assets/reference/origin';
 import { characterPreviewUrl } from '@/features/generation/history/characters';
-import { ProjectAssetWorkspace } from '@/features/projects/components/ProjectAssetWorkspace';
 import type { UserAsset } from '@/lib/media-archive';
 import { ImagePlus, Loader2, RefreshCw, ShieldCheck, Sparkles, Trash2, UserRound } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -549,30 +548,49 @@ export function AssetsPanel({
             <CardContent className='flex-grow overflow-y-auto p-4'>
                 {error && <p className='mb-3 text-sm text-red-400'>{error}</p>}
                 {providerAssetsError && <p className='mb-3 text-sm text-red-400'>{providerAssetsError}</p>}
-                {(onChangeProjectAssetKind || onRemoveProjectAsset) && (
-                    <ProjectAssetWorkspace
-                        assets={projectAssets}
-                        onChangeKind={(assetId, kind) => onChangeProjectAssetKind?.(assetId, kind)}
-                        onArchive={(assetId) => onRemoveProjectAsset?.(assetId)}
-                    />
-                )}
                 <AssetIdIntake onAttachAssetId={onAttachAssetId} />
-                <AssetLibrary
-                    checkingAssetId={checkingAssetId}
-                    items={assetList}
-                    providerAssets={visibleProviderAssets}
-                    declarations={declarations}
-                    referenceImageUrls={referenceImageUrls}
-                    isLoading={isLoading || isLoadingProviderAssets}
-                    onCheckReviewStatus={handleCheckReviewStatus}
-                    onDelete={handleDelete}
-                    onReview={reviewAsset}
-                    onSaveCharacter={openCharacterDialog}
-                    onUseImage={onUseAsReference}
-                    onUseVideo={onUseAsReferenceVideo}
-                    onUpdateOfficialAssetNote={onUpdateOfficialAssetNote}
-                />
-
+                {characters.length > 0 && (
+                    <div className='mb-4 space-y-2 border-b border-white/10 pb-4'>
+                        <h3 className='text-xs font-medium text-white/50'>{t('Saved character shortcuts')}</h3>
+                        <div className='flex gap-2 overflow-x-auto pb-1'>
+                            {characters.map((character) => {
+                                const previewUrl = characterPreviewUrl(character, portraits);
+                                return (
+                                    <div
+                                        key={character.id}
+                                        className='flex shrink-0 items-center gap-2 rounded-md border border-white/15 bg-white/[0.04] px-2 py-1.5'>
+                                        <div className='flex h-7 w-7 items-center justify-center overflow-hidden rounded border border-white/15 bg-white/5'>
+                                            {previewUrl ? (
+                                                // eslint-disable-next-line @next/next/no-img-element -- worker-hosted URL
+                                                <img
+                                                    src={previewUrl}
+                                                    alt={character.name}
+                                                    loading='lazy'
+                                                    className='h-full w-full object-cover'
+                                                />
+                                            ) : (
+                                                <UserRound className='h-4 w-4 text-white/40' aria-hidden='true' />
+                                            )}
+                                        </div>
+                                        <span className='max-w-32 truncate text-xs text-white/80'>
+                                            {character.name}
+                                        </span>
+                                        <button
+                                            type='button'
+                                            title={t('Remove character')}
+                                            aria-label={t('Remove character <lcur>name<rcur>', {
+                                                name: character.name
+                                            })}
+                                            onClick={() => removeCharacter(character.id)}
+                                            className='rounded p-1 text-white/45 transition-colors hover:bg-white/10 hover:text-white'>
+                                            <Trash2 className='h-3 w-3' />
+                                        </button>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
                 {!portraitEnabled && (
                     <div className='mb-4 space-y-2 border-b border-white/10 pb-4'>
                         <h3 className='text-xs font-medium text-white/50'>{t('Verified people')}</h3>
@@ -822,6 +840,22 @@ export function AssetsPanel({
                     </div>
                 )}
 
+                <AssetLibrary
+                    checkingAssetId={checkingAssetId}
+                    items={assetList}
+                    providerAssets={visibleProviderAssets}
+                    declarations={declarations}
+                    referenceImageUrls={referenceImageUrls}
+                    isLoading={isLoading || isLoadingProviderAssets}
+                    onCheckReviewStatus={handleCheckReviewStatus}
+                    onDelete={handleDelete}
+                    onReview={reviewAsset}
+                    onSaveCharacter={openCharacterDialog}
+                    onUseImage={onUseAsReference}
+                    onUseVideo={onUseAsReferenceVideo}
+                    onUpdateOfficialAssetNote={onUpdateOfficialAssetNote}
+                />
+
                 {/* Legacy internal authorization UI is intentionally disabled; provider review happens inline. */}
                 {/*
                 <div className='mb-4 space-y-4 border-b border-white/10 pb-4'>
@@ -988,48 +1022,6 @@ export function AssetsPanel({
                 </div>
                 */}
 
-                {characters.length > 0 && (
-                    <div className='mb-4 space-y-2'>
-                        <h3 className='text-xs font-medium text-white/50'>{t('Saved character shortcuts')}</h3>
-                        <div className='flex gap-2 overflow-x-auto pb-1'>
-                            {characters.map((character) => {
-                                const previewUrl = characterPreviewUrl(character, portraits);
-                                return (
-                                    <div
-                                        key={character.id}
-                                        className='flex shrink-0 items-center gap-2 rounded-md border border-white/15 bg-white/[0.04] px-2 py-1.5'>
-                                        <div className='flex h-7 w-7 items-center justify-center overflow-hidden rounded border border-white/15 bg-white/5'>
-                                            {previewUrl ? (
-                                                // eslint-disable-next-line @next/next/no-img-element -- worker-hosted URL
-                                                <img
-                                                    src={previewUrl}
-                                                    alt={character.name}
-                                                    loading='lazy'
-                                                    className='h-full w-full object-cover'
-                                                />
-                                            ) : (
-                                                <UserRound className='h-4 w-4 text-white/40' aria-hidden='true' />
-                                            )}
-                                        </div>
-                                        <span className='max-w-32 truncate text-xs text-white/80'>
-                                            {character.name}
-                                        </span>
-                                        <button
-                                            type='button'
-                                            title={t('Remove character')}
-                                            aria-label={t('Remove character <lcur>name<rcur>', {
-                                                name: character.name
-                                            })}
-                                            onClick={() => removeCharacter(character.id)}
-                                            className='rounded p-1 text-white/45 transition-colors hover:bg-white/10 hover:text-white'>
-                                            <Trash2 className='h-3 w-3' />
-                                        </button>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                )}
             </CardContent>
         </Card>
     );

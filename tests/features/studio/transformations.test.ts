@@ -53,6 +53,19 @@ describe('extracted Studio share transformations', () => {
         expect(prompt).toContain('not mojibake, random Han characters, pinyin, Japanese kana');
         expect(prompt).not.toContain('Show only one subtitle language at a time');
     });
+
+    it('keeps generated dialogue sequential and opening titles on frame one', () => {
+        const prompt = promptWithLanguageControls('Two adults talk in an office.', {
+            voiceLanguage: 'zh-CN',
+            captionMode: 'zh-CN',
+            titleOverlay: { enabled: true, text: '市场震荡', duration: 'opening-1s' }
+        });
+
+        expect(prompt).toContain('Only one person may speak at a time');
+        expect(prompt).toContain('never overlap two voices');
+        expect(prompt).toContain('visible immediately on frame 1');
+        expect(prompt).toContain('with no delay');
+    });
 });
 
 describe('extracted finalize transformations', () => {

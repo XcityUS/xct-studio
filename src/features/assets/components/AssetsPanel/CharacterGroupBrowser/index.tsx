@@ -1,6 +1,7 @@
 'use client';
 
 import { AssetImageDropdown } from '../AssetImageDropdown';
+import { CopyUrlButton } from '../CopyUrlButton';
 import styles from './index.module.scss';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -129,6 +130,7 @@ export function CharacterGroupBrowser({
                             </div>
                             <div className={styles.assetMeta}>
                                 <strong>{asset.name || asset.assetId}</strong>
+                                <code title={asset.assetId}>{asset.assetId}</code>
                                 <span data-status={asset.status}>
                                     {asset.status === 'Active'
                                         ? t('Reviewed')
@@ -137,6 +139,12 @@ export function CharacterGroupBrowser({
                                           : t('Under review')}
                                 </span>
                             </div>
+                            <CopyUrlButton
+                                url={asset.assetId}
+                                title={t('Copy asset ID')}
+                                className={styles.copyButton}
+                                labelClassName={styles.copyLabel}
+                            />
                         </article>
                     ))}
                 </div>

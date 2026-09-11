@@ -1,0 +1,7 @@
+.trigger {
+    min-width: 0;
+}
+
+.content {
+    --dropdown-content-max-width: min(420px, calc(100vw - 32px));
+}

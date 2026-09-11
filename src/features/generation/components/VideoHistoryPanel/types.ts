@@ -5,6 +5,7 @@ import type { VideoJob, VideoMetadata } from '@/shared/contracts/video';
 export type VideoHistoryPanelProps = {
     history: VideoMetadata[];
     activeJobs?: Map<string, VideoJob>;
+    isInitialLoad?: boolean;
     onSelectVideo: (item: VideoMetadata) => void;
     onClearHistory: () => void;
     getVideoSrc: (id: string) => string | undefined;

@@ -21,8 +21,6 @@ type ProjectAssetWorkspaceProps = {
 
 export function ProjectAssetWorkspace({ assets, onChangeKind, onArchive }: ProjectAssetWorkspaceProps) {
     const t = useTranslations();
-    const activeCount = assets.filter((asset) => asset.status === 'active').length;
-    const characterCount = assets.filter((asset) => asset.kind === 'character').length;
     const kindOptions = [
         { value: 'character', label: t('Character') },
         { value: 'location', label: t('Location') },
@@ -54,23 +52,6 @@ export function ProjectAssetWorkspace({ assets, onChangeKind, onArchive }: Proje
 
     return (
         <section className={styles.panel} aria-label={t('Project Assets')}>
-            <div className={styles.header}>
-                <div>
-                    <h3 className={styles.title}>{t('Project Assets')}</h3>
-                    <p className={styles.description}>
-                        {t(
-                            'Bind reusable characters<comma> locations<comma> props<comma> documents<comma> and style references to the current project before generating shots'
-                        )}
-                    </p>
-                </div>
-                <div className={styles.summary}>
-                    <span className={styles.chip}>{t('Total<colon> <lcur>count<rcur>', { count: assets.length })}</span>
-                    <span className={styles.chip}>
-                        {t('Provider<dash>ready<colon> <lcur>count<rcur>', { count: activeCount })}
-                    </span>
-                    <span className={styles.chip}>{t('Characters<colon> <lcur>count<rcur>', { count: characterCount })}</span>
-                </div>
-            </div>
             {assets.length === 0 ? (
                 <div className={styles.empty}>
                     <strong>{t('No Project Assets yet')}</strong>
