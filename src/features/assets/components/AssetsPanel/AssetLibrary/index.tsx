@@ -38,6 +38,7 @@ type AssetLibraryBodyProps = {
     visible: AssetListItem[];
     visibleCount: number;
     isLoadingNextPage: boolean;
+    loadMoreRef: React.RefObject<HTMLDivElement | null>;
 };
 
 function AssetGridSkeleton({ count }: { count: number }) {
@@ -124,7 +125,8 @@ function AssetLibraryBody({
     source,
     visible,
     visibleCount,
-    isLoadingNextPage
+    isLoadingNextPage,
+    loadMoreRef
 }: AssetLibraryBodyProps) {
     if (source === 'seedance') {
         return (
@@ -156,6 +158,7 @@ function AssetLibraryBody({
                     {isLoadingNextPage && (
                         <AssetGridSkeleton count={Math.min(ASSET_BATCH_SIZE, visible.length - visibleCount)} />
                     )}
+                    <div ref={loadMoreRef} className={styles.loadMoreSentinel} aria-hidden='true' />
                 </>
             )}
         </>
@@ -171,7 +174,7 @@ export function AssetLibrary(props: AssetLibraryProps) {
     const [source, setSource] = React.useState<AssetSource>('xcity');
     const [visibleCount, setVisibleCount] = React.useState(ASSET_BATCH_SIZE);
     const [isLoadingNextPage, setIsLoadingNextPage] = React.useState(false);
-    const rootRef = React.useRef<HTMLElement | null>(null);
+    const loadMoreRef = React.useRef<HTMLDivElement | null>(null);
     const loadingTimerRef = React.useRef<number | null>(null);
     const visible = React.useMemo(
         () =>
@@ -211,28 +214,17 @@ export function AssetLibrary(props: AssetLibraryProps) {
 
     React.useEffect(() => {
         if (!hasMoreAssets) return;
-        const root = rootRef.current;
-        if (!root) return;
-        const scrollParent = root.closest('.overflow-y-auto');
+        const target = loadMoreRef.current;
+        if (!target) return;
 
-        const handleScroll = () => {
-            if (scrollParent instanceof HTMLElement) {
-                const remaining = scrollParent.scrollHeight - scrollParent.scrollTop - scrollParent.clientHeight;
-                if (remaining <= 160) loadMoreAssets();
-                return;
-            }
-
-            const remaining = root.getBoundingClientRect().bottom - window.innerHeight;
-            if (remaining <= 160) loadMoreAssets();
-        };
-
-        if (scrollParent instanceof HTMLElement) {
-            scrollParent.addEventListener('scroll', handleScroll, { passive: true });
-            return () => scrollParent.removeEventListener('scroll', handleScroll);
-        }
-
-        window.addEventListener('scroll', handleScroll, { passive: true });
-        return () => window.removeEventListener('scroll', handleScroll);
+        const observer = new IntersectionObserver(
+            (entries) => {
+                if (entries.some((entry) => entry.isIntersecting)) loadMoreAssets();
+            },
+            { root: null, rootMargin: '160px 0px', threshold: 0 }
+        );
+        observer.observe(target);
+        return () => observer.disconnect();
     }, [hasMoreAssets, loadMoreAssets]);
 
     React.useEffect(() => {
@@ -245,7 +237,7 @@ export function AssetLibrary(props: AssetLibraryProps) {
     }, []);
 
     return (
-        <section ref={rootRef} className={styles.root} aria-labelledby='asset-library-heading'>
+        <section className={styles.root} aria-labelledby='asset-library-heading'>
             <div className={styles.header}>
                 <h3 id='asset-library-heading' className={styles.title}>
                     {t('Assets')}
@@ -270,6 +262,7 @@ export function AssetLibrary(props: AssetLibraryProps) {
                 visible={visible}
                 visibleCount={visibleCount}
                 isLoadingNextPage={isLoadingNextPage}
+                loadMoreRef={loadMoreRef}
             />
         </section>
     );
