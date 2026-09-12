@@ -847,6 +847,11 @@ export function CreationForm({
                                         </div>
                                         {titleOverlayEnabled && (
                                             <div className='space-y-3 rounded-md border border-white/10 bg-black/40 p-3'>
+                                                <p className='text-xs leading-5 text-white/45'>
+                                                    {t(
+                                                        'Opening title is added after generation<comma> so the model will not create a duplicate title'
+                                                    )}
+                                                </p>
                                                 <div className='space-y-1'>
                                                     <Label
                                                         htmlFor='title-overlay-text'

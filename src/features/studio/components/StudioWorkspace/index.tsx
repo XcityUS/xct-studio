@@ -85,7 +85,7 @@ import { useVideoHistory } from '@/features/generation/hooks/use-video-history';
 import { useVideoJobs } from '@/features/generation/hooks/use-video-jobs';
 import { calculateVideoCost } from '@/features/generation/utils/cost';
 import { estimateVideoProgress } from '@/features/generation/utils/progress';
-import { burnBrandingWatermarkIntoVideo } from '@/features/post-production/assembly/client';
+import { burnBrandingWatermarkIntoVideo, burnTitleOverlayIntoVideo } from '@/features/post-production/assembly/client';
 import { useShortDramaProject } from '@/features/projects/hooks/use-short-drama-project';
 import { useVideoMode } from '@/features/projects/hooks/use-video-mode';
 import type { EditorDraft } from '@/features/script/components/ShotBuilderDialog/draft';
@@ -308,6 +308,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
     const [isShotBuilderOpen, setIsShotBuilderOpen] = React.useState(false);
     const { getVideoSrc, getThumbnailSrc, setRemoteSource, removeSource, clearAllSources, hasLocalCopy, hasSource } =
         useVideoSources();
+    const previousVideoModeRef = React.useRef(videoMode);
     const activePortraits = React.useMemo(
         () => portraits.filter((portrait) => portrait.status === 'Active'),
         [portraits]
@@ -329,6 +330,49 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         },
         [setDeclaration]
     );
+
+    React.useEffect(() => {
+        const previousMode = previousVideoModeRef.current;
+        previousVideoModeRef.current = videoMode;
+        if (previousMode !== 'normal' || videoMode !== 'drama') return;
+
+        setCurrentJobId(null);
+        setError(null);
+        setCreateNotice(null);
+        setShareNotice(null);
+        setIsShareDialogOpen(false);
+        setShareDialogId('');
+        setShareDialogUrl('');
+        setShareDialogError(null);
+        setSharingVideoId(null);
+        setShareUrlCopied(false);
+        setSharePlatformNotice(null);
+        setShareCommunityStatus('idle');
+        setShareCommunityError(null);
+        setFinalizeDialogItem(null);
+        setIsFinalizeSubmitting(false);
+        setFinalizeSubmitLabel('');
+        setIsShotBuilderOpen(false);
+        setCreatePrompt('');
+        setCreateRatio(DEFAULT_RATIO);
+        setCreateResolution(DEFAULT_RESOLUTION);
+        setCreateSeconds(DEFAULT_SECONDS);
+        setCreateVoiceLanguage(DEFAULT_VOICE_LANGUAGE);
+        setCreateCaptionMode(DEFAULT_CAPTION_MODE);
+        setCreateTitleOverlayEnabled(false);
+        setCreateTitleOverlayText('');
+        setCreateTitleOverlayStyle(DEFAULT_TITLE_OVERLAY_STYLE);
+        setCreateTitleOverlayDuration(DEFAULT_TITLE_OVERLAY_DURATION);
+        setCreateTitleOverlayLanguage(DEFAULT_TITLE_OVERLAY_LANGUAGE);
+        setCreateCameraFixed(false);
+        setCreateReferenceUrls([]);
+        setCreateLastFrameUrl('');
+        setCreateReferenceAudioUrl('');
+        setCreateReferenceVideoUrls([]);
+        setCreateSeed(undefined);
+        setCreateWatermark(false);
+        setCreateWatermarkText(BRANDING_WATERMARK_TEXT);
+    }, [setError, videoMode]);
 
     const handleDeclareReference = React.useCallback(
         (url: string, origin: ReferenceOrigin) => {
@@ -1207,8 +1251,41 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                 });
 
                 let originalArchiveUrl: string | undefined;
+                let titledArchiveUrl: string | undefined;
                 let watermarkedArchiveUrl: string | undefined;
                 let brandedBlob: Blob | null = null;
+                let processedBlob = blob;
+                const titleOverlayText = normalizeTitleOverlayText(historyItem?.createParams?.title_overlay_text);
+                const shouldAddTitleOverlay =
+                    historyItem?.createParams?.title_overlay_enabled === true && Boolean(titleOverlayText);
+
+                if (shouldAddTitleOverlay) {
+                    try {
+                        console.log(`[title-overlay] adding opening title to ${job.id}`);
+                        processedBlob = await burnTitleOverlayIntoVideo(
+                            processedBlob,
+                            {
+                                text: titleOverlayText,
+                                style: historyItem?.createParams?.title_overlay_style,
+                                duration: historyItem?.createParams?.title_overlay_duration
+                            },
+                            (progress) => {
+                                if (progress === 0 || progress === 1) {
+                                    console.log(`[title-overlay] ${job.id} ${Math.round(progress * 100)}%`);
+                                }
+                            }
+                        );
+                        await db.videos.put({
+                            id: job.id,
+                            filename: `${job.id}.mp4`,
+                            blob: processedBlob,
+                            thumbnail: thumbnailBlob,
+                            created_at: job.created_at
+                        });
+                    } catch (err) {
+                        console.warn(`Could not add opening title to ${job.id}; keeping provider video.`, err);
+                    }
+                }
 
                 try {
                     const key = await resolveKey();
@@ -1226,10 +1303,28 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                     console.warn(`Could not archive original video ${job.id} to R2.`, err);
                 }
 
+                if (shouldAddTitleOverlay && processedBlob !== blob) {
+                    try {
+                        const key = await resolveKey();
+                        if (key) {
+                            const archiveId = `${job.id}_title`;
+                            const archived = await archiveLocalVideo(archiveId, processedBlob, key, `${archiveId}.mp4`);
+                            if (archived?.url) {
+                                titledArchiveUrl = archived.url;
+                                if (!shouldAddBranding) {
+                                    setRemoteSource(job.id, archived.url);
+                                }
+                            }
+                        }
+                    } catch (err) {
+                        console.warn(`Could not archive titled video ${job.id} to R2.`, err);
+                    }
+                }
+
                 if (shouldAddBranding) {
                     try {
                         console.log(`[branding] adding watermark to ${job.id}`);
-                        brandedBlob = await burnBrandingWatermarkIntoVideo(blob, watermarkText, (progress) => {
+                        brandedBlob = await burnBrandingWatermarkIntoVideo(processedBlob, watermarkText, (progress) => {
                             if (progress === 0 || progress === 1) {
                                 console.log(`[branding] ${job.id} ${Math.round(progress * 100)}%`);
                             }
@@ -1264,14 +1359,14 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                     }
                 }
 
-                const storedUrl = watermarkedArchiveUrl ?? originalArchiveUrl;
+                const storedUrl = watermarkedArchiveUrl ?? titledArchiveUrl ?? originalArchiveUrl;
                 const brandingEnabled = Boolean(watermarkedArchiveUrl || (brandedBlob && !storedUrl));
-                if (!watermarkedArchiveUrl && originalArchiveUrl) {
-                    setRemoteSource(job.id, originalArchiveUrl);
+                if (!watermarkedArchiveUrl && (titledArchiveUrl || originalArchiveUrl)) {
+                    setRemoteSource(job.id, titledArchiveUrl ?? originalArchiveUrl!);
                 }
                 updateItem(job.id, {
                     durationMs: Date.now() - job.created_at * 1000,
-                    fileSizeBytes: brandedBlob?.size ?? blob.size,
+                    fileSizeBytes: brandedBlob?.size ?? processedBlob.size,
                     storageModeUsed: storedUrl ? 'r2' : 'indexeddb',
                     status: 'completed',
                     ...(storedUrl ? { storedUrl, mediaExpired: false } : {}),

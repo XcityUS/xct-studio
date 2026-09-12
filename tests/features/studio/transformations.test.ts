@@ -54,7 +54,7 @@ describe('extracted Studio share transformations', () => {
         expect(prompt).not.toContain('Show only one subtitle language at a time');
     });
 
-    it('keeps generated dialogue sequential and opening titles on frame one', () => {
+    it('keeps generated dialogue sequential without asking the model to render opening titles', () => {
         const prompt = promptWithLanguageControls('Two adults talk in an office.', {
             voiceLanguage: 'zh-CN',
             captionMode: 'zh-CN',
@@ -63,8 +63,8 @@ describe('extracted Studio share transformations', () => {
 
         expect(prompt).toContain('Only one person may speak at a time');
         expect(prompt).toContain('never overlap two voices');
-        expect(prompt).toContain('visible immediately on frame 1');
-        expect(prompt).toContain('with no delay');
+        expect(prompt).not.toContain('Title overlay instructions');
+        expect(prompt).not.toContain('Opening title');
     });
 });
 

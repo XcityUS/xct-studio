@@ -9,6 +9,9 @@ const CAPTION_SRT_FILE = 'subs.srt';
 const WATERMARK_INPUT_FILE = 'watermark_input.mp4';
 const WATERMARK_IMAGE_FILE = 'watermark.png';
 const WATERMARK_OUTPUT_FILE = 'watermark_output.mp4';
+const TITLE_INPUT_FILE = 'title_input.mp4';
+const TITLE_IMAGE_FILE = 'title_overlay.png';
+const TITLE_OUTPUT_FILE = 'title_output.mp4';
 const FINAL_OUTPUT_FILE = 'final.mp4';
 
 export type AssembleClip = {
@@ -38,6 +41,12 @@ type FFmpegProgressEvent = {
 };
 
 type ProgressCallback = (ratio: number) => void;
+
+export type TitleOverlayOptions = {
+    text: string;
+    style?: string;
+    duration?: string;
+};
 
 export class CaptionBurnUnavailableError extends Error {
     constructor(message = 'Caption burn-in is unavailable in this browser FFmpeg runtime.') {
@@ -258,6 +267,106 @@ async function createWatermarkImage(text: string): Promise<Blob> {
     return blob;
 }
 
+function durationSeconds(value: string | undefined) {
+    if (value === 'first-frame') return 0.12;
+    if (value === 'opening-2s') return 2;
+    return 1;
+}
+
+async function getVideoDimensions(film: Blob): Promise<{ width: number; height: number }> {
+    if (typeof document === 'undefined' || typeof URL === 'undefined') {
+        return { width: 1280, height: 720 };
+    }
+
+    const url = URL.createObjectURL(film);
+    try {
+        const video = document.createElement('video');
+        video.preload = 'metadata';
+        video.muted = true;
+        const loaded = new Promise<void>((resolve, reject) => {
+            video.onloadedmetadata = () => resolve();
+            video.onerror = () => reject(new Error('Could not inspect video dimensions.'));
+        });
+        video.src = url;
+        await loaded;
+        return {
+            width: video.videoWidth || 1280,
+            height: video.videoHeight || 720
+        };
+    } finally {
+        URL.revokeObjectURL(url);
+    }
+}
+
+function wrapCanvasText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number) {
+    const words = text.trim().split(/\s+/).filter(Boolean);
+    if (words.length === 0) return [];
+
+    const lines: string[] = [];
+    let current = '';
+    for (const word of words) {
+        const next = current ? `${current} ${word}` : word;
+        if (ctx.measureText(next).width <= maxWidth || !current) {
+            current = next;
+            continue;
+        }
+        lines.push(current);
+        current = word;
+    }
+    if (current) lines.push(current);
+    return lines.slice(0, 3);
+}
+
+async function createTitleOverlayImage(film: Blob, options: TitleOverlayOptions): Promise<Blob> {
+    if (typeof document === 'undefined') {
+        throw new Error('Opening title overlay needs a browser canvas.');
+    }
+
+    const text = options.text.trim();
+    if (!text) throw new Error('Opening title text is empty.');
+
+    const { width, height } = await getVideoDimensions(film);
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Could not create title overlay canvas.');
+
+    const minSide = Math.min(width, height);
+    const maxWidth = width * 0.78;
+    const fontFamily =
+        options.style === 'elegant'
+            ? 'Georgia, Times New Roman, serif'
+            : 'Arial, Helvetica, sans-serif';
+    let fontSize = Math.max(30, Math.round(minSide * (options.style === 'bold' ? 0.084 : 0.074)));
+    let lines: string[] = [];
+
+    do {
+        ctx.font = `${options.style === 'clean' ? 600 : 700} ${fontSize}px ${fontFamily}`;
+        lines = wrapCanvasText(ctx, text, maxWidth);
+        fontSize -= 2;
+    } while (fontSize > 20 && lines.some((line) => ctx.measureText(line).width > maxWidth));
+
+    const lineHeight = Math.round(fontSize * 1.18);
+    const blockHeight = lines.length * lineHeight;
+    const centerY = Math.round(height * 0.38);
+    const startY = centerY - blockHeight / 2;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.56)';
+    ctx.shadowBlur = Math.max(6, Math.round(minSide * 0.012));
+    ctx.shadowOffsetY = Math.max(2, Math.round(minSide * 0.004));
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.96)';
+
+    lines.forEach((line, index) => {
+        ctx.fillText(line, width / 2, startY + index * lineHeight + lineHeight / 2);
+    });
+
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+    if (!blob) throw new Error('Could not render title overlay image.');
+    return blob;
+}
+
 async function reencodeVideoFile(
     ffmpeg: FFmpegRuntime,
     inputFile: string,
@@ -428,6 +537,79 @@ export async function burnBrandingWatermarkIntoVideo(
                 [WATERMARK_INPUT_FILE, WATERMARK_IMAGE_FILE, WATERMARK_OUTPUT_FILE].map((file) =>
                     loadedFFmpeg.deleteFile(file)
                 )
+            );
+        }
+    }
+}
+
+export async function burnTitleOverlayIntoVideo(
+    film: Blob,
+    options: TitleOverlayOptions,
+    onProgress?: ProgressCallback
+): Promise<Blob> {
+    let ffmpeg: FFmpegRuntime | null = null;
+    let progressHandler: ((event: FFmpegProgressEvent) => void) | null = null;
+    let lastProgress = 0;
+
+    const reportProgress = (ratio: number) => {
+        if (!onProgress) return;
+        const next = clampProgress(ratio);
+        if (next < lastProgress) return;
+        lastProgress = next;
+        onProgress(next);
+    };
+
+    const visibleSeconds = durationSeconds(options.duration);
+    const titleArgs = [
+        '-i',
+        TITLE_INPUT_FILE,
+        '-i',
+        TITLE_IMAGE_FILE,
+        '-filter_complex',
+        `[0:v][1:v]overlay=0:0:enable='between(t,0,${formatFfmpegNumber(visibleSeconds)})':format=auto`,
+        '-c:v',
+        'libx264',
+        '-preset',
+        'veryfast',
+        '-crf',
+        '21',
+        '-c:a',
+        'copy',
+        '-movflags',
+        '+faststart',
+        TITLE_OUTPUT_FILE
+    ];
+
+    try {
+        reportProgress(0);
+        const [{ fetchFile }, loadedFFmpeg] = await Promise.all([import('@ffmpeg/util'), getFFmpeg()]);
+        ffmpeg = loadedFFmpeg;
+
+        if (onProgress) {
+            progressHandler = ({ progress }) => reportProgress(progress);
+            ffmpeg.on('progress', progressHandler);
+        }
+
+        await ffmpeg.writeFile(TITLE_INPUT_FILE, await fetchFile(film));
+        await ffmpeg.writeFile(TITLE_IMAGE_FILE, await fetchFile(await createTitleOverlayImage(film, options)));
+        reportProgress(0.05);
+
+        await execOrThrow(ffmpeg, titleArgs, 'FFmpeg opening title overlay');
+
+        const output = await ffmpeg.readFile(TITLE_OUTPUT_FILE);
+        reportProgress(1);
+        return createOutputBlob(output);
+    } catch (error) {
+        throw new Error(`Could not add opening title: ${getReadableError(error)}`);
+    } finally {
+        if (ffmpeg && progressHandler) {
+            ffmpeg.off?.('progress', progressHandler);
+        }
+
+        if (ffmpeg) {
+            const loadedFFmpeg = ffmpeg;
+            await Promise.allSettled(
+                [TITLE_INPUT_FILE, TITLE_IMAGE_FILE, TITLE_OUTPUT_FILE].map((file) => loadedFFmpeg.deleteFile(file))
             );
         }
     }

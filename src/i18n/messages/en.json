@@ -201,6 +201,7 @@
     "Title overlay": "Title overlay",
     "Title overlay help": "Title overlay help",
     "Adds a centered title at the start of the video<comma> then removes it before subtitles appear": "Adds a centered title at the start of the video, then removes it before subtitles appear.",
+    "Opening title is added after generation<comma> so the model will not create a duplicate title": "Opening title is added after generation, so the model will not create a duplicate title.",
     "Title text": "Title text",
     "Opening title": "Opening title",
     "Style": "Style",

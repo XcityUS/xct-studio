@@ -202,6 +202,7 @@
     "Title overlay": "片头标题",
     "Title overlay help": "片头标题说明",
     "Adds a centered title at the start of the video<comma> then removes it before subtitles appear": "在视频开头显示居中标题，并在字幕出现前移除。",
+    "Opening title is added after generation<comma> so the model will not create a duplicate title": "片头标题会在生成后自动叠加，模型不会再额外生成重复标题。",
     "Title text": "标题文字",
     "Opening title": "片头标题",
     "Style": "样式",

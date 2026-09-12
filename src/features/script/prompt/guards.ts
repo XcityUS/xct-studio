@@ -5,8 +5,10 @@ const LANGUAGE_PROMPT_HEADER = 'Language instructions:';
 const TITLE_OVERLAY_PROMPT_HEADER = 'Title overlay instructions:';
 const DIALOGUE_PACING_PROMPT =
     'Dialogue pacing: keep spoken lines short and sequential. Only one person may speak at a time; never overlap two voices or play simultaneous dialogue. Leave brief natural pauses between speakers. For clips under 8 seconds, use at most one short sentence per speaker, and prefer ambient sound over long narration.';
+const REMOTE_DIALOGUE_PROMPT =
+    'Remote dialogue staging: this reads as a phone call or remote conversation. Show every speaker consistently participating by phone or remote device; cut between both sides if needed, but do not stage one speaker as if they are physically face-to-face with the other.';
 const SUBTITLE_LAYOUT_PROMPT =
-    'Subtitle pacing and styling: do not display the full transcript at once. Split long dialogue into short timed subtitle segments and show only the current segment. If one subtitle segment is too long for the character limits, split it into two consecutive subtitle screens instead of fitting everything into one frame. Keep subtitles within the bottom safe area and never let subtitle lines overlap. Use compact small subtitle text with a dark outline or shadow for readability. English subtitles must use readable English words, not hashes or filenames. Chinese subtitles must use valid Simplified Chinese sentences, not mojibake, random Han characters, pinyin, Japanese kana, or mixed corrupted text.';
+    'Subtitle pacing and styling: do not display the full transcript at once. Split long dialogue into short timed subtitle segments and show only the current segment. If one subtitle segment is too long for the character limits, split it into two consecutive subtitle screens instead of fitting everything into one frame. Keep subtitles above the bottom safe area with generous bottom margin; never place subtitles on the very bottom edge, under letterbox bars, or where player controls would cover them. Never let subtitle lines overlap. Use compact small subtitle text with a dark outline or shadow for readability. English subtitles must use readable English words, not hashes or filenames. Chinese subtitles must use valid Simplified Chinese sentences, not mojibake, random Han characters, pinyin, Japanese kana, or mixed corrupted text.';
 const BILINGUAL_SUBTITLE_LAYOUT_PROMPT =
     'Bilingual subtitle layout: for every dialogue beat, render exactly two subtitle lines at the same time. The first line must be English. The second line directly below it must be concise Simplified Chinese. Do not reverse the order, do not show only one language, and do not split the two languages into different moments. Keep each English line within 32 characters and each Chinese line within 14 Chinese characters; shorten the translation before shrinking below readable size.';
 export const MAX_GENERATED_CAPTIONS = 2;
@@ -151,6 +153,12 @@ export function normalizeGeneratedCaptionItems(
     return items;
 }
 
+function shouldUseRemoteDialogueStaging(prompt: string) {
+    return /打电话|通电话|接电话|挂电话|电话里|电话中|电话那头|来电|视频通话|语音通话|远程会议|远程对话|phone call|telephone call|on the phone|video call|remote call|zoom call|facetime|call me|calls me|calling me|called me/i.test(
+        prompt
+    );
+}
+
 function avoidGeneratedCaptionsPattern() {
     return new RegExp(`\\n?${AVOID_GENERATED_CAPTIONS_PROMPT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i');
 }
@@ -225,10 +233,6 @@ export function promptWithLanguageControls(
 ): string {
     const voiceLanguage = normalizeVoiceLanguage(options.voiceLanguage);
     const captionMode = normalizeCaptionMode(options.captionMode);
-    const titleText = options.titleOverlay?.enabled ? normalizeTitleOverlayText(options.titleOverlay.text) : '';
-    const titleStyle = normalizeTitleOverlayStyle(options.titleOverlay?.style);
-    const titleDuration = normalizeTitleOverlayDuration(options.titleOverlay?.duration);
-    const titleLanguage = normalizeTitleOverlayLanguage(options.titleOverlay?.language);
     const trimmed = cleanPromptForReuse(prompt);
     const voice = VOICE_LANGUAGE_OPTIONS.find((item) => item.id === voiceLanguage);
     const lines = [
@@ -237,7 +241,10 @@ export function promptWithLanguageControls(
             ? 'Audio: no spoken dialogue, no voiceover, no generated speech.'
             : `Audio: use natural ${voice?.promptLabel ?? 'American English'} for spoken dialogue by default.`
     ];
-    if (voiceLanguage !== SILENT_VOICE_LANGUAGE) lines.push(DIALOGUE_PACING_PROMPT);
+    if (voiceLanguage !== SILENT_VOICE_LANGUAGE) {
+        lines.push(DIALOGUE_PACING_PROMPT);
+        if (shouldUseRemoteDialogueStaging(trimmed)) lines.push(REMOTE_DIALOGUE_PROMPT);
+    }
 
     if (captionMode === 'none') {
         lines.push('Subtitles: no subtitles, no captions, no on-screen subtitle text.');
@@ -251,21 +258,6 @@ export function promptWithLanguageControls(
         const captionLanguage = GENERATED_CAPTION_LANGUAGES.find((item) => item.id === captionMode);
         lines.push(`Subtitles: render ${captionLanguage?.promptLabel ?? 'subtitle'} subtitles from the dialogue.`);
         lines.push(SUBTITLE_LAYOUT_PROMPT);
-    }
-
-    if (titleText) {
-        const style = TITLE_OVERLAY_STYLES.find((item) => item.id === titleStyle);
-        const duration = TITLE_OVERLAY_DURATIONS.find((item) => item.id === titleDuration);
-        const language = TITLE_OVERLAY_LANGUAGES.find((item) => item.id === titleLanguage);
-        lines.push(
-            TITLE_OVERLAY_PROMPT_HEADER,
-            `Opening title: "${titleText.replace(/"/g, "'")}".`,
-            `Title language: ${language?.promptLabel ?? 'keep the title exactly in the language and wording provided by the user'}. Do not translate it unless the user-provided title text is already in that language.`,
-            `Title style: ${style?.promptLabel ?? 'cinematic title card typography'}.`,
-            `Title timing: the title must be visible immediately on frame 1 of the video, with no delay, fade-in, black screen, blank intro, or separate title card. Overlay it on the first visible scene frame ${duration?.promptLabel ?? 'only during the opening 1 second'}, then remove it completely.`,
-            'Title layout: overlay it centered on top of the first video frame, large and readable, with automatic font-size reduction if the text is too long.',
-            'Do not overlap the title with subtitles; keep subtitles in the bottom safe area.'
-        );
     }
 
     const directive = lines.join('\n');
