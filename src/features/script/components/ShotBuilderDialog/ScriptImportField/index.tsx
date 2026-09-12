@@ -39,9 +39,15 @@ export function ScriptImportField({ disabled, value, onChange, onError }: Script
                         'Supported script formats are TXT<comma> Markdown<comma> DOC<comma> DOCX<comma> and PDF'
                     ),
                     EMPTY_FILE: t('The script file did not contain readable text'),
-                    EXTRACTION_FAILED: t('The script file is encrypted<comma> damaged<comma> or unreadable')
+                    EXTRACTION_FAILED: t(
+                        'The script file may be scanned<comma> image<dash>only<comma> encrypted<comma> damaged<comma> or unreadable'
+                    )
                 };
-                onError(messages[error.code] || t('Could not read this script file'));
+                onError(
+                    error.code === 'EXTRACTION_FAILED' && error.message
+                        ? error.message
+                        : messages[error.code] || t('Could not read this script file')
+                );
             } else {
                 onError(t('Could not read this script file'));
             }

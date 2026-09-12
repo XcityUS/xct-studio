@@ -807,19 +807,31 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         if (activeTab !== 'video' || !isPortraitEnabled) return;
 
         let cancelled = false;
-        void handleLoadPortraitGroups('aigc')
-            .then((groups) => {
-                if (!cancelled) setVirtualCharacterGroups(groups);
-            })
-            .catch((err) => {
-                console.warn('Could not load virtual character groups:', err);
+        void (async () => {
+            const key = await resolveKey();
+            if (!key) {
                 if (!cancelled) setVirtualCharacterGroups([]);
-            });
+                return;
+            }
+
+            const groups = (await listPortraitGroups(key, 'aigc')).groups;
+            if (!cancelled) setVirtualCharacterGroups(groups);
+        })().catch((err) => {
+            if (
+                err instanceof Error &&
+                err.message.toLowerCase().includes('authentication failed')
+            ) {
+                if (!cancelled) setVirtualCharacterGroups([]);
+                return;
+            }
+            console.warn('Could not load virtual character groups:', err);
+            if (!cancelled) setVirtualCharacterGroups([]);
+        });
 
         return () => {
             cancelled = true;
         };
-    }, [activeTab, handleLoadPortraitGroups, isPortraitEnabled]);
+    }, [activeTab, isPortraitEnabled, resolveKey]);
 
     const handleLoadPortraitAssets = React.useCallback(
         async (type?: PortraitGroupQueryType) => {

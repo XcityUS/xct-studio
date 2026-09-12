@@ -368,6 +368,7 @@
     "Supported script formats are TXT<comma> Markdown<comma> DOC<comma> DOCX<comma> and PDF": "Supported script formats are TXT, Markdown, DOC, DOCX, and PDF.",
     "The script file did not contain readable text": "The script file did not contain readable text.",
     "The script file is encrypted<comma> damaged<comma> or unreadable": "The script file is encrypted, damaged, or unreadable.",
+    "The script file may be scanned<comma> image<dash>only<comma> encrypted<comma> damaged<comma> or unreadable": "The script file may be scanned, image-only, encrypted, damaged, or unreadable.",
     "Your Xcity API key is invalid or expired<dot> Configure a new key and retry": "Your Xcity API key is invalid or expired. Configure a new key and retry.",
     "Breaking down<hellip>": "Breaking down…",
     "Break into shots": "Break into shots",

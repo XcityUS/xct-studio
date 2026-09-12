@@ -499,8 +499,7 @@ export function useVideoHistory(resolveKey?: () => Promise<string | null>, optio
                 await pushDocOrMerge(key, merged);
             }
             markCloudReady();
-        } catch (err) {
-            console.warn('[history-sync] Could not reconcile cloud history:', err);
+        } catch {
             markCloudReady();
         }
     }, [applyCloudDoc, localDoc, markCloudReady, pushDocOrMerge]);

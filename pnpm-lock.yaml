@@ -89,6 +89,9 @@ importers:
       pdf-parse:
         specifier: ^2.4.5
         version: 2.4.5
+      pdfjs-dist:
+        specifier: 5.4.296
+        version: 5.4.296
       react:
         specifier: 19.2.8
         version: 19.2.8

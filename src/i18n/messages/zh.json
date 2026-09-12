@@ -371,6 +371,7 @@
     "Supported script formats are TXT<comma> Markdown<comma> DOC<comma> DOCX<comma> and PDF": "支持的剧本格式为 TXT、Markdown、DOC、DOCX 和 PDF。",
     "The script file did not contain readable text": "剧本文件中没有可读取的文字。",
     "The script file is encrypted<comma> damaged<comma> or unreadable": "剧本文件可能已加密、损坏或无法读取。",
+    "The script file may be scanned<comma> image<dash>only<comma> encrypted<comma> damaged<comma> or unreadable": "剧本文件可能是扫描版、纯图片、已加密、损坏或无法读取。",
     "Your Xcity API key is invalid or expired<dot> Configure a new key and retry": "Xcity API Key 无效或已过期，请配置新 Key 后重试。",
     "Breaking down<hellip>": "正在拆分…",
     "Break into shots": "拆分为分镜",

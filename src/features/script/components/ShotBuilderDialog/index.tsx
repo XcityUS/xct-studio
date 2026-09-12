@@ -80,6 +80,11 @@ export function ShotBuilderDialog({
             const next = { ...current, ...patch };
             return { ...next, shots: ensureShotSceneIds(next.shots, next.scenes) };
         });
+    React.useEffect(() => {
+        if (isOpen) return;
+        setError(null);
+        setConfirm(null);
+    }, [isOpen]);
     const clearDraft = () => {
         const next = emptyDraft();
         setDraft(next);
@@ -158,7 +163,10 @@ export function ShotBuilderDialog({
                                 <input
                                     type='checkbox'
                                     checked={draft.automatic}
-                                    onChange={(event) => update({ automatic: event.target.checked })}
+                                    onChange={(event) => {
+                                        setError(null);
+                                        update({ automatic: event.target.checked });
+                                    }}
                                 />
                                 {t('Auto breakdown from script')}
                             </label>
@@ -170,13 +178,19 @@ export function ShotBuilderDialog({
                                     <textarea
                                         rows={5}
                                         value={draft.script}
-                                        onChange={(event) => update({ script: event.target.value })}
+                                        onChange={(event) => {
+                                            setError(null);
+                                            update({ script: event.target.value });
+                                        }}
                                     />
                                 </label>
                                 <ScriptImportField
                                     disabled={disabled}
                                     value={draft.script}
-                                    onChange={(script) => update({ script })}
+                                    onChange={(script) => {
+                                        setError(null);
+                                        update({ script });
+                                    }}
                                     onError={setError}
                                 />
                                 <button
