@@ -200,6 +200,8 @@ export function CommunityPanel({ loadItems, loadQueue, reviewItem, onRecreate, a
 
         try {
             const [loadedItems, loadedQueue] = await Promise.all([loadItems(), queuePromise]);
+            setVisibleCount(Math.min(COMMUNITY_BATCH_SIZE, loadedItems.length));
+            setIsLoadingNextPage(false);
             setItems(loadedItems);
             setQueue(loadedQueue);
         } catch (err) {
@@ -225,7 +227,10 @@ export function CommunityPanel({ loadItems, loadQueue, reviewItem, onRecreate, a
                 await reviewItem(item.id, action);
                 setQueue((prev) => prev?.filter((candidate) => candidate.id !== item.id) ?? prev);
                 if (action === 'approve') {
-                    setItems(await loadItems());
+                    const loadedItems = await loadItems();
+                    setVisibleCount(Math.min(COMMUNITY_BATCH_SIZE, loadedItems.length));
+                    setIsLoadingNextPage(false);
+                    setItems(loadedItems);
                 }
             } catch (err) {
                 setError(err instanceof Error ? err.message : reviewFallback);
@@ -242,15 +247,6 @@ export function CommunityPanel({ loadItems, loadQueue, reviewItem, onRecreate, a
     const loadingPlaceholderCount = isLoadingNextPage
         ? Math.min(COMMUNITY_BATCH_SIZE, approvedItems.length - visibleCount)
         : 0;
-
-    React.useEffect(() => {
-        setVisibleCount(Math.min(COMMUNITY_BATCH_SIZE, approvedItems.length));
-        setIsLoadingNextPage(false);
-        if (loadingTimerRef.current) {
-            window.clearTimeout(loadingTimerRef.current);
-            loadingTimerRef.current = null;
-        }
-    }, [approvedItems.length]);
 
     const loadMoreItems = React.useCallback(() => {
         if (!hasMoreItems || isLoadingNextPage) return;
@@ -352,12 +348,12 @@ export function CommunityPanel({ loadItems, loadQueue, reviewItem, onRecreate, a
                     </div>
                 ) : (
                     <>
-                    <div className='grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5'>
-                        {visibleItems.map((item) => (
-                            <CommunityTile key={item.id} item={item} onRecreate={onRecreate} />
-                        ))}
-                    </div>
-                    {isLoadingNextPage && <CommunityTileSkeleton count={loadingPlaceholderCount} />}
+                        <div className='grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5'>
+                            {visibleItems.map((item) => (
+                                <CommunityTile key={item.id} item={item} onRecreate={onRecreate} />
+                            ))}
+                        </div>
+                        {isLoadingNextPage && <CommunityTileSkeleton count={loadingPlaceholderCount} />}
                     </>
                 )}
             </CardContent>
