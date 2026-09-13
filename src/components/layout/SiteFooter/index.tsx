@@ -35,7 +35,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
     ];
 
     return (
-        <footer className={styles.footer}>
+        <footer className={styles.footer} data-site-footer>
             <div className={styles.footerInner}>
                 <div className={styles.columns}>
                     {columns.map((col) => (

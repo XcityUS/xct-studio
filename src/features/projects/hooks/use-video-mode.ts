@@ -1,5 +1,8 @@
 'use client';
 
+import { businessStorage } from '@/features/persistence/store';
+
+
 import * as React from 'react';
 
 type VideoMode = 'normal' | 'drama';
@@ -9,7 +12,7 @@ const listeners = new Set<() => void>();
 function readMode(): VideoMode {
     if (typeof window === 'undefined') return mode;
     try {
-        return localStorage.getItem('xctStudioVideoMode') === 'drama' ? 'drama' : 'normal';
+        return businessStorage.getItem('xctStudioVideoMode') === 'drama' ? 'drama' : 'normal';
     } catch {
         return mode;
     }
@@ -36,7 +39,7 @@ export function useVideoMode() {
         (next: VideoMode) => {
             mode = next;
             try {
-                localStorage.setItem('xctStudioVideoMode', next);
+                businessStorage.setItem('xctStudioVideoMode', next);
             } catch {
                 /* Keep the in-memory selection. */
             }

@@ -1,5 +1,7 @@
 'use client';
 
+import { persistImages, removeImage } from '@/features/persistence/media';
+
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Label } from '@/components/ui/Label';
@@ -212,7 +214,7 @@ export function ImageStudio({ imageModels, onGenerate, cloudImageAssets = [], on
             const requestedCount = count;
             const images = await onGenerate({ prompt: trimmedPrompt, model, size, n: count });
             const now = Date.now();
-            await db.images.bulkPut(
+            await persistImages(
                 images.map((img, i) => ({
                     id: `img_${now}_${i}`,
                     prompt: trimmedPrompt,
@@ -518,7 +520,7 @@ export function ImageStudio({ imageModels, onGenerate, cloudImageAssets = [], on
                                                         type='button'
                                                         onClick={(event) => {
                                                             stopCardAction(event);
-                                                            void db.images.delete(rec.id);
+                                                            void removeImage(rec.id);
                                                         }}
                                                         className='absolute right-1 top-1 rounded-full bg-red-600/80 p-1 text-[var(--studio-status-foreground)] transition-colors hover:bg-red-500/90'
                                                         aria-label={t('Delete image')}>

@@ -1,5 +1,7 @@
 'use client';
 
+import { assemblyClips } from './clips';
+import { readAssembly, restoreRows, useAssemblyPersistence, assemblyKey, rememberExport } from './persistence';
 import {
     CLOUD_XML_TOOLTIP,
     DEFAULT_BGM_VOLUME,
@@ -74,6 +76,8 @@ export function AssemblyEditor({
     const [downloadSrtOnly, setDownloadSrtOnly] = React.useState(false);
     const [exportFormat, setExportFormat] = React.useState<ExportFormatId>(ORIGINAL_EXPORT_FORMAT);
 
+    useAssemblyPersistence(items, open && !isLoadingClips, { rows: rows.map(({ id, inValue, outValue }) => ({ id, inValue, outValue })), selectedBgmKey, bgmVolume, burnCaptions, downloadSrtOnly, exportFormat });
+
     React.useEffect(() => {
         if (!open) {
             setRows([]);
@@ -92,6 +96,8 @@ export function AssemblyEditor({
         }
 
         let cancelled = false;
+        const saved = readAssembly(items);
+        if (saved) { setSelectedBgmKey(saved.selectedBgmKey); setBgmVolume(saved.bgmVolume); setBurnCaptions(saved.burnCaptions); setDownloadSrtOnly(saved.downloadSrtOnly); setExportFormat(saved.exportFormat); }
         setIsLoadingClips(true);
         setExportProgress(null);
         setExportError(null);
@@ -137,7 +143,7 @@ export function AssemblyEditor({
         )
             .then((nextRows) => {
                 if (!cancelled) {
-                    setRows(nextRows);
+                    setRows(restoreRows(nextRows, saved));
                 }
             })
             .finally(() => {
@@ -202,11 +208,11 @@ export function AssemblyEditor({
     }, [loadAudioAssets, open]);
 
     React.useEffect(() => {
-        if (selectedBgmKey === NONE_BGM_VALUE) return;
+        if (selectedBgmKey === NONE_BGM_VALUE || isLoadingAudio || audioAssets.length === 0) return;
         if (!audioAssets.some((asset) => asset.key === selectedBgmKey)) {
             setSelectedBgmKey(NONE_BGM_VALUE);
         }
-    }, [audioAssets, selectedBgmKey]);
+    }, [audioAssets, selectedBgmKey, isLoadingAudio]);
 
     const validations = React.useMemo(() => {
         return new Map(rows.map((row) => [row.id, validateClip(row)]));
@@ -280,25 +286,7 @@ export function AssemblyEditor({
         [isExporting, onOpenChange]
     );
 
-    const buildAssemblyClips = React.useCallback((): AssembleClip[] => {
-        return rows.map((row) => {
-            const validation = validations.get(row.id);
-            if (!row.blob || typeof row.duration !== 'number' || !validation || validation.error) {
-                throw new Error('Assembly is not ready to export.');
-            }
-
-            return {
-                id: row.id,
-                blob: row.blob,
-                ...(usesDefaultTrim(validation, row.duration)
-                    ? {}
-                    : {
-                          inTime: validation.inTime,
-                          outTime: validation.outTime
-                      })
-            };
-        });
-    }, [rows, validations]);
+    const buildAssemblyClips = React.useCallback((): AssembleClip[] => assemblyClips(rows, validations), [rows, validations]);
 
     const handleExport = React.useCallback(async () => {
         if (!canExport) {
@@ -334,6 +322,7 @@ export function AssemblyEditor({
             if (!wantsCaptions) {
                 const output = await assembleClips(clips, finalOptions, setExportProgress);
                 downloadBlob(output, `${baseName}.mp4`);
+                rememberExport(assemblyKey(items), `${baseName}.mp4`, readAssembly(items));
                 onOpenChange(false);
                 return;
             }
@@ -358,6 +347,7 @@ export function AssemblyEditor({
                     ? await assembleClips(clips, finalOptions, (progress) => setExportProgress(0.74 + progress * 0.26))
                     : transcriptionOutput;
                 downloadBlob(output, `${baseName}.mp4`);
+                rememberExport(assemblyKey(items), `${baseName}.mp4`, readAssembly(items));
                 downloadSrt(srt, `${baseName}.srt`);
                 setExportProgress(1);
                 onOpenChange(false);
@@ -374,6 +364,7 @@ export function AssemblyEditor({
                     (progress) => setExportProgress(0.74 + progress * 0.26)
                 );
                 downloadBlob(captionedOutput, `${baseName}.mp4`);
+                rememberExport(assemblyKey(items), `${baseName}.mp4`, readAssembly(items));
                 onOpenChange(false);
             } catch (err) {
                 if (!(err instanceof CaptionBurnUnavailableError)) {
@@ -385,6 +376,7 @@ export function AssemblyEditor({
                     ? await assembleClips(clips, finalOptions, (progress) => setExportProgress(0.74 + progress * 0.26))
                     : transcriptionOutput;
                 downloadBlob(fallbackOutput, `${baseName}.mp4`);
+                rememberExport(assemblyKey(items), `${baseName}.mp4`, readAssembly(items));
                 downloadSrt(srt, `${baseName}.srt`);
                 setExportProgress(1);
                 setExportNotice('captions exported as .srt (burn-in unavailable)');
@@ -396,6 +388,7 @@ export function AssemblyEditor({
             setIsExporting(false);
         }
     }, [
+        items,
         bgmVolume,
         buildAssemblyClips,
         burnCaptions,

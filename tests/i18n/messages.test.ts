@@ -25,6 +25,12 @@ describe('translation dictionaries', () => {
         const values: Record<string, string | number> = {
             year: '2026',
             progress: 42,
+            ready: 4,
+            total: 18,
+            completed: 4,
+            missing: 14,
+            generated: 2,
+            requested: 3,
             projectName: 'Example project',
             seconds: '5',
             amount: '12.50',

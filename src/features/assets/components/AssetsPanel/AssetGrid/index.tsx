@@ -7,6 +7,7 @@ import { formatBytes, formatDate } from '../utils';
 import { AssetPreview } from './AssetPreview';
 import { CopyAssetButton } from './CopyAssetButton';
 import styles from './index.module.scss';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/Dialog';
 import type { ProviderAssetReviewInput } from '@/features/assets/hooks/use-provider-asset-review';
 import { assetIdFromReferenceUrl, type InlineReviewOrigin } from '@/features/assets/reference/origin';
 import type { ReferenceUseOptions } from '@/features/assets/components/AssetsPanel/types';
@@ -76,6 +77,7 @@ export function AssetGrid({
     const t = useTranslations();
     const locale = useLocale();
     const [reviewItem, setReviewItem] = React.useState<AssetListItem | null>(null);
+    const [previewItem, setPreviewItem] = React.useState<AssetListItem | null>(null);
 
     const handleReference = (item: AssetListItem) => {
         if (item.reviewState === 'processing' && item.portrait) {
@@ -105,6 +107,33 @@ export function AssetGrid({
                     }}
                 />
             )}
+            <Dialog open={Boolean(previewItem)} onOpenChange={(open) => !open && setPreviewItem(null)}>
+                <DialogContent className={styles.previewDialog}>
+                    <DialogHeader>
+                        <DialogTitle>{previewItem?.asset.name || previewItem?.asset.key.split('/').pop()}</DialogTitle>
+                        <DialogDescription>
+                            {previewItem?.asset.kind === 'video' ? t('Video preview') : t('Image preview')}
+                        </DialogDescription>
+                    </DialogHeader>
+                    {previewItem?.asset.kind === 'image' && (
+                        // eslint-disable-next-line @next/next/no-img-element -- provider/cloud media URL
+                        <img
+                            src={previewItem.asset.url}
+                            alt={previewItem.asset.name || previewItem.asset.key}
+                            className={styles.previewImage}
+                        />
+                    )}
+                    {previewItem?.asset.kind === 'video' && (
+                        <video
+                            src={previewItem.asset.url}
+                            className={styles.previewVideo}
+                            controls
+                            autoPlay
+                            playsInline
+                        />
+                    )}
+                </DialogContent>
+            </Dialog>
             <div className={styles.grid}>
                 {items.map((item) => {
                     const { asset } = item;
@@ -120,7 +149,17 @@ export function AssetGrid({
                     return (
                         <article key={asset.key} className={styles.card} title={asset.key}>
                             <div className={styles.preview}>
-                                <AssetPreview key={asset.url || item.providerAsset?.assetId} item={item} />
+                                {isReferenceMedia ? (
+                                    <button
+                                        type='button'
+                                        className={styles.previewButton}
+                                        aria-label={asset.kind === 'video' ? t('Open video preview') : t('Open image preview')}
+                                        onClick={() => setPreviewItem(item)}>
+                                        <AssetPreview key={asset.url || item.providerAsset?.assetId} item={item} />
+                                    </button>
+                                ) : (
+                                    <AssetPreview key={asset.url || item.providerAsset?.assetId} item={item} />
+                                )}
                                 <span className={styles.kind}>
                                     {asset.kind === 'image'
                                         ? t('Image')

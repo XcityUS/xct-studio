@@ -76,7 +76,7 @@ import { CommunityPanel } from '@/features/community/components/CommunityPanel';
 import { GallerySection } from '@/features/community/components/GallerySection';
 import { reconcilePreset } from '@/features/community/gallery/preset';
 import type { GalleryItem } from '@/features/community/gallery/utils';
-import { CreationForm, type CreationFormData, type SceneAssetBindingProgress } from '@/features/generation/components/CreationForm';
+import { CreationForm, type AssetBindingOptions, type CreationFormData, type SceneAssetBindingProgress } from '@/features/generation/components/CreationForm';
 import { FinalizeDialog, type FinalizeSettings } from '@/features/generation/components/FinalizeDialog';
 import { ImageStudio } from '@/features/generation/components/ImageStudio';
 import { VideoHistoryPanel } from '@/features/generation/components/VideoHistoryPanel';
@@ -113,6 +113,7 @@ import { XCITY_SSO_ENABLED } from '@/features/settings/sso';
 import { useAssetIdIntake } from '@/features/studio/hooks/use-asset-id-intake';
 import { useStudioTabRouting } from '@/features/studio/hooks/use-studio-tab-routing';
 import { studioVideoSharePath } from '@/features/studio/routing';
+import { autoBindCharacterAssets } from './character-asset-autobind';
 import { autoBindSceneAssets } from './scene-asset-autobind';
 import { shotVideoPreviewsForProject } from './shot-video-previews';
 import type { AppLocale } from '@/i18n/routing';
@@ -921,7 +922,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         getAsset: handleGetPortraitAsset
     });
 
-    const handleAutoBindSceneAssets = React.useCallback(async (draft: EditorDraft, onProgress?: (draft: EditorDraft, progress: SceneAssetBindingProgress) => void): Promise<EditorDraft> => {
+    const handleAutoBindSceneAssets = React.useCallback(async (draft: EditorDraft, onProgress?: (draft: EditorDraft, progress: SceneAssetBindingProgress) => void, options?: AssetBindingOptions): Promise<EditorDraft> => {
             const imageModel = imageModels[0]?.id;
             if (!imageModel) throw new Error('Image generation is not configured.');
             if (!isPortraitEnabled) throw new Error('Asset review is not configured.');
@@ -929,12 +930,30 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                 draft, imageAssets, imageModel, ratio: createRatio, uploadEnabled,
                 basePrompt: projectDraft.activeProject.basePrompt, styleNote: projectDraft.activeProject.styleNote,
                 loadImageAssets: handleLoadAssets, generateImages: handleGenerateImages,
-                reviewAsset: handleReviewReferenceAsset, resolveKey, onProgress
+                reviewAsset: handleReviewReferenceAsset, resolveKey, onProgress, options
             });
             void refreshImageAssets();
             return nextDraft;
         }, [
             createRatio, handleGenerateImages, handleLoadAssets, handleReviewReferenceAsset, imageAssets,
+            imageModels, isPortraitEnabled, projectDraft.activeProject.basePrompt,
+            projectDraft.activeProject.styleNote, refreshImageAssets, resolveKey, uploadEnabled
+        ]);
+
+    const handleAutoBindCharacterAssets = React.useCallback(async (draft: EditorDraft, onProgress?: (draft: EditorDraft, progress: SceneAssetBindingProgress) => void, options?: AssetBindingOptions): Promise<EditorDraft> => {
+            const imageModel = imageModels[0]?.id;
+            if (!imageModel) throw new Error('Image generation is not configured.');
+            if (!isPortraitEnabled) throw new Error('Asset review is not configured.');
+            const nextDraft = await autoBindCharacterAssets({
+                draft, imageAssets, imageModel, uploadEnabled,
+                basePrompt: projectDraft.activeProject.basePrompt, styleNote: projectDraft.activeProject.styleNote,
+                loadImageAssets: handleLoadAssets, generateImages: handleGenerateImages,
+                reviewAsset: handleReviewReferenceAsset, resolveKey, onProgress, options
+            });
+            void refreshImageAssets();
+            return nextDraft;
+        }, [
+            handleGenerateImages, handleLoadAssets, handleReviewReferenceAsset, imageAssets,
             imageModels, isPortraitEnabled, projectDraft.activeProject.basePrompt,
             projectDraft.activeProject.styleNote, refreshImageAssets, resolveKey, uploadEnabled
         ]);
@@ -3418,7 +3437,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                 </Alert>
             )}
             <div className='grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,0.8fr)_minmax(560px,1.2fr)] lg:items-start xl:grid-cols-[minmax(0,0.75fr)_minmax(640px,1.25fr)]'>
-                <div ref={creationFormRef} className='relative flex min-h-[600px] flex-col lg:sticky lg:top-6 lg:col-span-1 lg:h-[calc(100vh-3rem)] lg:min-h-0 lg:self-start'>
+                <div ref={creationFormRef} className='relative flex min-h-[600px] flex-col overflow-hidden lg:sticky lg:top-6 lg:col-span-1 lg:h-[calc(100vh-3rem)] lg:min-h-0 lg:self-start'>
                     <ApiKeyGate
                         isBlocked={isApiKeyGateBlocked}
                         onConfigure={() => setIsApiKeyDialogOpen(true)}
@@ -3488,6 +3507,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                                 onOptimizePrompt={handleOptimizePrompt}
                                 onBreakdownScript={handleBreakdownScript}
                                 onAutoBindSceneAssets={handleAutoBindSceneAssets}
+                                onAutoBindCharacterAssets={handleAutoBindCharacterAssets}
                                 shotVideoPreviews={shotVideoPreviews}
                                 projectAssets={projectDraft.projectAssets}
                                 projectConfig={projectDraft.activeProject}
@@ -3570,7 +3590,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
     );
 
     return (
-        <main className='bg-black py-4 text-white md:py-8 lg:py-12'>
+        <main data-studio-workspace className='bg-black py-4 text-white md:py-8 lg:py-12'>
             <ApiKeyDialog isOpen={isApiKeyDialogOpen} onOpenChange={setIsApiKeyDialogOpen} onSave={handleSaveApiKey} />
             <Dialog open={isShareDialogOpen} onOpenChange={handleShareDialogOpenChange}>
                 <DialogContent className='border-neutral-700 bg-neutral-900 text-white sm:max-w-[460px]'>

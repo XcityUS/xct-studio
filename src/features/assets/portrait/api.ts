@@ -1,3 +1,4 @@
+import { rememberProviderMetadata, removeProviderGroup } from '@/features/persistence/media';
 export type PortraitSession = {
     h5Link: string;
     bytedToken: string;
@@ -36,24 +37,52 @@ export function storedPortraitAssetStatus(status: PortraitAssetStatus): StoredPo
     return 'Processing';
 }
 
+const pendingReads = new Map<string, Promise<unknown>>();
+
 async function portraitRequest<T>(
     path: string,
     apiKey: string,
     init: Omit<RequestInit, 'headers'> & { headers?: Record<string, string> } = {}
 ): Promise<T> {
-    const res = await fetch(path, {
+    if ((init.method ?? 'GET').toUpperCase() !== 'GET') return sendPortraitRequest<T>(path, apiKey, init);
+    const key = `${apiKey}:${path}`;
+    const current = pendingReads.get(key);
+    if (current) return current as Promise<T>;
+    const request = sendPortraitRequest<T>(path, apiKey, init);
+    pendingReads.set(key, request);
+    try { return await request; }
+    finally { if (pendingReads.get(key) === request) pendingReads.delete(key); }
+}
+
+async function sendPortraitRequest<T>(
+    path: string,
+    apiKey: string,
+    init: Omit<RequestInit, 'headers'> & { headers?: Record<string, string> } = {}
+): Promise<T> {
+    const request = () => fetch(path, {
         ...init,
         headers: {
             Authorization: `Bearer ${apiKey}`,
             ...(init.body ? { 'Content-Type': 'application/json' } : {}),
             ...init.headers
         },
-        cache: 'no-store'
+        cache: 'no-store',
+        signal: init.signal ?? AbortSignal.timeout(25000)
     });
+    let res = await request();
+    // Only repeat reads. Never repeat asset creation or verification submissions.
+    for (let attempt = 0; res.status === 429 && (init.method ?? 'GET') === 'GET' && attempt < 2; attempt++) {
+        const seconds = Number(res.headers.get('Retry-After') ?? 60);
+        if (!Number.isFinite(seconds) || seconds > 120) break;
+        await res.body?.cancel();
+        await sleep(Math.max(1, seconds) * 1000);
+        res = await request();
+    }
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     if (!res.ok) {
         throw new Error(body.error || `Portrait request failed (${res.status}).`);
     }
+    rememberProviderMetadata(body, apiKey);
     return body as T;
 }
 
@@ -111,6 +140,7 @@ export async function deletePortraitGroup(groupId: string, apiKey: string): Prom
         apiKey,
         { method: 'DELETE' }
     );
+    removeProviderGroup(groupId);
 }
 
 export function createPortraitAsset(

@@ -4,6 +4,7 @@ import { RateLimitError, verifyFrontendApiKey } from '@/lib/openai-client';
 import { InvalidApiKeyError } from '@/shared/errors';
 import { XCITY_SSO_ENABLED, fetchXcityUserKey } from '@/features/settings/sso';
 import * as React from 'react';
+import { XcityKeyContext } from '../key-context';
 
 export type SsoStatus = 'checking' | 'ok' | 'unauthenticated' | 'error';
 
@@ -23,7 +24,7 @@ function getStoredApiKey(): string | null {
  * the key through it — or through `resolveKey`, which additionally retries the
  * SSO fetch when no key is on hand — never from captured state.
  */
-export function useXcityKey() {
+export function useXcityKeyState() {
     // Starts null on both server and client — the stored key is picked up in
     // a mount effect. Reading localStorage in the initializer renders
     // different HTML on the server than on the client (hydration error).
@@ -139,4 +140,10 @@ export function useXcityKey() {
     }, [setKey]);
 
     return { apiKey, keyRef, ssoStatus, ssoError, attemptSso, resolveKey, saveManualKey, invalidateKey };
+}
+
+export function useXcityKey() {
+    const context = React.useContext(XcityKeyContext);
+    if (!context) throw new Error('Xcity key provider is required');
+    return context;
 }

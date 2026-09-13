@@ -159,6 +159,24 @@ function shouldUseRemoteDialogueStaging(prompt: string) {
     );
 }
 
+function englishDialogueLines(prompt: string): string[] {
+    const stopHeaders = new Set([
+        GENERATED_CAPTIONS_PROMPT_HEADER,
+        LANGUAGE_PROMPT_HEADER,
+        TITLE_OVERLAY_PROMPT_HEADER
+    ]);
+    return prompt
+        .split(/\r?\n/)
+        .map((line) => line.trim().replace(/\s+/g, ' '))
+        .filter((line) => {
+            if (!line || stopHeaders.has(line)) return false;
+            if (/[\u3400-\u9fff]/.test(line)) return false;
+            if (!/^[A-Z][A-Za-z0-9 .,'’()-]{0,40}:\s+\S/.test(line)) return false;
+            return /[A-Za-z]{2,}/.test(line);
+        })
+        .slice(0, 40);
+}
+
 function avoidGeneratedCaptionsPattern() {
     return new RegExp(`\\n?${AVOID_GENERATED_CAPTIONS_PROMPT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i');
 }
@@ -235,13 +253,29 @@ export function promptWithLanguageControls(
     const captionMode = normalizeCaptionMode(options.captionMode);
     const trimmed = cleanPromptForReuse(prompt);
     const voice = VOICE_LANGUAGE_OPTIONS.find((item) => item.id === voiceLanguage);
+    const voicePromptLabel = voice?.promptLabel ?? 'American English';
     const lines = [
         LANGUAGE_PROMPT_HEADER,
         voiceLanguage === SILENT_VOICE_LANGUAGE
             ? 'Audio: no spoken dialogue, no voiceover, no generated speech.'
-            : `Audio: use natural ${voice?.promptLabel ?? 'American English'} for spoken dialogue by default.`
+            : `Audio: use natural ${voicePromptLabel} for spoken dialogue by default.`
     ];
     if (voiceLanguage !== SILENT_VOICE_LANGUAGE) {
+        lines.push(
+            `Spoken dialogue must be in ${voicePromptLabel}. If the script contains multiple languages, use only the ${voicePromptLabel} dialogue lines for audio; treat other-language lines as subtitle or translation references only.`
+        );
+        if (voiceLanguage === DEFAULT_VOICE_LANGUAGE) {
+            lines.push(
+                'When Chinese and English dialogue pairs are provided, speak the English lines only. Do not speak the Chinese translation aloud.'
+            );
+            const audioOnlyLines = englishDialogueLines(trimmed);
+            if (audioOnlyLines.length > 0) {
+                lines.push(
+                    'Audio-only dialogue script to speak. Use these English lines for speech, in order, and do not speak any other-language dialogue lines:',
+                    ...audioOnlyLines.map((line, index) => `${index + 1}. ${line}`)
+                );
+            }
+        }
         lines.push(DIALOGUE_PACING_PROMPT);
         if (shouldUseRemoteDialogueStaging(trimmed)) lines.push(REMOTE_DIALOGUE_PROMPT);
     }

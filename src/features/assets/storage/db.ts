@@ -26,8 +26,8 @@ export class VideoDB extends Dexie {
     videos!: EntityTable<VideoRecord, 'id'>;
     images!: EntityTable<ImageRecord, 'id'>;
 
-    constructor() {
-        super('SoraVideoDB');
+    constructor(name = 'SoraVideoDB') {
+        super(name);
 
         this.version(1).stores({
             videos: '&id, filename, created_at'
@@ -44,4 +44,13 @@ export class VideoDB extends Dexie {
     }
 }
 
-export const db = new VideoDB();
+export let db = new VideoDB();
+
+export function activateMediaDatabase(owner: string): VideoDB {
+    const name = `SoraVideoDB:${owner}`;
+    if (db.name !== name) {
+        db.close();
+        db = new VideoDB(name);
+    }
+    return db;
+}

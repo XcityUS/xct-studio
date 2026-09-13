@@ -1,3 +1,4 @@
+import { businessStorage } from '@/features/persistence/store';
 import { DEFAULT_RESOLUTION, DEFAULT_SHORT_DRAMA_MODEL, isShortDramaModel } from '@/shared/config/seedance';
 import type {
     CharacterVersion,
@@ -190,7 +191,7 @@ function isCharacterVersion(value: CharacterVersion | null): value is CharacterV
 function dedupeProjects(projects: ShortDramaProject[]): ShortDramaProject[] {
     const seen = new Set<string>();
     return projects.filter((project) => {
-        const key = titleKey(project.title);
+        const key = project.id;
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
@@ -228,7 +229,7 @@ export function readProjectState(): ProjectState {
         return { activeProjectId: project.id, projects: [project], assets: [], characterVersions: [] };
     }
     try {
-        return normalizeState(JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? 'null') as unknown);
+        return normalizeState(JSON.parse(businessStorage.getItem(STORAGE_KEY) ?? 'null') as unknown);
     } catch {
         return normalizeState(null);
     }
@@ -236,7 +237,7 @@ export function readProjectState(): ProjectState {
 
 export function writeProjectState(state: ProjectState): void {
     if (typeof window === 'undefined') return;
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizeState(state)));
+    businessStorage.setItem(STORAGE_KEY, JSON.stringify(normalizeState(state)));
 }
 
 export function createProject(input: ShortDramaProjectInput, existingTitles: string[] = []): ShortDramaProject {

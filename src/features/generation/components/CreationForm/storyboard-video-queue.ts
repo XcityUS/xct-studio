@@ -1,6 +1,7 @@
 import { buildShotQueueItem, type ShotQueueItem } from './shot-queue';
 import type { CreationFormData } from './types';
 import type { EditorDraft } from '@/features/script/components/ShotBuilderDialog/draft';
+import { inferShotCharacterIds } from '@/features/script/character-matching';
 import { DEFAULT_VOICE_LANGUAGE } from '@/features/script/prompt/guards';
 import { clampSeconds, type VideoModel } from '@/shared/config/seedance';
 
@@ -13,8 +14,9 @@ type BuildSubmissionData = (
 ) => CreationFormData;
 
 function assetIdsForShot(draft: EditorDraft, shot: EditorDraft['shots'][number]) {
+    const characterIds = new Set(inferShotCharacterIds(shot, draft.characters));
     const characterAssetIds = draft.characters
-        .filter((character) => shot.characterIds?.includes(character.id) && character.assetId)
+        .filter((character) => characterIds.has(character.id) && character.assetId)
         .map((character) => character.assetId as string);
     const sceneAssetId = draft.scenes.find((scene) => scene.id === shot.sceneId)?.assetId;
     return Array.from(new Set([...(shot.assetIds ?? []), ...characterAssetIds, ...(sceneAssetId ? [sceneAssetId] : [])]));

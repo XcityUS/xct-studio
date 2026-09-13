@@ -24,7 +24,11 @@ export function useProcessingPortraitRefresh(options: ProcessingPortraitRefreshO
         if (!active || !enabled || processingPortraits.length === 0) return;
 
         let cancelled = false;
+        let busy = false;
         const refresh = async () => {
+            if (cancelled || busy) return;
+            busy = true;
+            try {
             const results = await Promise.allSettled(
                 processingPortraits.map(async (portrait) => {
                     const asset = await getAsset(portrait.assetId);
@@ -47,10 +51,11 @@ export function useProcessingPortraitRefresh(options: ProcessingPortraitRefreshO
             if (!cancelled && results.some((result) => result.status === 'fulfilled' && result.value)) {
                 await syncState();
             }
+            } finally { busy = false; }
         };
 
-        void refresh();
-        const timer = window.setInterval(() => void refresh(), 5000);
+        void refresh().catch(() => undefined);
+        const timer = window.setInterval(() => void refresh().catch(() => undefined), 5000);
         return () => {
             cancelled = true;
             window.clearInterval(timer);

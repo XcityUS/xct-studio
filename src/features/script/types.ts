@@ -7,6 +7,7 @@ export type ShotDraft = {
     durationSeconds?: number;
     sceneId?: string;
     characterIds?: string[];
+    characterSelectionMode?: 'manual';
     assetIds?: string[];
     dialogues?: ScriptDialogueDraft[];
     subtitle?: string;

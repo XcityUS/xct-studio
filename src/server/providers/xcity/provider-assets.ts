@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import 'server-only';
 
-const RETRYABLE_READ_STATUSES = new Set([429, 502, 503, 504]);
+const RETRYABLE_READ_STATUSES = new Set([502, 503, 504]);
 const READ_RETRY_DELAYS_MS = [500, 1500] as const;
 const READ_CACHE_TTL_MS = 60_000;
 const STALE_READ_CACHE_TTL_MS = 5 * 60_000;
@@ -12,7 +12,15 @@ type ReadCacheEntry = {
     createdAt: number;
 };
 
-const readCache = new Map<string, ReadCacheEntry>();
+const state = globalThis as typeof globalThis & {
+    studioAssetReads?: {
+        cache: Map<string, ReadCacheEntry>;
+        pending: Map<string, Promise<NextResponse>>;
+        cooldown: Map<string, number>;
+    };
+};
+const reads = state.studioAssetReads ??= { cache: new Map(), pending: new Map(), cooldown: new Map() };
+const readCache = reads.cache;
 
 function gatewayV1BaseUrl(): string {
     const configured = (
@@ -57,7 +65,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 function readCacheKey(path: string, bearer: string): string {
-    const subject = createHash('sha256').update(bearer).digest('hex').slice(0, 24);
+    const subject = createHash('sha256').update(`${gatewayV1BaseUrl()}:${bearer}`).digest('hex');
     return `${subject}:${path}`;
 }
 
@@ -67,6 +75,7 @@ function cachedRead(path: string, bearer: string, ttlMs: number): unknown | null
 }
 
 function cacheRead(path: string, bearer: string, body: unknown) {
+    if (readCache.size >= 500) readCache.delete(readCache.keys().next().value!);
     readCache.set(readCacheKey(path, bearer), { body, createdAt: Date.now() });
 }
 
@@ -102,6 +111,42 @@ export async function providerAssetResponse(
     bearer: string,
     init: Omit<RequestInit, 'headers'> & { headers?: Record<string, string> } = {}
 ): Promise<NextResponse> {
+    const method = (init.method ?? 'GET').toUpperCase();
+    if (method !== 'GET' && method !== 'HEAD') {
+        const response = await requestAsset(path, bearer, init);
+        if (response.ok) {
+            const prefix = readCacheKey('', bearer);
+            for (const key of readCache.keys()) if (key.startsWith(prefix)) readCache.delete(key);
+        }
+        return response;
+    }
+    const key = readCacheKey(path, bearer);
+    const current = reads.pending.get(key);
+    if (current) return (await current).clone() as NextResponse;
+    const request = requestAsset(path, bearer, init);
+    reads.pending.set(key, request);
+    try {
+        return (await request).clone() as NextResponse;
+    } finally {
+        if (reads.pending.get(key) === request) reads.pending.delete(key);
+    }
+}
+
+function rateLimited(path: string, bearer: string, until: number): NextResponse {
+    const retryAfter = Math.max(1, Math.ceil((until - Date.now()) / 1000));
+    const stale = cachedRead(path, bearer, STALE_READ_CACHE_TTL_MS);
+    return stale ? NextResponse.json(stale, {
+        headers: { 'X-Xcity-Cache': 'stale', 'X-Xcity-Upstream-Status': '429', 'Retry-After': String(retryAfter) }
+    }) : NextResponse.json({ error: 'PROVIDER_RATE_LIMITED', retryAfter }, {
+        status: 429, headers: { 'Retry-After': String(retryAfter) }
+    });
+}
+
+async function requestAsset(
+    path: string,
+    bearer: string,
+    init: Omit<RequestInit, 'headers'> & { headers?: Record<string, string> }
+): Promise<NextResponse> {
     try {
         const requestInit: RequestInit = {
             ...init,
@@ -110,7 +155,8 @@ export async function providerAssetResponse(
                 ...(init.body ? { 'Content-Type': 'application/json' } : {}),
                 ...init.headers
             },
-            cache: 'no-store'
+            cache: 'no-store',
+            signal: init.signal ?? AbortSignal.timeout(20000)
         };
         const method = (requestInit.method ?? 'GET').toUpperCase();
         const canUseReadCache = method === 'GET' || method === 'HEAD';
@@ -118,12 +164,25 @@ export async function providerAssetResponse(
         if (freshCached) {
             return NextResponse.json(freshCached, { status: 200, headers: { 'X-Xcity-Cache': 'hit' } });
         }
+        const subject = readCacheKey('', bearer);
+        const until = reads.cooldown.get(subject) ?? 0;
+        if (canUseReadCache && until > Date.now()) return rateLimited(path, bearer, until);
+        if (until) reads.cooldown.delete(subject);
         const { response, body } = await fetchProviderAsset(
             `${gatewayV1BaseUrl()}/provider-assets${path}`,
             requestInit,
             canUseReadCache ? READ_RETRY_DELAYS_MS : []
         );
         if (!response.ok) {
+            if (response.status === 429 && canUseReadCache) {
+                const retry = response.headers.get('Retry-After');
+                const seconds = retry && /^\d+(?:\.\d+)?$/.test(retry) ? Number(retry)
+                    : retry ? (Date.parse(retry) - Date.now()) / 1000 : 60;
+                const next = Date.now() + (Number.isFinite(seconds) ? Math.max(1, seconds) : 60) * 1000;
+                if (reads.cooldown.size >= 500) reads.cooldown.delete(reads.cooldown.keys().next().value!);
+                reads.cooldown.set(subject, next);
+                return rateLimited(path, bearer, next);
+            }
             const staleCached = response.status === 429 && canUseReadCache
                 ? cachedRead(path, bearer, STALE_READ_CACHE_TTL_MS)
                 : null;
@@ -142,9 +201,9 @@ export async function providerAssetResponse(
             cacheRead(path, bearer, body);
         }
         return NextResponse.json(body, { status: response.status });
-    } catch (error) {
+    } catch {
         return NextResponse.json(
-            { error: error instanceof Error ? error.message : 'Provider asset gateway is unavailable.' },
+            { error: 'Provider asset gateway is unavailable.' },
             { status: 502 }
         );
     }

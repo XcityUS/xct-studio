@@ -13,7 +13,7 @@
  * happened on Railway). No worker configured = archiving is skipped and
  * playback falls back to the provider URL.
  */
-import { StateConflictError } from '../shared/errors';
+import { rememberUploadedMedia } from '@/features/persistence/media';
 import type { RuntimeConfig } from '@/shared/contracts/runtime-config';
 
 let runtimeConfigPromise: Promise<RuntimeConfig> | null = null;
@@ -369,7 +369,8 @@ export async function archiveLocalVideo(
     videoId: string,
     blob: Blob,
     apiKey: string,
-    name?: string
+    name?: string,
+    signal?: AbortSignal
 ): Promise<ArchivedMedia | null> {
     const workerUrl = await loadWorkerUrl();
     if (!workerUrl) return null;
@@ -398,7 +399,8 @@ export async function archiveLocalVideo(
                 'Content-Type': contentType,
                 ...assetNameHeader(name || videoId)
             },
-            body: blob
+            body: blob,
+            signal
         });
         if (!res.ok) {
             const detail = await res.text().catch(() => '');
@@ -485,64 +487,6 @@ export async function downloadUrlForMediaUrl(url: string): Promise<string> {
     } catch {
         return url;
     }
-}
-
-export async function fetchCloudState(apiKey: string): Promise<{ doc: unknown; etag: string } | null> {
-    const workerUrl = await loadWorkerUrl();
-    if (!workerUrl) return null;
-
-    const res = await fetch(`${workerUrl}/state`, {
-        headers: { Authorization: `Bearer ${apiKey}` },
-        cache: 'no-store'
-    });
-    if (res.status === 404) return null;
-    if (!res.ok) {
-        throw new Error(`Could not load cloud history (${res.status}).`);
-    }
-
-    const etag = res.headers.get('etag');
-    if (!etag) {
-        throw new Error('Cloud history response returned no ETag.');
-    }
-
-    return { doc: (await res.json()) as unknown, etag };
-}
-
-export async function pushCloudState(doc: unknown, apiKey: string, etag: string | null): Promise<string> {
-    const workerUrl = await loadWorkerUrl();
-    if (!workerUrl) {
-        throw new Error('Cloud history sync is not configured on this deployment.');
-    }
-
-    const headers: Record<string, string> = {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
-    };
-    if (etag) {
-        headers['If-Match'] = etag;
-    }
-
-    const res = await fetch(`${workerUrl}/state`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify(doc)
-    });
-    if (res.status === 412) {
-        throw new StateConflictError();
-    }
-    if (!res.ok) {
-        const detail = await res
-            .json()
-            .then((d: { error?: string }) => d.error)
-            .catch(() => undefined);
-        throw new Error(detail || `Could not save cloud history (${res.status}).`);
-    }
-
-    const data = (await res.json()) as { etag?: string };
-    if (!data.etag) {
-        throw new Error('Cloud history save returned no ETag.');
-    }
-    return data.etag;
 }
 
 const DATA_URI_FETCH_TIMEOUT_MS = 30_000;
@@ -632,7 +576,7 @@ function assetNameHeader(name?: string): Record<string, string> {
  * gateway's image-to-video takes a URL, not bytes. Unlike archiving this is a
  * user-initiated action, so failures throw with a message worth showing.
  */
-export async function uploadReferenceImage(file: File, apiKey: string, name?: string): Promise<string> {
+export async function uploadReferenceImage(file: File, apiKey: string, name?: string, signal?: AbortSignal): Promise<string> {
     const workerUrl = await loadWorkerUrl();
     if (!workerUrl) {
         throw new Error('Image uploads are not configured on this deployment. Paste a public image URL instead.');
@@ -651,7 +595,8 @@ export async function uploadReferenceImage(file: File, apiKey: string, name?: st
             'Content-Type': file.type,
             ...assetNameHeader(name)
         },
-        body: file
+        body: file,
+        signal
     });
     if (!res.ok) {
         const detail = await res
@@ -664,6 +609,7 @@ export async function uploadReferenceImage(file: File, apiKey: string, name?: st
     if (!data.url) {
         throw new Error('Image upload returned no URL.');
     }
+    rememberUploadedMedia(data.url, 'image', name || file.name, file.size, apiKey);
     return data.url;
 }
 
@@ -699,6 +645,7 @@ export async function uploadReferenceAudio(file: File, apiKey: string, name?: st
     if (!data.url) {
         throw new Error('Audio upload returned no URL.');
     }
+    rememberUploadedMedia(data.url, 'audio', name || file.name, file.size, apiKey);
     return data.url;
 }
 
@@ -734,5 +681,6 @@ export async function uploadReferenceVideo(file: File, apiKey: string, name?: st
     if (!data.url) {
         throw new Error('Video upload returned no URL.');
     }
+    rememberUploadedMedia(data.url, 'video', name || file.name, file.size, apiKey);
     return data.url;
 }

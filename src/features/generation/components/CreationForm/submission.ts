@@ -75,10 +75,11 @@ export function createSubmissionBuilder(context: Context) {
             data.final_resolution = context.finalResolution;
         }
         const refs = appendProjectReferenceUrls(context.referenceUrls, production, context.referenceCap);
+        const forceReferenceImageMode = Boolean(productionShot || production?.shot);
         const videos = context.showReferenceVideos
             ? context.referenceVideoUrls.map((url) => url.trim()).filter(Boolean)
             : [];
-        if (refs.length === 1) {
+        if (refs.length === 1 && !forceReferenceImageMode) {
             data.input_reference_url = refs[0];
             if (context.lastFrameUrl.trim()) data.last_frame_url = context.lastFrameUrl.trim();
         } else if (refs.length > 1) {
@@ -86,6 +87,8 @@ export function createSubmissionBuilder(context: Context) {
             if (context.showReferenceAudio && context.referenceAudioUrl.trim()) {
                 data.reference_audio_url = context.referenceAudioUrl.trim();
             }
+        } else if (refs.length === 1) {
+            data.reference_image_urls = refs;
         }
         if (videos.length) {
             data.reference_video_urls = videos.slice(0, 2);

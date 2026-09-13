@@ -1,6 +1,6 @@
 import styles from './index.module.scss';
 import { StoryboardDraftPanel } from '../StoryboardDraftPanel';
-import type { SceneAssetBindingProgress, ShortDramaProjectControls, ShotVideoPreview } from '../types';
+import type { AssetBindingOptions, SceneAssetBindingProgress, ShortDramaProjectControls, ShotVideoPreview } from '../types';
 import { ProjectManagementControls } from '@/features/projects/components/ProjectManagementControls';
 import type { EditorDraft } from '@/features/script/components/ShotBuilderDialog/draft';
 import type { ProjectAsset } from '@/shared/contracts/production';
@@ -21,10 +21,14 @@ type Props = {
     pendingShotCount?: number;
     shotVideoPreviews?: ShotVideoPreview[];
     onContinueShotQueue?: () => void | Promise<void>;
-    onAutoBindSceneAssets?: () => void | Promise<void>;
+    onAutoBindSceneAssets?: (options?: AssetBindingOptions) => void | Promise<void>;
     isAutoBindingSceneAssets?: boolean;
     sceneAssetBindingError?: string | null;
     sceneAssetBindingProgress?: SceneAssetBindingProgress | null;
+    onAutoBindCharacterAssets?: (options?: AssetBindingOptions) => void | Promise<void>;
+    isAutoBindingCharacterAssets?: boolean;
+    characterAssetBindingError?: string | null;
+    characterAssetBindingProgress?: SceneAssetBindingProgress | null;
 };
 
 function WorkflowActions({
@@ -58,7 +62,11 @@ export function DramaLaunchPanel({
     onAutoBindSceneAssets,
     isAutoBindingSceneAssets,
     sceneAssetBindingError,
-    sceneAssetBindingProgress
+    sceneAssetBindingProgress,
+    onAutoBindCharacterAssets,
+    isAutoBindingCharacterAssets,
+    characterAssetBindingError,
+    characterAssetBindingProgress
 }: Props) {
     const t = useTranslations();
 
@@ -96,6 +104,10 @@ export function DramaLaunchPanel({
                     isAutoBindingSceneAssets={isAutoBindingSceneAssets}
                     sceneAssetBindingError={sceneAssetBindingError}
                     sceneAssetBindingProgress={sceneAssetBindingProgress}
+                    onAutoBindCharacterAssets={onAutoBindCharacterAssets}
+                    isAutoBindingCharacterAssets={isAutoBindingCharacterAssets}
+                    characterAssetBindingError={characterAssetBindingError}
+                    characterAssetBindingProgress={characterAssetBindingProgress}
                 />
             ) : null}
         </section>

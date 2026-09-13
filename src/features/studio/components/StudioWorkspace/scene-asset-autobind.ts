@@ -1,7 +1,6 @@
 import { assetIdFromReferenceUrl } from '@/features/assets/reference/origin';
 import { db } from '@/features/assets/storage/db';
-import { compileShotPrompt } from '@/features/generation/components/CreationForm/shot-queue';
-import type { SceneAssetBindingProgress } from '@/features/generation/components/CreationForm/types';
+import type { AssetBindingOptions, SceneAssetBindingProgress } from '@/features/generation/components/CreationForm/types';
 import type { EditorDraft } from '@/features/script/components/ShotBuilderDialog/draft';
 import type { GeneratedImage, ImageSizeId } from '@/lib/image-service';
 import { uploadReferenceImage, type UserAsset } from '@/lib/media-archive';
@@ -20,6 +19,7 @@ type AutoBindSceneAssetsInput = {
     reviewAsset: (input: { url: string; name: string; origin: 'no-person'; assetType: 'Image' }) => Promise<string>;
     resolveKey: () => Promise<string | null>;
     onProgress?: (draft: EditorDraft, progress: SceneAssetBindingProgress) => void;
+    options?: AssetBindingOptions;
 };
 
 function imageSizeForRatio(ratio: VideoRatio): ImageSizeId {
@@ -37,23 +37,34 @@ function findSceneImageAsset(sceneName: string, assets: UserAsset[], usedUrls: R
     });
 }
 
-function sceneShotPrompts(draft: EditorDraft, sceneId: string) {
+function sceneEnvironmentNotes(draft: EditorDraft, sceneId: string) {
     return draft.shots
         .map((shot, index) => ({ shot, index }))
         .filter(({ shot }) => shot.sceneId === sceneId)
-        .map(({ shot, index }) => shot.prompt?.trim() || compileShotPrompt(shot, index, draft.shots.length))
+        .slice(0, 4)
+        .map(({ shot, index }) =>
+            [
+                `Shot ${index + 1} environment: ${shot.description}`,
+                shot.camera ? `Camera and lighting: ${shot.camera}` : ''
+            ]
+                .filter(Boolean)
+                .join('\n')
+        )
         .filter(Boolean);
 }
 
 function sceneImagePrompt(input: Pick<AutoBindSceneAssetsInput, 'basePrompt' | 'styleNote' | 'draft'>, scene: EditorDraft['scenes'][number]) {
-    const prompts = sceneShotPrompts(input.draft, scene.id);
+    const environmentNotes = sceneEnvironmentNotes(input.draft, scene.id);
     return [
         input.basePrompt,
         input.styleNote,
-        `Scene reference image: ${scene.name}`,
-        ...prompts,
-        prompts.length === 0 ? scene.description : '',
-        'Cinematic establishing shot, no subtitles, no text overlay, clean production reference.'
+        `Pure background scene reference image: ${scene.name}`,
+        scene.description,
+        ...environmentNotes,
+        'Generate the environment only: architecture, room layout, props, lighting, weather, time of day, and atmosphere.',
+        'No people, no characters, no faces, no bodies, no silhouettes, no pedestrians, no crowd, no human reflections.',
+        'Do not include the story characters in this background asset.',
+        'Cinematic empty establishing shot, no subtitles, no text overlay, clean production reference.'
     ].filter(Boolean).join('\n');
 }
 
@@ -83,13 +94,16 @@ export async function autoBindSceneAssets(input: AutoBindSceneAssetsInput): Prom
     const latestAssets = [...input.imageAssets, ...(await input.loadImageAssets())];
     const usedUrls = new Set<string>();
     let nextDraft = structuredClone(input.draft);
-    const scenesToBind = input.draft.scenes.filter((scene) => !scene.assetId);
+    const scenesToBind = input.draft.scenes.filter((scene) => {
+        if (input.options?.targetId) return scene.id === input.options.targetId;
+        return input.options?.forceGenerate ? true : !scene.assetId;
+    });
     let completed = 0;
 
     for (const scene of scenesToBind) {
         try {
             input.onProgress?.(nextDraft, { done: completed, total: scenesToBind.length });
-            const matchedAsset = findSceneImageAsset(scene.name, latestAssets, usedUrls);
+            const matchedAsset = input.options?.forceGenerate ? undefined : findSceneImageAsset(scene.name, latestAssets, usedUrls);
             const imageUrl = matchedAsset?.url ?? (await generatedSceneImageUrl(input, scene));
             if (!imageUrl) throw new Error('Image generation returned no usable URL.');
             usedUrls.add(imageUrl);

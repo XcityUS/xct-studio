@@ -6,7 +6,6 @@ import { PDFParse, type ParseParameters } from 'pdf-parse';
 import {
     getDocument,
     GlobalWorkerOptions,
-    type TextItem,
     VerbosityLevel
 } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import 'server-only';
@@ -124,8 +123,7 @@ async function extractPdfWithPdfjs(
                 const page = await document.getPage(pageNumber);
                 const content = await page.getTextContent(textOptions);
                 const text = content.items
-                    .filter((item): item is TextItem => 'str' in item)
-                    .map((item) => item.str)
+                    .flatMap((item) => 'str' in item ? [item.str] : [])
                     .join(' ');
                 const normalized = normalizeExtractedText(text);
 

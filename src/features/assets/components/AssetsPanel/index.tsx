@@ -1,5 +1,8 @@
 'use client';
 
+import { businessStorage } from '@/features/persistence/store';
+
+
 import { AssetImageDropdown } from './AssetImageDropdown';
 import { AssetLibrary } from './AssetLibrary';
 import { AssetStrip } from './AssetStrip';
@@ -16,6 +19,7 @@ import { AssetIdIntake } from '@/features/assets/components/AssetIdIntake';
 import { usePortraitStatusCheck } from '@/features/assets/hooks/use-portrait-status-check';
 import { useProcessingPortraitRefresh } from '@/features/assets/hooks/use-processing-portrait-refresh';
 import { useProviderAssetList } from '@/features/assets/hooks/use-provider-asset-list';
+import { ProviderErrorNotice } from '@/features/assets/components/ProviderErrorNotice';
 import { validateAssetImage } from '@/features/assets/image/validation';
 import type { PortraitGroup, PortraitGroupType } from '@/features/assets/portrait/api';
 import { createAndTrackPortraitAsset } from '@/features/assets/portrait/track';
@@ -35,7 +39,7 @@ function assetNameAliasKey(asset: UserAsset): string {
 function readAssetNameAliases(): Record<string, string> {
     if (typeof window === 'undefined') return {};
     try {
-        const parsed = JSON.parse(window.localStorage.getItem(ASSET_NAME_ALIASES_STORAGE_KEY) ?? '{}') as unknown;
+        const parsed = JSON.parse(businessStorage.getItem(ASSET_NAME_ALIASES_STORAGE_KEY) ?? '{}') as unknown;
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
         return Object.fromEntries(
             Object.entries(parsed)
@@ -49,7 +53,7 @@ function readAssetNameAliases(): Record<string, string> {
 
 function writeAssetNameAliases(aliases: Record<string, string>) {
     if (typeof window === 'undefined') return;
-    window.localStorage.setItem(ASSET_NAME_ALIASES_STORAGE_KEY, JSON.stringify(aliases));
+    businessStorage.setItem(ASSET_NAME_ALIASES_STORAGE_KEY, JSON.stringify(aliases));
 }
 
 function applyAssetNameAlias(asset: UserAsset, aliases: Record<string, string>): UserAsset {
@@ -547,7 +551,7 @@ export function AssetsPanel({
             </CardHeader>
             <CardContent className='flex-grow overflow-y-auto p-4'>
                 {error && <p className='mb-3 text-sm text-red-400'>{error}</p>}
-                {providerAssetsError && <p className='mb-3 text-sm text-red-400'>{providerAssetsError}</p>}
+                {providerAssetsError && <ProviderErrorNotice error={providerAssetsError} />}
                 <AssetIdIntake onAttachAssetId={onAttachAssetId} />
                 {characters.length > 0 && (
                     <div className='mb-4 space-y-2 border-b border-white/10 pb-4'>
@@ -651,7 +655,7 @@ export function AssetsPanel({
 
                         {portraitNotice && <p className='text-xs text-emerald-300'>{portraitNotice}</p>}
                         {portraitStatus && <p className='text-xs text-white/50'>{portraitStatus}</p>}
-                        {portraitError && <p className='text-xs text-red-400'>{portraitError}</p>}
+                        {portraitError && portraitError !== providerAssetsError && <ProviderErrorNotice error={portraitError} />}
 
                         <AssetStrip assets={verifiedPortraits} kind='verified' onRemove={removePortrait} />
 

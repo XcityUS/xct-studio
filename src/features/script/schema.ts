@@ -5,6 +5,7 @@ import type {
     ScriptSceneDraft,
     ShotDraft
 } from '@/features/script/types';
+import { inferShotCharacterIds } from './character-matching';
 import { inferShotSceneId, resolveSceneId } from './scene-matching';
 
 export const MAX_SCRIPT_FILE_BYTES = 20 * 1024 * 1024;
@@ -165,9 +166,11 @@ export function normalizeShotDrafts(value: unknown, characters: ScriptCharacterD
                 ? { continuitySourceShotId: text(record.continuitySourceShotId ?? record.continuity_source_shot_id) }
                 : {})
         };
+        const inferredCharacterIds = inferShotCharacterIds(shot, characters);
+        const normalizedShot = inferredCharacterIds.length ? { ...shot, characterIds: inferredCharacterIds } : shot;
         const sceneReference = text(record.sceneId ?? record.scene_id ?? record.sceneName ?? record.scene_name ?? record.scene ?? record.location);
-        const sceneId = sceneReference ? resolveSceneId(sceneReference, scenes) ?? sceneReference : inferShotSceneId(shot, scenes);
-        return sceneId ? { ...shot, sceneId } : shot;
+        const sceneId = sceneReference ? resolveSceneId(sceneReference, scenes) ?? sceneReference : inferShotSceneId(normalizedShot, scenes);
+        return sceneId ? { ...normalizedShot, sceneId } : normalizedShot;
     });
 }
 

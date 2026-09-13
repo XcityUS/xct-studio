@@ -1,4 +1,5 @@
 import { StudioWorkspace } from '@/features/studio/components/StudioWorkspace';
+import { BusinessWorkspace } from '@/features/persistence/components/BusinessWorkspace';
 import type { AppLocale } from '@/i18n/routing';
 
 type StudioLayoutProps = {
@@ -10,9 +11,9 @@ export default async function StudioLayout({ children, params }: StudioLayoutPro
     const { locale } = await params;
 
     return (
-        <>
-            <StudioWorkspace locale={locale as AppLocale} />
+        <div data-studio-route>
+            <BusinessWorkspace><StudioWorkspace locale={locale as AppLocale} /></BusinessWorkspace>
             {children}
-        </>
+        </div>
     );
 }

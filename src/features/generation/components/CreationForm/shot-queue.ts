@@ -1,3 +1,4 @@
+import { businessStorage } from '@/features/persistence/store';
 import type { CreationFormData } from './types';
 import type { EditorDraft } from '@/features/script/components/ShotBuilderDialog/draft';
 import { SILENT_VOICE_LANGUAGE } from '@/features/script/prompt/guards';
@@ -151,7 +152,7 @@ export function appendProjectReferenceUrls(
     productionSnapshot: ProductionSnapshot | undefined,
     maxReferences: number
 ): string[] {
-    const refs = [...referenceUrls.map((url) => url.trim()).filter(Boolean)];
+    const refs: string[] = [];
     const shotAssetUrls = productionSnapshot?.shot?.assetIds
         ?.map((assetId) => assetId.trim())
         .filter((assetId) => assetId.startsWith('asset://') || assetId.startsWith('asset-'))
@@ -161,9 +162,9 @@ export function appendProjectReferenceUrls(
             .filter((binding) => ['character', 'location', 'prop', 'image', 'style'].includes(binding.role))
             .map((binding) => binding.referenceUrl?.trim())
             .filter((url): url is string => Boolean(url)) ?? []),
-        ...shotAssetUrls
+        ...referenceUrls.map((url) => url.trim()).filter(Boolean)
     ];
-    for (const url of projectReferenceUrls) {
+    for (const url of [...shotAssetUrls, ...projectReferenceUrls]) {
         if (refs.length >= maxReferences) break;
         if (!refs.includes(url)) refs.push(url);
     }
@@ -187,7 +188,7 @@ function isShotQueueItem(value: unknown): value is ShotQueueItem {
 function readAllShotQueue(): ShotQueueItem[] {
     if (typeof window === 'undefined') return [];
     try {
-        const parsed = JSON.parse(window.localStorage.getItem(SHOT_QUEUE_STORAGE_KEY) ?? '[]') as unknown;
+        const parsed = JSON.parse(businessStorage.getItem(SHOT_QUEUE_STORAGE_KEY) ?? '[]') as unknown;
         return Array.isArray(parsed) ? parsed.filter(isShotQueueItem).sort((a, b) => a.order - b.order) : [];
     } catch {
         return [];
@@ -217,8 +218,8 @@ export function writeShotQueue(items: ShotQueueItem[], scope?: ShotQueueScope) {
           ].sort((a, b) => a.order - b.order)
         : items;
     if (nextItems.length === 0) {
-        window.localStorage.removeItem(SHOT_QUEUE_STORAGE_KEY);
+        businessStorage.removeItem(SHOT_QUEUE_STORAGE_KEY);
         return;
     }
-    window.localStorage.setItem(SHOT_QUEUE_STORAGE_KEY, JSON.stringify(nextItems));
+    businessStorage.setItem(SHOT_QUEUE_STORAGE_KEY, JSON.stringify(nextItems));
 }

@@ -1,5 +1,6 @@
 'use client';
 
+import { executeShotQueue } from './queue-execution';
 import { CharacterSelectors } from './CharacterSelectors';
 import { DramaLaunchPanel } from './DramaLaunchPanel';
 import { InlineError } from './InlineError';
@@ -68,7 +69,7 @@ import { ChevronDown, CreditCard, HelpCircle, Lightbulb, Loader2, Sparkles, Undo
 import { useTranslations } from 'next-intl';
 import * as React from 'react';
 
-export type { CreationFormData, SceneAssetBindingProgress, ShotVideoPreview } from './types';
+export type { AssetBindingOptions, CreationFormData, SceneAssetBindingProgress, ShotVideoPreview } from './types';
 
 export function CreationForm({
     onSubmit,
@@ -127,6 +128,7 @@ export function CreationForm({
     onOptimizePrompt,
     onBreakdownScript,
     onAutoBindSceneAssets,
+    onAutoBindCharacterAssets,
     projectAssets = [], projectConfig, buildProductionSnapshot, onOpenAssets, projectControls, storyboardEditorOpen, onStoryboardEditorOpenChange, onStoryboardDraftChange, shotVideoPreviews = [],
     notice,
     onClearNotice,
@@ -193,6 +195,7 @@ export function CreationForm({
     const pendingShotCount = shotQueue.length;
     const shotDraftKey = projectConfig?.id ?? buildProductionSnapshot?.().project.id ?? 'normal';
     const [storyboardDraft, setStoryboardDraft] = React.useState<EditorDraft | undefined>(() => recalledDraft(shotDraftKey));
+    const storyboardDraftRef = React.useRef(storyboardDraft);
     const shotQueueScope = React.useMemo<ShotQueueScope>(
         () => ({ projectKey: shotDraftKey, draftSignature: storyboardQueueSignature(storyboardDraft) }),
         [shotDraftKey, storyboardDraft]
@@ -231,17 +234,53 @@ export function CreationForm({
         const frame = window.requestAnimationFrame(() => setShotQueue(readShotQueue(shotQueueScope)));
         return () => window.cancelAnimationFrame(frame);
     }, [shotQueueScope]);
-    React.useEffect(() => { const frame = window.requestAnimationFrame(() => setStoryboardDraft(recalledDraft(shotDraftKey))); return () => window.cancelAnimationFrame(frame); }, [shotDraftKey]);
+    React.useEffect(() => {
+        const frame = window.requestAnimationFrame(() => {
+            const recalled = recalledDraft(shotDraftKey);
+            storyboardDraftRef.current = recalled;
+            setStoryboardDraft(recalled);
+        });
+        return () => window.cancelAnimationFrame(frame);
+    }, [shotDraftKey]);
 
     const handleStoryboardDraftChange = React.useCallback(
         (draft: EditorDraft) => {
             const nextDraft = structuredClone(draft);
+            storyboardDraftRef.current = nextDraft;
             rememberDraft(shotDraftKey, nextDraft);
             setStoryboardDraft(nextDraft);
             onStoryboardDraftChange?.(nextDraft);
         },
         [onStoryboardDraftChange, shotDraftKey]
     );
+    const mergeAssetBindings = React.useCallback((draft: EditorDraft, baseDraft?: EditorDraft) => {
+        const current = storyboardDraftRef.current;
+        if (!current) {
+            handleStoryboardDraftChange(draft);
+            return;
+        }
+        const baseCharacterAssets = new Map(baseDraft?.characters.map((item) => [item.id, item.assetId]));
+        const baseSceneAssets = new Map(baseDraft?.scenes.map((item) => [item.id, item.assetId]));
+        const characterAssets = new Map(
+            draft.characters
+                .filter((item) => item.assetId !== baseCharacterAssets.get(item.id))
+                .map((item) => [item.id, item.assetId])
+        );
+        const sceneAssets = new Map(
+            draft.scenes
+                .filter((item) => item.assetId !== baseSceneAssets.get(item.id))
+                .map((item) => [item.id, item.assetId])
+        );
+        handleStoryboardDraftChange({
+            ...current,
+            characters: current.characters.map((item) =>
+                characterAssets.has(item.id) ? { ...item, assetId: characterAssets.get(item.id) } : item
+            ),
+            scenes: current.scenes.map((item) =>
+                sceneAssets.has(item.id) ? { ...item, assetId: sceneAssets.get(item.id) } : item
+            )
+        });
+    }, [handleStoryboardDraftChange]);
 
     React.useEffect(() => {
         if (!supportsDraftMode) {
@@ -393,24 +432,7 @@ export function CreationForm({
 
     const processShotQueue = async (initialQueue = shotQueue) => {
         if (blockedReferences.length > 0 || isGeneratingShotBatch) return;
-        let remaining = initialQueue.slice(0, SHOT_GENERATION_BATCH_LIMIT);
-        const deferred = initialQueue.slice(SHOT_GENERATION_BATCH_LIMIT);
-        if (remaining.length === 0) return;
-        setIsGeneratingShotBatch(true);
-        try {
-            while (remaining.length > 0) {
-                const item = remaining[0];
-                const shotIndex = item.data.episode_shot?.shotIndex;
-                const replacesItemId = shotIndex
-                    ? shotVideoPreviews?.find((preview) => preview.shotIndex === shotIndex)?.jobId
-                    : undefined;
-                await onSubmit(item.data, { title: item.title, replacesItemId, rethrowOnError: true, onSubmitStage: () => undefined });
-                remaining = remaining.slice(1);
-                setShotQueue([...remaining, ...deferred]);
-            }
-        } finally {
-            setIsGeneratingShotBatch(false);
-        }
+        await executeShotQueue({ items: initialQueue, limit: SHOT_GENERATION_BATCH_LIMIT, previews: shotVideoPreviews, onSubmit, onUpdate: updateShotQueue, onBusy: setIsGeneratingShotBatch });
     };
 
     const handleGenerateShot = async (shot: EditorDraft['shots'][number], index: number) => {
@@ -430,7 +452,29 @@ export function CreationForm({
         updateShotQueue(items);
         await processShotQueue(items);
     };
-    const sceneAssetAutobind = useSceneAssetAutobind({ draft: storyboardDraft, onAutoBind: onAutoBindSceneAssets, onDraftChange: handleStoryboardDraftChange });
+    const sceneAssetAutobind = useSceneAssetAutobind({
+        draft: storyboardDraft,
+        onAutoBind: onAutoBindSceneAssets,
+        onDraftChange: mergeAssetBindings,
+        getTotal: (value, options) =>
+            options?.targetId
+                ? value.scenes.filter((scene) => scene.id === options.targetId).length
+                : options?.forceGenerate
+                  ? value.scenes.length
+                : value.scenes.filter((scene) => !scene.assetId).length
+    });
+    const characterAssetAutobind = useSceneAssetAutobind({
+        draft: storyboardDraft,
+        onAutoBind: onAutoBindCharacterAssets,
+        onDraftChange: mergeAssetBindings,
+        getTotal: (value, options) =>
+            options?.targetId
+                ? value.characters.filter((character) => character.id === options.targetId).length
+                : options?.forceGenerate
+                  ? value.characters.length
+                : value.characters.filter((character) => !character.assetId).length,
+        fallbackError: 'Character asset auto binding failed.'
+    });
 
     return (
         <Card className='flex h-full w-full flex-col overflow-hidden rounded-lg border border-white/10 bg-black'>
@@ -477,6 +521,7 @@ export function CreationForm({
                             shotVideoPreviews={shotVideoPreviews}
                             onContinueShotQueue={() => void processShotQueue()}
                             onAutoBindSceneAssets={sceneAssetAutobind.run} isAutoBindingSceneAssets={sceneAssetAutobind.busy} sceneAssetBindingError={sceneAssetAutobind.error} sceneAssetBindingProgress={sceneAssetAutobind.progress}
+                            onAutoBindCharacterAssets={characterAssetAutobind.run} isAutoBindingCharacterAssets={characterAssetAutobind.busy} characterAssetBindingError={characterAssetAutobind.error} characterAssetBindingProgress={characterAssetAutobind.progress}
                         />
                     ) : (
                         <>

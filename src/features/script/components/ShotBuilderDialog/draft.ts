@@ -1,3 +1,4 @@
+import { businessStorage, businessOwner } from '@/features/persistence/store';
 import type { ScriptCharacterDraft, ScriptSceneDraft, ShotDraft } from '@/features/script/types';
 import { ensureShotSceneIds } from '@/features/script/scene-matching';
 
@@ -14,6 +15,10 @@ export type EditorDraft = {
 // Browser-local editor cache, not cloud persistence or the generation queue.
 const drafts = new Map<string, EditorDraft>();
 
+export function clearRememberedDrafts(owner: string) {
+    for (const key of drafts.keys()) if (key.startsWith(`${owner}:`)) drafts.delete(key);
+}
+
 const STORAGE_PREFIX = 'xctStudioStoryboardDraft:';
 
 function isEditorDraft(value: unknown): value is EditorDraft {
@@ -24,21 +29,21 @@ function isEditorDraft(value: unknown): value is EditorDraft {
 
 export function rememberDraft(key: string, draft: EditorDraft) {
     const copy = structuredClone(draft);
-    drafts.set(key, copy);
+    drafts.set(`${businessOwner()}:${key}`, copy);
     if (typeof window !== 'undefined') {
         try {
-            window.localStorage.setItem(`${STORAGE_PREFIX}${key}`, JSON.stringify(copy));
+            businessStorage.setItem(`${STORAGE_PREFIX}${key}`, JSON.stringify(copy));
         } catch {
             // Keep the in-memory copy even when browser storage is unavailable or full.
         }
     }
 }
 export function recalledDraft(key: string): EditorDraft | undefined {
-    const value = drafts.get(key);
+    const value = drafts.get(`${businessOwner()}:${key}`);
     if (value) return structuredClone(value);
     if (typeof window === 'undefined') return undefined;
     try {
-        const parsed = JSON.parse(window.localStorage.getItem(`${STORAGE_PREFIX}${key}`) ?? 'null') as unknown;
+        const parsed = JSON.parse(businessStorage.getItem(`${STORAGE_PREFIX}${key}`) ?? 'null') as unknown;
         return isEditorDraft(parsed)
             ? {
                   ...parsed,

@@ -6,6 +6,7 @@ import { ShotCard } from './ShotCard';
 import { recalledDraft, rememberDraft, validShots, type EditorDraft, type EditorShot } from './draft';
 import styles from './index.module.scss';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/Dialog';
+import { ensureShotCharacterIds } from '@/features/script/character-matching';
 import { ensureShotSceneIds } from '@/features/script/scene-matching';
 import type { ScriptAnalysisDraft } from '@/features/script/types';
 import type { ProjectAsset } from '@/shared/contracts/production';
@@ -57,11 +58,13 @@ export function ShotBuilderDialog({
     });
     const [draft, setDraft] = React.useState<EditorDraft>(() => {
         const recalled = recalledDraft(draftKey);
+        const characters = recalled?.characters ?? [];
+        const scenes = recalled?.scenes ?? [];
         return recalled ? {
             ...recalled,
-            characters: recalled.characters ?? [],
-            scenes: recalled.scenes ?? [],
-            shots: ensureShotSceneIds(recalled.shots, recalled.scenes ?? [])
+            characters,
+            scenes,
+            shots: ensureShotCharacterIds(ensureShotSceneIds(recalled.shots, scenes), characters)
         } : {
             ...emptyDraft(),
             shots: [{ id: 'initial', description: '', durationSeconds: defaultDurationSeconds }]
@@ -78,7 +81,7 @@ export function ShotBuilderDialog({
     const update = (patch: Partial<EditorDraft>) =>
         setDraft((current) => {
             const next = { ...current, ...patch };
-            return { ...next, shots: ensureShotSceneIds(next.shots, next.scenes) };
+            return { ...next, shots: ensureShotCharacterIds(ensureShotSceneIds(next.shots, next.scenes), next.characters) };
         });
     React.useEffect(() => {
         if (isOpen) return;
@@ -114,7 +117,7 @@ export function ShotBuilderDialog({
             update({
                 characters: result.characters,
                 scenes: result.scenes,
-                shots: ensureShotSceneIds(result.shots, result.scenes).map((shot) => ({
+                shots: ensureShotCharacterIds(ensureShotSceneIds(result.shots, result.scenes), result.characters).map((shot) => ({
                     ...shot,
                     id: shot.id || crypto.randomUUID(),
                     durationSeconds: shot.durationSeconds ?? defaultDurationSeconds

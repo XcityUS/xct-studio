@@ -8,3 +8,23 @@
     flex: 1;
     min-width: 0;
 }
+
+.content:has([data-studio-route]) {
+    display: flex;
+    flex-direction: column;
+}
+
+.content:has([data-studio-route]) > [data-studio-route] {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    flex-direction: column;
+}
+
+.content:has([data-studio-route]) main {
+    flex: 1;
+}
+
+.content:has([data-studio-route]) + [data-site-footer] {
+    display: none;
+}

@@ -30,6 +30,7 @@ export function shotVideoPreviewsForProject({ history, activeJobs, projectId, ge
             jobId: item.id,
             generatedAt: item.timestamp,
             hasAudio: item.createParams?.generate_audio === true,
+            ratio: item.createParams?.ratio,
             videoSrc: getVideoSrc(item.id) ?? item.storedUrl ?? item.providerUrl,
             thumbnailSrc: getThumbnailSrc(item.id),
             cost: item.costDetails?.totalCost,

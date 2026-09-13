@@ -1,10 +1,12 @@
 'use client';
 
 import { compileShotPrompt } from '@/features/generation/components/CreationForm/shot-queue';
-import type { SceneAssetBindingProgress, ShotVideoPreview as ShotVideoPreviewItem } from '@/features/generation/components/CreationForm/types';
+import type { AssetBindingOptions, SceneAssetBindingProgress, ShotVideoPreview as ShotVideoPreviewItem } from '@/features/generation/components/CreationForm/types';
 import type { EditorDraft } from '@/features/script/components/ShotBuilderDialog/draft';
+import { inferShotCharacterIds } from '@/features/script/character-matching';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/Dialog';
 import { Dropdown } from '@/components/ui/Dropdown';
+import { requestExclusiveVideoPlayback, useExclusiveHtmlVideoPlayback } from '@/shared/media/exclusive-video-playback';
 import type { ProjectAsset } from '@/shared/contracts/production';
 import { Copy, Loader2, Wand2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -24,10 +26,14 @@ type Props = {
     pendingShotCount?: number;
     shotVideoPreviews?: ShotVideoPreviewItem[];
     onContinueShotQueue?: () => void | Promise<void>;
-    onAutoBindSceneAssets?: () => void | Promise<void>;
+    onAutoBindSceneAssets?: (options?: AssetBindingOptions) => void | Promise<void>;
     isAutoBindingSceneAssets?: boolean;
     sceneAssetBindingError?: string | null;
     sceneAssetBindingProgress?: SceneAssetBindingProgress | null;
+    onAutoBindCharacterAssets?: (options?: AssetBindingOptions) => void | Promise<void>;
+    isAutoBindingCharacterAssets?: boolean;
+    characterAssetBindingError?: string | null;
+    characterAssetBindingProgress?: SceneAssetBindingProgress | null;
 };
 
 function shortAssetId(assetId: string) {
@@ -39,8 +45,15 @@ function normalizeBoundAssetId(assetId: string | undefined) {
     return value || undefined;
 }
 
+function videoAspectRatio(ratio: string | undefined) {
+    return ratio?.replace(':', ' / ') ?? '16 / 9';
+}
+
 function ShotVideoPreviewRow({ preview }: { preview?: ShotVideoPreviewItem }) {
     const t = useTranslations();
+    const videoRef = React.useRef<HTMLVideoElement | null>(null);
+    const playbackToken = `storyboard-shot:${preview?.jobId ?? 'empty'}`;
+    useExclusiveHtmlVideoPlayback(videoRef, playbackToken);
     if (!preview) return null;
     const labels = {
         queued: t('Queued'),
@@ -67,7 +80,15 @@ function ShotVideoPreviewRow({ preview }: { preview?: ShotVideoPreviewItem }) {
                 {preview.videoSrc && <button type='button' onClick={copyUrl}>{t('Copy URL')}</button>}
             </div>
             <span className={styles.videoProgress}><i style={{ width: `${preview.progress}%` }} /></span>
-            {preview.videoSrc && <video controls poster={preview.thumbnailSrc ?? undefined} src={preview.videoSrc} />}
+            {preview.videoSrc && (
+                <video
+                    ref={videoRef}
+                    controls
+                    poster={preview.thumbnailSrc ?? undefined}
+                    src={preview.videoSrc}
+                    style={{ aspectRatio: videoAspectRatio(preview.ratio) }}
+                />
+            )}
             {preview.error && <p>{preview.error}</p>}
         </div>
     );
@@ -82,8 +103,12 @@ function EpisodeVideoPreview({ previews, shotCount }: { previews: ShotVideoPrevi
     const [activeIndex, setActiveIndex] = React.useState(0);
     const [playing, setPlaying] = React.useState(false);
     const videoRef = React.useRef<HTMLVideoElement>(null);
+    const playbackToken = 'storyboard-sequence-player';
+    const stopPlaying = React.useCallback(() => setPlaying(false), []);
+    useExclusiveHtmlVideoPlayback(videoRef, playbackToken, stopPlaying);
     const safeActiveIndex = Math.min(activeIndex, Math.max(playlist.length - 1, 0));
     const active = playlist[safeActiveIndex];
+    const next = playlist[safeActiveIndex + 1];
     React.useEffect(() => {
         if (!playing || !videoRef.current) return;
         videoRef.current.load();
@@ -97,14 +122,30 @@ function EpisodeVideoPreview({ previews, shotCount }: { previews: ShotVideoPrevi
                 <strong>{t('Video Output')}</strong>
                 <span>{t('Ready <lcur>ready<rcur><slash><lcur>total<rcur> shots', { ready: playlist.length, total: shotCount })}</span>
                 {missing > 0 && <span>{t('<lcur>count<rcur> missing', { count: missing })}</span>}
-                <button type='button' disabled={!active} onClick={() => { setActiveIndex(0); setPlaying(true); }}>
+                <button type='button' disabled={!active} onClick={() => { requestExclusiveVideoPlayback(playbackToken); setActiveIndex(0); setPlaying(true); }}>
                     {t('Play output')}
                 </button>
             </div>
             {active ? (
                 <>
                     <span className={styles.videoProgress}><i style={{ width: `${((safeActiveIndex + 1) / playlist.length) * 100}%` }} /></span>
-                    <video ref={videoRef} controls poster={active.thumbnailSrc ?? undefined} src={active.videoSrc} onEnded={() => (safeActiveIndex + 1 < playlist.length ? setActiveIndex(safeActiveIndex + 1) : setPlaying(false))} />
+                    <video
+                        ref={videoRef}
+                        controls
+                        poster={active.thumbnailSrc ?? undefined}
+                        src={active.videoSrc}
+                        preload='auto'
+                        style={{ aspectRatio: videoAspectRatio(active.ratio) }}
+                        onEnded={() => (safeActiveIndex + 1 < playlist.length ? setActiveIndex(safeActiveIndex + 1) : setPlaying(false))}
+                    />
+                    {next?.videoSrc && (
+                        <video
+                            aria-hidden='true'
+                            className={styles.preloadVideo}
+                            preload='auto'
+                            src={next.videoSrc}
+                        />
+                    )}
                     <p>{t('Shot <lcur>number<rcur>', { number: active.shotIndex })}</p>
                 </>
             ) : (
@@ -117,11 +158,15 @@ function EpisodeVideoPreview({ previews, shotCount }: { previews: ShotVideoPrevi
 function AssetIdBindingInput({
     assetId,
     ariaLabel,
-    onCommit
+    onCommit,
+    onRegenerate,
+    isRegenerating = false
 }: {
     assetId?: string;
     ariaLabel: string;
     onCommit: (assetId?: string) => void;
+    onRegenerate?: () => void | Promise<void>;
+    isRegenerating?: boolean;
 }) {
     const t = useTranslations();
     const [value, setValue] = React.useState('');
@@ -152,8 +197,8 @@ function AssetIdBindingInput({
                         <code>{shortAssetId(assetId)}</code>
                         <Copy aria-hidden='true' size={13} />
                     </button>
-                    <button type='button' onClick={handleUpdateAssetId}>
-                        {t('Update')}
+                    <button type='button' disabled={isRegenerating} onClick={onRegenerate ?? handleUpdateAssetId}>
+                        {isRegenerating ? t('Regenerating') : t('Update')}
                     </button>
                 </div>
                 <Dialog open={editingOpen} onOpenChange={setEditingOpen}>
@@ -225,7 +270,11 @@ export function StoryboardDraftPanel({
     onAutoBindSceneAssets,
     isAutoBindingSceneAssets = false,
     sceneAssetBindingError,
-    sceneAssetBindingProgress
+    sceneAssetBindingProgress,
+    onAutoBindCharacterAssets,
+    isAutoBindingCharacterAssets = false,
+    characterAssetBindingError,
+    characterAssetBindingProgress
 }: Props) {
     const t = useTranslations();
     const [tab, setTab] = React.useState<Tab>('shots');
@@ -234,6 +283,7 @@ export function StoryboardDraftPanel({
 
     const totalDuration = draft.shots.reduce((sum, shot) => sum + (shot.durationSeconds ?? 0), 0);
     const sceneBindingPercent = sceneAssetBindingProgress?.total ? Math.round((sceneAssetBindingProgress.done / sceneAssetBindingProgress.total) * 100) : 0;
+    const characterBindingPercent = characterAssetBindingProgress?.total ? Math.round((characterAssetBindingProgress.done / characterAssetBindingProgress.total) * 100) : 0;
     const sceneNames = new Map(draft.scenes.map((scene) => [scene.id, scene.name]));
     const sceneOptions = [{ value: 'unbound', label: t('No scene') }, ...draft.scenes.map((scene) => ({ value: scene.id, label: scene.name }))];
     const updateShot = (id: string, patch: Partial<EditorDraft['shots'][number]>) =>
@@ -242,7 +292,8 @@ export function StoryboardDraftPanel({
         const shot = draft.shots.find((item) => item.id === shotId);
         const currentIds = shot?.characterIds ?? [];
         updateShot(shotId, {
-            characterIds: selected ? [...currentIds, characterId] : currentIds.filter((id) => id !== characterId)
+            characterIds: selected ? [...currentIds, characterId] : currentIds.filter((id) => id !== characterId),
+            characterSelectionMode: 'manual'
         });
     };
     const updateCharacterAsset = (id: string, assetId?: string) =>
@@ -309,12 +360,33 @@ export function StoryboardDraftPanel({
                 <section className={styles.section}>
                     <div className={styles.sectionTitle}>
                         <strong>{t('Character asset bindings')}</strong>
-                        {onOpenAssets && (
-                            <button type='button' className={styles.textButton} onClick={onOpenAssets}>
-                                {t('Upload or add image assets')}
-                            </button>
-                        )}
+                        <div className={styles.sectionActions}>
+                            {onOpenAssets && (
+                                <button type='button' className={styles.textButton} onClick={onOpenAssets}>
+                                    {t('Upload or add image assets')}
+                                </button>
+                            )}
+                            {onAutoBindCharacterAssets && draft.characters.length > 0 && (
+                                <button type='button' className={styles.textButton} disabled={isAutoBindingCharacterAssets} onClick={() => onAutoBindCharacterAssets({ forceGenerate: true })}>
+                                    {isAutoBindingCharacterAssets ? <Loader2 className={styles.spinner} size={13} /> : <Wand2 size={13} />}
+                                    {isAutoBindingCharacterAssets ? t('Batch updating') : t('Batch update')}
+                                </button>
+                            )}
+                            {onAutoBindCharacterAssets && draft.characters.some((character) => !character.assetId) && (
+                                <button type='button' className={styles.textButton} disabled={isAutoBindingCharacterAssets} onClick={() => onAutoBindCharacterAssets()}>
+                                    {isAutoBindingCharacterAssets ? <Loader2 className={styles.spinner} size={13} /> : <Wand2 size={13} />}
+                                    {isAutoBindingCharacterAssets ? t('Binding character assets') : t('Auto bind character assets')}
+                                </button>
+                            )}
+                        </div>
                     </div>
+                    {characterAssetBindingProgress && characterAssetBindingProgress.total > 0 && (
+                        <div className={styles.progress} aria-label={t('Progress')}>
+                            <span style={{ width: `${characterBindingPercent}%` }} />
+                            <em>{characterAssetBindingProgress.done}/{characterAssetBindingProgress.total}</em>
+                        </div>
+                    )}
+                    {characterAssetBindingError && <p className={styles.empty}>{characterAssetBindingError}</p>}
                     <div className={styles.stack}>
                         {draft.characters.length === 0 ? (
                             <p className={styles.empty}>{t('No characters extracted yet')}</p>
@@ -332,6 +404,8 @@ export function StoryboardDraftPanel({
                                         assetId={character.assetId}
                                         ariaLabel={t('Bind character asset')}
                                         onCommit={(assetId) => updateCharacterAsset(character.id, assetId)}
+                                        onRegenerate={() => onAutoBindCharacterAssets?.({ targetId: character.id, forceGenerate: true })}
+                                        isRegenerating={isAutoBindingCharacterAssets}
                                     />
                                 </article>
                             ))
@@ -343,17 +417,25 @@ export function StoryboardDraftPanel({
                 <section className={styles.section}>
                     <div className={styles.sectionTitle}>
                         <strong>{t('Scene asset bindings')}</strong>
-                        {onOpenAssets && (
-                            <button type='button' className={styles.textButton} onClick={onOpenAssets}>
-                                {t('Upload or add image assets')}
-                            </button>
-                        )}
-                        {onAutoBindSceneAssets && draft.scenes.some((scene) => !scene.assetId) && (
-                            <button type='button' className={styles.textButton} disabled={isAutoBindingSceneAssets} onClick={onAutoBindSceneAssets}>
-                                {isAutoBindingSceneAssets ? <Loader2 className={styles.spinner} size={13} /> : <Wand2 size={13} />}
-                                {isAutoBindingSceneAssets ? t('Binding scene assets') : t('Auto bind scene assets')}
-                            </button>
-                        )}
+                        <div className={styles.sectionActions}>
+                            {onOpenAssets && (
+                                <button type='button' className={styles.textButton} onClick={onOpenAssets}>
+                                    {t('Upload or add image assets')}
+                                </button>
+                            )}
+                            {onAutoBindSceneAssets && draft.scenes.length > 0 && (
+                                <button type='button' className={styles.textButton} disabled={isAutoBindingSceneAssets} onClick={() => onAutoBindSceneAssets({ forceGenerate: true })}>
+                                    {isAutoBindingSceneAssets ? <Loader2 className={styles.spinner} size={13} /> : <Wand2 size={13} />}
+                                    {isAutoBindingSceneAssets ? t('Batch updating') : t('Batch update')}
+                                </button>
+                            )}
+                            {onAutoBindSceneAssets && draft.scenes.some((scene) => !scene.assetId) && (
+                                <button type='button' className={styles.textButton} disabled={isAutoBindingSceneAssets} onClick={() => onAutoBindSceneAssets()}>
+                                    {isAutoBindingSceneAssets ? <Loader2 className={styles.spinner} size={13} /> : <Wand2 size={13} />}
+                                    {isAutoBindingSceneAssets ? t('Binding scene assets') : t('Auto bind scene assets')}
+                                </button>
+                            )}
+                        </div>
                     </div>
                     {sceneAssetBindingProgress && sceneAssetBindingProgress.total > 0 && (
                         <div className={styles.progress} aria-label={t('Progress')}>
@@ -377,6 +459,8 @@ export function StoryboardDraftPanel({
                                         assetId={scene.assetId}
                                         ariaLabel={t('Bind scene reference')}
                                         onCommit={(assetId) => updateSceneAsset(scene.id, assetId)}
+                                        onRegenerate={() => onAutoBindSceneAssets?.({ targetId: scene.id, forceGenerate: true })}
+                                        isRegenerating={isAutoBindingSceneAssets}
                                     />
                                 </article>
                             ))
@@ -392,12 +476,14 @@ export function StoryboardDraftPanel({
                     </div>
                     <div className={styles.shotList}>
                         {draft.shots.map((shot, index) => {
+                            const inferredCharacterIds = inferShotCharacterIds(shot, draft.characters);
                             const selectedCharacters = draft.characters.filter((character) =>
-                                shot.characterIds?.includes(character.id)
+                                inferredCharacterIds.includes(character.id)
                             );
                             const names = selectedCharacters.map((character) => character.name);
                             const characterAssetsBound =
                                 selectedCharacters.length > 0 && selectedCharacters.every((character) => character.assetId);
+                            const hasCharacterSelection = selectedCharacters.length > 0;
                             const promptPreview = compileShotPrompt(shot, index, draft.shots.length);
                             const editing = editingShotId === shot.id;
                             return (
@@ -406,8 +492,8 @@ export function StoryboardDraftPanel({
                                         <strong>{t('Shot <lcur>number<rcur>', { number: index + 1 })}</strong>
                                         <span>{shot.durationSeconds ?? 0}s</span>
                                         <span>{shot.sceneId ? sceneNames.get(shot.sceneId) : t('No scene')}</span>
-                                        <span className={characterAssetsBound ? styles.bound : styles.unbound}>
-                                            {characterAssetsBound ? t('Character assets bound') : t('Character assets not bound')}
+                                        <span className={characterAssetsBound ? styles.bound : hasCharacterSelection ? styles.unbound : undefined}>
+                                            {characterAssetsBound ? t('Character assets bound') : hasCharacterSelection ? t('Character assets not bound') : t('No characters')}
                                         </span>
                                         <button type='button' onClick={() => setEditingShotId(editing ? undefined : shot.id)}>
                                             {editing ? t('Done') : t('Edit')}

@@ -132,6 +132,7 @@ export function ShotCard({
                                     checked={selected}
                                     onChange={(event) =>
                                         update({
+                                            characterSelectionMode: 'manual',
                                             characterIds: event.target.checked
                                                 ? [...(shot.characterIds ?? []), character.id]
                                                 : (shot.characterIds ?? []).filter((id) => id !== character.id)

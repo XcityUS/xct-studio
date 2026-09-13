@@ -40,6 +40,11 @@ export type SceneAssetBindingProgress = {
     total: number;
 };
 
+export type AssetBindingOptions = {
+    targetId?: string;
+    forceGenerate?: boolean;
+};
+
 export type ShotVideoPreview = {
     shotIndex: number;
     status: 'queued' | 'processing' | 'completed' | 'failed';
@@ -47,6 +52,7 @@ export type ShotVideoPreview = {
     jobId: string;
     generatedAt: number;
     hasAudio: boolean;
+    ratio?: VideoRatio;
     videoSrc?: string;
     thumbnailSrc?: string | null;
     cost?: number;
@@ -119,7 +125,14 @@ export type CreationFormProps = {
     /** Generates/reviews missing scene assets and returns a draft with scene Asset IDs filled. */
     onAutoBindSceneAssets?: (
         draft: EditorDraft,
-        onProgress?: (draft: EditorDraft, progress: SceneAssetBindingProgress) => void
+        onProgress?: (draft: EditorDraft, progress: SceneAssetBindingProgress) => void,
+        options?: AssetBindingOptions
+    ) => Promise<EditorDraft>;
+    /** Generates/reviews missing character assets and returns a draft with character Asset IDs filled. */
+    onAutoBindCharacterAssets?: (
+        draft: EditorDraft,
+        onProgress?: (draft: EditorDraft, progress: SceneAssetBindingProgress) => void,
+        options?: AssetBindingOptions
     ) => Promise<EditorDraft>;
     projectAssets?: ProjectAsset[];
     projectConfig?: ShortDramaProject;

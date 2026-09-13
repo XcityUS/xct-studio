@@ -2,7 +2,7 @@
 
 import styles from './index.module.scss';
 import { resolvePortraitResult } from '@/features/assets/portrait/api';
-import { useXcityKey } from '@/features/settings/hooks/use-xcity-key';
+import { useXcityKeyState } from '@/features/settings/hooks/use-xcity-key';
 import { Link } from '@/i18n/navigation';
 import { Loader2, ShieldCheck } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -27,7 +27,7 @@ function queryValue(params: URLSearchParams, ...names: string[]): string {
 
 export function PortraitCallback() {
     const t = useTranslations();
-    const { resolveKey } = useXcityKey();
+    const { resolveKey } = useXcityKeyState();
     const [state, setState] = React.useState<CallbackState>({ status: 'loading' });
 
     React.useEffect(() => {

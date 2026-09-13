@@ -1,4 +1,5 @@
 import type { PlayerBehavior, PlayerCallbacks } from './types';
+import { requestExclusiveVideoPlayback, subscribeExclusiveVideoPlayback } from '@/shared/media/exclusive-video-playback';
 import type Artplayer from 'artplayer';
 import * as React from 'react';
 
@@ -45,8 +46,9 @@ function createPlayer(ArtplayerConstructor: typeof Artplayer, setup: PlayerSetup
     });
 }
 
-function bindPlayerEvents(player: Artplayer, latestRef: React.RefObject<PlayerCallbacks>) {
+function bindPlayerEvents(player: Artplayer, latestRef: React.RefObject<PlayerCallbacks>, playbackToken: string) {
     player.on('video:error', () => latestRef.current.onSourceError?.());
+    player.on('video:play', () => requestExclusiveVideoPlayback(playbackToken));
     player.on('video:loadedmetadata', () => {
         const duration = player.duration;
         if (Number.isFinite(duration) && duration > 0) latestRef.current.onDurationChange?.(duration);
@@ -56,11 +58,13 @@ function bindPlayerEvents(player: Artplayer, latestRef: React.RefObject<PlayerCa
 
 export function usePlayerInstance(setup: PlayerSetup) {
     const playerRef = React.useRef<Artplayer | null>(null);
+    const playbackToken = `artplayer:${React.useId()}`;
     const { autoPlay, containerRef, instanceKey, latestRef, loadedSourceRef, locale, loop, muted, preload } = setup;
 
     React.useEffect(() => {
         let disposed = false;
         let instance: Artplayer | null = null;
+        let unsubscribeExclusivePlayback: (() => void) | undefined;
 
         void import('artplayer')
             .then(({ default: ArtplayerConstructor }) => {
@@ -79,7 +83,13 @@ export function usePlayerInstance(setup: PlayerSetup) {
                 if (!instance) return;
                 playerRef.current = instance;
                 loadedSourceRef.current = latestRef.current.src;
-                bindPlayerEvents(instance, latestRef);
+                bindPlayerEvents(instance, latestRef, playbackToken);
+                unsubscribeExclusivePlayback = subscribeExclusiveVideoPlayback(
+                    playbackToken,
+                    () => {
+                        if (instance && !instance.isDestroy && instance.playing) instance.pause();
+                    }
+                );
             })
             .catch((error: unknown) => {
                 console.warn('ArtPlayer failed to initialize:', error);
@@ -88,10 +98,11 @@ export function usePlayerInstance(setup: PlayerSetup) {
 
         return () => {
             disposed = true;
+            unsubscribeExclusivePlayback?.();
             instance?.destroy();
             if (playerRef.current === instance) playerRef.current = null;
         };
-    }, [autoPlay, containerRef, instanceKey, latestRef, loadedSourceRef, locale, loop, muted, preload]);
+    }, [autoPlay, containerRef, instanceKey, latestRef, loadedSourceRef, locale, loop, muted, playbackToken, preload]);
 
     return playerRef;
 }
