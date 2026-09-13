@@ -1,13 +1,10 @@
-import styles from './index.module.scss';
 import { CopyUrlButton } from '../CopyUrlButton';
-import type { ReferenceDeclaration } from '@/features/assets/reference/origin';
+import styles from './index.module.scss';
 import type { ReferenceUseOptions } from '@/features/assets/components/AssetsPanel/types';
-import { Check, ExternalLink, ImagePlus, Library, Pencil, X } from 'lucide-react';
+import type { ReferenceDeclaration } from '@/features/assets/reference/origin';
+import { Check, ImagePlus, Library, Pencil, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import * as React from 'react';
-
-const MODELARK_PLAYGROUND_GUIDE = 'https://docs.byteplus.com/en/docs/modelark/2105966';
-const BYTEPLUS_ASSET_TERMS = 'https://docs.byteplus.com/en/docs/ModelArk/2275639';
 
 type OfficialAssetLibraryProps = {
     declarations: Record<string, ReferenceDeclaration>;
@@ -196,13 +193,9 @@ export function OfficialAssetLibrary({
             <Library aria-hidden='true' />
             <div className={styles.content}>
                 <h4>{t('Seedance official asset library')}</h4>
-                <p>
-                    {t(
-                        'Choose an official reference asset in ModelArk Playground<comma> then paste its Asset ID above<dot> Xcity does not copy the provider catalog'
-                    )}
-                </p>
+                <p>{t('Choose an approved official reference asset<comma> then paste its Asset ID above')}</p>
                 <p className={styles.notice}>
-                    {t('Official reference assets are limited to the usage permitted by BytePlus')}
+                    {t('Official reference assets are limited to the usage permitted for your workspace')}
                 </p>
                 <SavedOfficialAssets
                     assets={officialAssets}
@@ -210,16 +203,6 @@ export function OfficialAssetLibrary({
                     onUseImage={onUseImage}
                     onUpdateNote={onUpdateNote}
                 />
-                <div className={styles.actions}>
-                    <a href={MODELARK_PLAYGROUND_GUIDE} target='_blank' rel='noreferrer'>
-                        {t('Open ModelArk Playground guide')}
-                        <ExternalLink aria-hidden='true' />
-                    </a>
-                    <a href={BYTEPLUS_ASSET_TERMS} target='_blank' rel='noreferrer'>
-                        {t('View asset usage terms')}
-                        <ExternalLink aria-hidden='true' />
-                    </a>
-                </div>
             </div>
         </div>
     );
