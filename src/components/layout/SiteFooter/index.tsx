@@ -1,9 +1,11 @@
+import packageJson from '../../../../package.json';
 import styles from './index.module.scss';
 import type { AppLocale } from '@/i18n/routing';
 import { getTranslations } from 'next-intl/server';
 
 export async function SiteFooter({ locale }: { locale: AppLocale }) {
     const t = await getTranslations({ locale });
+    const version = process.env.NEXT_PUBLIC_APP_VERSION || packageJson.version;
     const columns = [
         {
             title: t('Platform'),
@@ -55,11 +57,16 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
                 </div>
 
                 <div className={styles.footerBottom}>
-                    <p>
-                        {t('<copy> <lcur>year<rcur> Xcity<dot> All rights reserved', {
-                            year: String(new Date().getFullYear())
-                        })}
-                    </p>
+                    <div>
+                        <p>
+                            {t('<copy> <lcur>year<rcur> Xcity<dot> All rights reserved', {
+                                year: String(new Date().getFullYear())
+                            })}
+                        </p>
+                        <p className={styles.version}>
+                            {t('Version')} {version}
+                        </p>
+                    </div>
                     <p>
                         {t('Video generation powered by')}{' '}
                         <a href='https://xcity.ai/models' rel='noopener' className={styles.footerLink}>
