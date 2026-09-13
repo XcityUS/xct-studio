@@ -26,5 +26,11 @@
 }
 
 .content:has([data-studio-route]) + [data-site-footer] {
-    display: none;
+    display: block;
+}
+
+@media (min-width: 768px) {
+    .content:has([data-studio-route]) + [data-site-footer] {
+        display: none;
+    }
 }
