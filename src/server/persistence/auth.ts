@@ -1,6 +1,8 @@
 import { isObject } from '@/features/persistence/validation';
 import { readyDatabase } from '@/server/database/pool';
+import { TABLES } from '@/server/database/schema';
 import { createHash } from 'node:crypto';
+import type { PoolClient } from 'pg';
 import 'server-only';
 
 export class BusinessError extends Error {
@@ -12,8 +14,26 @@ export class BusinessError extends Error {
     }
 }
 
-const subjects = new Map<string, { subject: string; until: number; owner?: string }>();
+type Identity = {
+    canonicalSubject: string;
+    legacySubjects: string[];
+};
+
+const LEGACY_IDENTITY_BASES = ['https://tokenhub.xcity.ai', 'https://tokenhub.xcity.one'] as const;
+const subjects = new Map<string, Identity & { until: number; owner?: string }>();
 const resolving = new Map<string, Promise<string>>();
+
+export function identitySubjects(base: string, userId: string): Identity {
+    const canonicalSubject = `xcity:${userId}`;
+    return {
+        canonicalSubject,
+        legacySubjects: [
+            canonicalSubject,
+            `${base}:${userId}`,
+            ...LEGACY_IDENTITY_BASES.map((legacyBase) => `${legacyBase}:${userId}`)
+        ].filter((value, index, values) => values.indexOf(value) === index)
+    };
+}
 
 export async function businessOwner(request: Request): Promise<string> {
     const bearer = request.headers.get('authorization')?.match(/^Bearer\s+(\S+)$/i)?.[1];
@@ -52,25 +72,87 @@ async function resolveOwner(bearer: string, hash: string): Promise<string> {
         const body: unknown = await response.json();
         const userId = isObject(body) && isObject(body.info) ? body.info.user_id : undefined;
         if (typeof userId !== 'string' || !userId.trim()) throw new BusinessError('STABLE_IDENTITY_REQUIRED', 403);
-        subject = { subject: `${base}:${userId}`, until: Date.now() + 30000 };
+        subject = { ...identitySubjects(base, userId), until: Date.now() + 30000 };
         if (subjects.size >= 1000) subjects.clear();
         subjects.set(hash, subject);
     }
     if (subject.owner) return subject.owner;
     const pool = await readyDatabase();
-    const existing = await pool.query<{ id: string }>(
-        'SELECT id FROM studio_users WHERE external_subject = $1',
-        [subject.subject]
-    );
-    if (existing.rows[0]) {
-        subject.owner = existing.rows[0].id;
-        return subject.owner;
+    const client = await pool.connect();
+    try {
+        subject.owner = await resolveIdentityOwner(client, subject);
+    } finally {
+        client.release();
     }
-    const result = await pool.query<{ id: string }>(
-        `INSERT INTO studio_users(external_subject) VALUES ($1)
-        ON CONFLICT(external_subject) DO UPDATE SET external_subject = EXCLUDED.external_subject RETURNING id`,
-        [subject.subject]
-    );
-    subject.owner = result.rows[0].id;
     return subject.owner;
+}
+
+async function resolveIdentityOwner(client: PoolClient, identity: Identity): Promise<string> {
+    await client.query('BEGIN');
+    try {
+        await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [identity.canonicalSubject]);
+        const existing = await client.query<{ id: string; external_subject: string }>(
+            `SELECT id, external_subject FROM studio_users
+            WHERE external_subject = ANY($1::text[])
+            ORDER BY (external_subject = $2) DESC, created_at ASC
+            FOR UPDATE`,
+            [identity.legacySubjects, identity.canonicalSubject]
+        );
+        let owner = existing.rows[0]?.id;
+        if (!owner) {
+            const inserted = await client.query<{ id: string }>(
+                'INSERT INTO studio_users(external_subject) VALUES ($1) RETURNING id',
+                [identity.canonicalSubject]
+            );
+            owner = inserted.rows[0].id;
+        } else if (existing.rows[0].external_subject !== identity.canonicalSubject) {
+            await client.query('UPDATE studio_users SET external_subject=$1 WHERE id=$2', [
+                identity.canonicalSubject,
+                owner
+            ]);
+        }
+        for (const duplicate of existing.rows.slice(1)) {
+            await mergeOwner(client, owner, duplicate.id);
+        }
+        await client.query('COMMIT');
+        return owner;
+    } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+    }
+}
+
+async function mergeOwner(client: PoolClient, owner: string, duplicate: string): Promise<void> {
+    for (const table of TABLES) {
+        await client.query(
+            `INSERT INTO ${table}(owner_id,scope,id,data,revision,created_at,updated_at,deleted_at)
+            SELECT $1,scope,id,data,revision,created_at,updated_at,deleted_at
+            FROM ${table} WHERE owner_id=$2
+            ON CONFLICT(owner_id,scope,id) DO UPDATE SET
+                data = CASE WHEN (EXCLUDED.revision, EXCLUDED.updated_at) >
+                    (${table}.revision, ${table}.updated_at) THEN EXCLUDED.data ELSE ${table}.data END,
+                revision = GREATEST(${table}.revision, EXCLUDED.revision),
+                created_at = LEAST(${table}.created_at, EXCLUDED.created_at),
+                updated_at = GREATEST(${table}.updated_at, EXCLUDED.updated_at),
+                deleted_at = CASE WHEN (EXCLUDED.revision, EXCLUDED.updated_at) >
+                    (${table}.revision, ${table}.updated_at) THEN EXCLUDED.deleted_at ELSE ${table}.deleted_at END`,
+            [owner, duplicate]
+        );
+        await client.query(`DELETE FROM ${table} WHERE owner_id=$1`, [duplicate]);
+    }
+    await client.query(
+        `INSERT INTO business_revisions(owner_id,entity_table,scope,entity_id,revision,data,captured_at)
+        SELECT $1,entity_table,scope,entity_id,revision,data,captured_at
+        FROM business_revisions WHERE owner_id=$2 ON CONFLICT DO NOTHING`,
+        [owner, duplicate]
+    );
+    await client.query('DELETE FROM business_revisions WHERE owner_id=$1', [duplicate]);
+    await client.query(
+        `INSERT INTO data_imports(owner_id,fingerprint,record_count,completed_at)
+        SELECT $1,fingerprint,record_count,completed_at
+        FROM data_imports WHERE owner_id=$2 ON CONFLICT DO NOTHING`,
+        [owner, duplicate]
+    );
+    await client.query('DELETE FROM data_imports WHERE owner_id=$1', [duplicate]);
+    await client.query('DELETE FROM studio_users WHERE id=$1', [duplicate]);
 }
