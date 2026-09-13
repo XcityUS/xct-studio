@@ -152,8 +152,19 @@ async function reviewProviderAsset(
     options: ProviderAssetReviewOptions,
     rawInput: ProviderAssetReviewInput
 ): Promise<string> {
-    if (!options.enabled) throw new Error('Provider asset review is not available on this deployment.');
     const input = { ...rawInput, name: normalizeProviderAssetName(rawInput.name) };
+
+    if (!options.enabled && input.origin === 'no-person') {
+        options.setDeclaration(refKey(input.url), {
+            ...(options.declarations[refKey(input.url)] ?? {}),
+            origin: input.origin,
+            declaredAt: Date.now()
+        });
+        await options.syncNow();
+        return input.url;
+    }
+
+    if (!options.enabled) throw new Error('Provider asset review is not available on this deployment.');
     await options.syncCloudNow();
 
     const existing = options.findAssetByUrl(input.url);
