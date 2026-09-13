@@ -3,8 +3,9 @@
 import styles from './index.module.scss';
 import { studioPath, studioTabFromPathname } from '@/features/studio/routing';
 import type { AppLocale } from '@/i18n/routing';
-import Link from 'next/link';
+import { ImageIcon, PanelsTopLeft, UsersRound, Video } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 type Props = {
@@ -16,10 +17,10 @@ export function StudioHeaderMenu({ locale }: Props) {
     const pathname = usePathname();
     const activeTab = studioTabFromPathname(pathname);
     const items = [
-        { tab: 'video' as const, label: t('Video') },
-        { tab: 'image' as const, label: t('Image') },
-        { tab: 'assets' as const, label: t('Assets') },
-        { tab: 'community' as const, label: t('Community') }
+        { tab: 'video' as const, label: t('Video'), icon: Video },
+        { tab: 'image' as const, label: t('Image'), icon: ImageIcon },
+        { tab: 'assets' as const, label: t('Assets'), icon: PanelsTopLeft },
+        { tab: 'community' as const, label: t('Community'), icon: UsersRound }
     ];
 
     return (
@@ -29,8 +30,11 @@ export function StudioHeaderMenu({ locale }: Props) {
                     key={item.tab}
                     href={studioPath(locale, item.tab)}
                     className={styles.item}
-                    data-active={activeTab === item.tab}>
-                    {item.label}
+                    data-active={activeTab === item.tab}
+                    aria-label={item.label}
+                    title={item.label}>
+                    <item.icon aria-hidden='true' />
+                    <span>{item.label}</span>
                 </Link>
             ))}
         </nav>

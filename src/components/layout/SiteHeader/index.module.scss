@@ -93,6 +93,10 @@
         background-color 140ms ease;
 }
 
+.account span {
+    display: none;
+}
+
 .account:hover {
     border-color: var(--studio-border-strong);
     background: var(--studio-hover);
@@ -104,6 +108,10 @@
 
 @media (min-width: 640px) {
     .product {
+        display: inline;
+    }
+
+    .account span {
         display: inline;
     }
 }
