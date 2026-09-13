@@ -603,6 +603,8 @@
     "Seedance official asset library": "Seedance 官方素材库",
     "Choose an official reference asset in ModelArk Playground<comma> then paste its Asset ID above<dot> Xcity does not copy the provider catalog": "请在 ModelArk Playground 中选择官方参考素材，再将 Asset ID 粘贴到上方。Xcity 不复制服务商素材目录。",
     "Official reference assets are limited to the usage permitted by BytePlus": "官方参考素材仅可在 BytePlus 许可的使用范围内使用。",
+    "Choose an approved official reference asset<comma> then paste its Asset ID above": "请选择已批准的官方参考素材，再将 Asset ID 粘贴到上方。",
+    "Official reference assets are limited to the usage permitted for your workspace": "官方参考素材仅可在当前工作区许可范围内使用。",
     "Saved official assets": "已保存官方素材",
     "No saved official assets yet": "暂无已保存官方素材。",
     "Open ModelArk Playground guide": "打开 ModelArk Playground 指南",

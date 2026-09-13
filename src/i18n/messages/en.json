@@ -600,6 +600,8 @@
     "Seedance official asset library": "Seedance official asset library",
     "Choose an official reference asset in ModelArk Playground<comma> then paste its Asset ID above<dot> Xcity does not copy the provider catalog": "Choose an official reference asset in ModelArk Playground, then paste its Asset ID above. Xcity does not copy the provider catalog.",
     "Official reference assets are limited to the usage permitted by BytePlus": "Official reference assets are limited to the usage permitted by BytePlus.",
+    "Choose an approved official reference asset<comma> then paste its Asset ID above": "Choose an approved official reference asset, then paste its Asset ID above.",
+    "Official reference assets are limited to the usage permitted for your workspace": "Official reference assets are limited to the usage permitted for your workspace.",
     "Saved official assets": "Saved official assets",
     "No saved official assets yet": "No saved official assets yet.",
     "Open ModelArk Playground guide": "Open ModelArk Playground guide",
