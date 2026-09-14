@@ -152,7 +152,6 @@ async function reviewProviderAsset(
     options: ProviderAssetReviewOptions,
     rawInput: ProviderAssetReviewInput
 ): Promise<string> {
-    if (!options.enabled) throw new Error('Provider asset review is not available on this deployment.');
     const input = { ...rawInput, name: normalizeProviderAssetName(rawInput.name) };
     await options.syncCloudNow();
 

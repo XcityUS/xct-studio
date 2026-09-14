@@ -30,7 +30,7 @@ import * as React from 'react';
 export type AssetGridProps = {
     items: AssetListItem[];
     onDelete: (item: AssetListItem) => Promise<void>;
-    onReview?: (input: ProviderAssetReviewInput) => Promise<string>;
+    onReview: (input: ProviderAssetReviewInput) => Promise<string>;
     onSaveCharacter: (asset: AssetListItem['asset'], referenceUrl: string) => void;
     onUseImage: (sourceUrl: string, providerReferenceUrl?: string, options?: ReferenceUseOptions) => void;
     onUseVideo: (sourceUrl: string, providerReferenceUrl?: string) => void;
@@ -84,11 +84,10 @@ export function AssetGrid({
             void onCheckReviewStatus(item.portrait);
             return;
         }
-        if (!item.referenceUrl && onReview) {
+        if (!item.referenceUrl) {
             setReviewItem(item);
             return;
         }
-        if (!item.referenceUrl) return;
         if (item.asset.kind === 'video') onUseVideo(item.asset.url, item.referenceUrl);
         else onUseImage(item.asset.url, item.referenceUrl);
     };
@@ -145,7 +144,6 @@ export function AssetGrid({
                     const canSubmitForAssetId = Boolean(onReview) && asset.kind === 'image' && canUse && !hasAssetId;
                     const isReferenceMedia = asset.kind === 'image' || asset.kind === 'video';
                     const isChecking = item.portrait?.assetId === checkingAssetId;
-                    const reviewUnavailable = !canUse && !onReview;
                     const canDelete = item.source === 'cloud' || item.source === 'provider';
                     const deleteLabel =
                         item.source === 'provider' ? t('Remove from this workspace') : t('Delete from cloud storage');
@@ -206,15 +204,8 @@ export function AssetGrid({
                                         {isReferenceMedia && (
                                             <button
                                                 type='button'
-                                                title={
-                                                    reviewUnavailable
-                                                        ? t(
-                                                              'Provider asset review is not configured on this deployment<dot> Ask an admin to enable Assets'
-                                                          )
-                                                        : undefined
-                                                }
                                                 className={styles.action}
-                                                disabled={isChecking || reviewUnavailable}
+                                                disabled={isChecking}
                                                 onClick={() => handleReference(item)}>
                                                 {isChecking ? (
                                                     <Loader2 className={styles.spinner} />
@@ -268,15 +259,8 @@ export function AssetGrid({
                                 {asset.kind === 'video' && isReferenceMedia && (
                                     <button
                                         type='button'
-                                        title={
-                                            reviewUnavailable
-                                                ? t(
-                                                      'Provider asset review is not configured on this deployment<dot> Ask an admin to enable Assets'
-                                                  )
-                                                : undefined
-                                        }
                                         className={styles.action}
-                                        disabled={isChecking || reviewUnavailable}
+                                        disabled={isChecking}
                                         onClick={() => handleReference(item)}>
                                         {isChecking ? (
                                             <Loader2 className={styles.spinner} />

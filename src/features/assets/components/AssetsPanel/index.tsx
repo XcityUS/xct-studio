@@ -854,7 +854,7 @@ export function AssetsPanel({
                     isLoading={isLoading || isLoadingProviderAssets}
                     onCheckReviewStatus={handleCheckReviewStatus}
                     onDelete={handleDelete}
-                    onReview={portraitEnabled ? reviewAsset : undefined}
+                    onReview={reviewAsset}
                     onSaveCharacter={openCharacterDialog}
                     onUseImage={onUseAsReference}
                     onUseVideo={onUseAsReferenceVideo}
