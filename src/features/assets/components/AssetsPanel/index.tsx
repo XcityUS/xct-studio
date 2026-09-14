@@ -1,8 +1,5 @@
 'use client';
 
-import { businessStorage } from '@/features/persistence/store';
-
-
 import { AssetImageDropdown } from './AssetImageDropdown';
 import { AssetLibrary } from './AssetLibrary';
 import { AssetStrip } from './AssetStrip';
@@ -16,15 +13,16 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { AssetIdIntake } from '@/features/assets/components/AssetIdIntake';
+import { ProviderErrorNotice } from '@/features/assets/components/ProviderErrorNotice';
 import { usePortraitStatusCheck } from '@/features/assets/hooks/use-portrait-status-check';
 import { useProcessingPortraitRefresh } from '@/features/assets/hooks/use-processing-portrait-refresh';
 import { useProviderAssetList } from '@/features/assets/hooks/use-provider-asset-list';
-import { ProviderErrorNotice } from '@/features/assets/components/ProviderErrorNotice';
 import { validateAssetImage } from '@/features/assets/image/validation';
 import type { PortraitGroup, PortraitGroupType } from '@/features/assets/portrait/api';
 import { createAndTrackPortraitAsset } from '@/features/assets/portrait/track';
 import { assetIdFromReferenceUrl, refKey } from '@/features/assets/reference/origin';
 import { characterPreviewUrl } from '@/features/generation/history/characters';
+import { businessStorage } from '@/features/persistence/store';
 import type { UserAsset } from '@/lib/media-archive';
 import { ImagePlus, Loader2, RefreshCw, ShieldCheck, Sparkles, Trash2, UserRound } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -125,7 +123,10 @@ export function AssetsPanel({
     const [portraitDrafts, setPortraitDrafts] = React.useState<Record<string, { assetKey: string; name: string }>>({});
     const [portraitStatus, setPortraitStatus] = React.useState<string | null>(null);
     const [isCheckingPortraitSetup, setIsCheckingPortraitSetup] = React.useState(false);
-    const errorMessage = React.useCallback((value: unknown) => (value instanceof Error && value.message ? value.message : unknownError), [unknownError]);
+    const errorMessage = React.useCallback(
+        (value: unknown) => (value instanceof Error && value.message ? value.message : unknownError),
+        [unknownError]
+    );
 
     const checkPortraitSetup = async () => {
         setIsCheckingPortraitSetup(true);
@@ -315,8 +316,8 @@ export function AssetsPanel({
             writeAssetNameAliases(next);
             return next;
         });
-        setAssets((prev) =>
-            prev?.map((asset) => (assetNameAliasKey(asset) === aliasKey ? { ...asset, name } : asset)) ?? prev
+        setAssets(
+            (prev) => prev?.map((asset) => (assetNameAliasKey(asset) === aliasKey ? { ...asset, name } : asset)) ?? prev
         );
         addCharacter({
             id: existingCharacter?.id ?? `asset-character:${referenceKey || aliasKey}`,
@@ -655,7 +656,9 @@ export function AssetsPanel({
 
                         {portraitNotice && <p className='text-xs text-emerald-300'>{portraitNotice}</p>}
                         {portraitStatus && <p className='text-xs text-white/50'>{portraitStatus}</p>}
-                        {portraitError && portraitError !== providerAssetsError && <ProviderErrorNotice error={portraitError} />}
+                        {portraitError && portraitError !== providerAssetsError && (
+                            <ProviderErrorNotice error={portraitError} />
+                        )}
 
                         <AssetStrip assets={verifiedPortraits} kind='verified' onRemove={removePortrait} />
 
@@ -774,9 +777,7 @@ export function AssetsPanel({
                                 </form>
                             </div>
 
-                            {characterGroupNotice && (
-                                <p className='text-xs text-emerald-300'>{characterGroupNotice}</p>
-                            )}
+                            {characterGroupNotice && <p className='text-xs text-emerald-300'>{characterGroupNotice}</p>}
                             {characterGroupError && !pendingDeleteGroup && (
                                 <p className='text-xs text-red-400' role='alert'>
                                     {characterGroupError}
@@ -853,7 +854,7 @@ export function AssetsPanel({
                     isLoading={isLoading || isLoadingProviderAssets}
                     onCheckReviewStatus={handleCheckReviewStatus}
                     onDelete={handleDelete}
-                    onReview={reviewAsset}
+                    onReview={portraitEnabled ? reviewAsset : undefined}
                     onSaveCharacter={openCharacterDialog}
                     onUseImage={onUseAsReference}
                     onUseVideo={onUseAsReferenceVideo}
@@ -1025,7 +1026,6 @@ export function AssetsPanel({
                     </div>
                 </div>
                 */}
-
             </CardContent>
         </Card>
     );

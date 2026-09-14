@@ -22,6 +22,10 @@ export function jsonError(error: string, status: number): NextResponse {
 }
 
 export function requirePortraitRoute(request: Request): PortraitRouteGate {
+    if (process.env.PROVIDER_ASSETS_ENABLED !== 'true') {
+        return { response: jsonError('provider asset review is not configured', 503) };
+    }
+
     const authHeader = request.headers.get('authorization') || '';
     const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
     if (!bearer) {

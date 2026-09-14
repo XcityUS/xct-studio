@@ -8,9 +8,9 @@ import { AssetPreview } from './AssetPreview';
 import { CopyAssetButton } from './CopyAssetButton';
 import styles from './index.module.scss';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/Dialog';
+import type { ReferenceUseOptions } from '@/features/assets/components/AssetsPanel/types';
 import type { ProviderAssetReviewInput } from '@/features/assets/hooks/use-provider-asset-review';
 import { assetIdFromReferenceUrl, type InlineReviewOrigin } from '@/features/assets/reference/origin';
-import type { ReferenceUseOptions } from '@/features/assets/components/AssetsPanel/types';
 import { cn } from '@/shared/utils/classnames';
 import {
     AlertCircle,
@@ -30,7 +30,7 @@ import * as React from 'react';
 export type AssetGridProps = {
     items: AssetListItem[];
     onDelete: (item: AssetListItem) => Promise<void>;
-    onReview: (input: ProviderAssetReviewInput) => Promise<string>;
+    onReview?: (input: ProviderAssetReviewInput) => Promise<string>;
     onSaveCharacter: (asset: AssetListItem['asset'], referenceUrl: string) => void;
     onUseImage: (sourceUrl: string, providerReferenceUrl?: string, options?: ReferenceUseOptions) => void;
     onUseVideo: (sourceUrl: string, providerReferenceUrl?: string) => void;
@@ -84,10 +84,11 @@ export function AssetGrid({
             void onCheckReviewStatus(item.portrait);
             return;
         }
-        if (!item.referenceUrl) {
+        if (!item.referenceUrl && onReview) {
             setReviewItem(item);
             return;
         }
+        if (!item.referenceUrl) return;
         if (item.asset.kind === 'video') onUseVideo(item.asset.url, item.referenceUrl);
         else onUseImage(item.asset.url, item.referenceUrl);
     };
@@ -101,6 +102,7 @@ export function AssetGrid({
                     initialOrigin={reviewItem.portrait?.referenceOrigin as InlineReviewOrigin | undefined}
                     onOpenChange={(open) => !open && setReviewItem(null)}
                     onSubmit={async (input) => {
+                        if (!onReview) return;
                         const referenceUrl = await onReview(input);
                         if (reviewItem.asset.kind === 'video') onUseVideo(reviewItem.asset.url, referenceUrl);
                         else onUseImage(reviewItem.asset.url, referenceUrl);
@@ -140,7 +142,7 @@ export function AssetGrid({
                     const referenceUrl = item.referenceUrl;
                     const canUse = Boolean(referenceUrl);
                     const hasAssetId = Boolean(assetIdForItem(item));
-                    const canSubmitForAssetId = asset.kind === 'image' && canUse && !hasAssetId;
+                    const canSubmitForAssetId = Boolean(onReview) && asset.kind === 'image' && canUse && !hasAssetId;
                     const isReferenceMedia = asset.kind === 'image' || asset.kind === 'video';
                     const isChecking = item.portrait?.assetId === checkingAssetId;
                     const canDelete = item.source === 'cloud' || item.source === 'provider';
@@ -153,7 +155,9 @@ export function AssetGrid({
                                     <button
                                         type='button'
                                         className={styles.previewButton}
-                                        aria-label={asset.kind === 'video' ? t('Open video preview') : t('Open image preview')}
+                                        aria-label={
+                                            asset.kind === 'video' ? t('Open video preview') : t('Open image preview')
+                                        }
                                         onClick={() => setPreviewItem(item)}>
                                         <AssetPreview key={asset.url || item.providerAsset?.assetId} item={item} />
                                     </button>
@@ -198,25 +202,31 @@ export function AssetGrid({
                             <div className={styles.actions}>
                                 {asset.kind === 'image' && (
                                     <>
-                                        <button
-                                            type='button'
+                                        {(canUse || onReview) && (
+                                            <button
+                                                type='button'
+                                                className={styles.action}
+                                                disabled={isChecking}
+                                                onClick={() => handleReference(item)}>
+                                                {isChecking ? (
+                                                    <Loader2 className={styles.spinner} />
+                                                ) : canUse ? (
+                                                    <ImagePlus />
+                                                ) : item.reviewState === 'processing' ? (
+                                                    <RefreshCw />
+                                                ) : (
+                                                    <ReviewIcon state={item.reviewState} />
+                                                )}
+                                                <span className={styles.actionLabel}>
+                                                    <ReviewActionShortLabel state={item.reviewState} />
+                                                </span>
+                                            </button>
+                                        )}
+                                        <CopyAssetButton
+                                            item={item}
                                             className={styles.action}
-                                            disabled={isChecking}
-                                            onClick={() => handleReference(item)}>
-                                            {isChecking ? (
-                                                <Loader2 className={styles.spinner} />
-                                            ) : canUse ? (
-                                                <ImagePlus />
-                                            ) : item.reviewState === 'processing' ? (
-                                                <RefreshCw />
-                                            ) : (
-                                                <ReviewIcon state={item.reviewState} />
-                                            )}
-                                            <span className={styles.actionLabel}>
-                                                <ReviewActionShortLabel state={item.reviewState} />
-                                            </span>
-                                        </button>
-                                        <CopyAssetButton item={item} className={styles.action} labelClassName={styles.actionLabel} />
+                                            labelClassName={styles.actionLabel}
+                                        />
                                         {canSubmitForAssetId && (
                                             <button
                                                 type='button'
@@ -247,7 +257,7 @@ export function AssetGrid({
                                         )}
                                     </>
                                 )}
-                                {asset.kind === 'video' && (
+                                {asset.kind === 'video' && (canUse || onReview) && (
                                     <button
                                         type='button'
                                         className={styles.action}
@@ -263,12 +273,20 @@ export function AssetGrid({
                                             <ReviewIcon state={item.reviewState} />
                                         )}
                                         <span className={styles.actionLabel}>
-                                            {canUse ? t('Video ref') : <ReviewActionShortLabel state={item.reviewState} />}
+                                            {canUse ? (
+                                                t('Video ref')
+                                            ) : (
+                                                <ReviewActionShortLabel state={item.reviewState} />
+                                            )}
                                         </span>
                                     </button>
                                 )}
                                 {asset.kind !== 'image' && (
-                                    <CopyAssetButton item={item} className={styles.action} labelClassName={styles.actionLabel} />
+                                    <CopyAssetButton
+                                        item={item}
+                                        className={styles.action}
+                                        labelClassName={styles.actionLabel}
+                                    />
                                 )}
                                 {asset.kind !== 'image' && asset.url && (
                                     <CopyUrlButton

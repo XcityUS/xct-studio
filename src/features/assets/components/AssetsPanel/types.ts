@@ -45,7 +45,7 @@ export type AssetsPanelProps = {
     getPortraitAsset: (assetId: string) => Promise<PortraitAsset>;
     /** Operator self-test of the real-human library configuration. */
     getPortraitStatus: () => Promise<PortraitStatus>;
-    reviewAsset: (input: ProviderAssetReviewInput) => Promise<string>;
+    reviewAsset?: (input: ProviderAssetReviewInput) => Promise<string>;
     /** Loads an image asset into the video form's reference list. */
     onUseAsReference: (sourceUrl: string, providerReferenceUrl?: string, options?: ReferenceUseOptions) => void;
     /** Loads a video asset into the video form's reference video list. */
