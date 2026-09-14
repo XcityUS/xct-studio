@@ -145,6 +145,7 @@ export function AssetGrid({
                     const canSubmitForAssetId = Boolean(onReview) && asset.kind === 'image' && canUse && !hasAssetId;
                     const isReferenceMedia = asset.kind === 'image' || asset.kind === 'video';
                     const isChecking = item.portrait?.assetId === checkingAssetId;
+                    const reviewUnavailable = !canUse && !onReview;
                     const canDelete = item.source === 'cloud' || item.source === 'provider';
                     const deleteLabel =
                         item.source === 'provider' ? t('Remove from this workspace') : t('Delete from cloud storage');
@@ -202,11 +203,18 @@ export function AssetGrid({
                             <div className={styles.actions}>
                                 {asset.kind === 'image' && (
                                     <>
-                                        {(canUse || onReview) && (
+                                        {isReferenceMedia && (
                                             <button
                                                 type='button'
+                                                title={
+                                                    reviewUnavailable
+                                                        ? t(
+                                                              'Provider asset review is not configured on this deployment<dot> Ask an admin to enable Assets'
+                                                          )
+                                                        : undefined
+                                                }
                                                 className={styles.action}
-                                                disabled={isChecking}
+                                                disabled={isChecking || reviewUnavailable}
                                                 onClick={() => handleReference(item)}>
                                                 {isChecking ? (
                                                     <Loader2 className={styles.spinner} />
@@ -257,11 +265,18 @@ export function AssetGrid({
                                         )}
                                     </>
                                 )}
-                                {asset.kind === 'video' && (canUse || onReview) && (
+                                {asset.kind === 'video' && isReferenceMedia && (
                                     <button
                                         type='button'
+                                        title={
+                                            reviewUnavailable
+                                                ? t(
+                                                      'Provider asset review is not configured on this deployment<dot> Ask an admin to enable Assets'
+                                                  )
+                                                : undefined
+                                        }
                                         className={styles.action}
-                                        disabled={isChecking}
+                                        disabled={isChecking || reviewUnavailable}
                                         onClick={() => handleReference(item)}>
                                         {isChecking ? (
                                             <Loader2 className={styles.spinner} />
