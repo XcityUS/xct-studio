@@ -1,15 +1,16 @@
 'use client';
 
+import { XcityKeyContext } from '../key-context';
+import { XCITY_SSO_ENABLED, fetchXcityUserKey } from '@/features/settings/sso';
 import { RateLimitError, verifyFrontendApiKey } from '@/lib/openai-client';
 import { InvalidApiKeyError } from '@/shared/errors';
-import { XCITY_SSO_ENABLED, fetchXcityUserKey } from '@/features/settings/sso';
 import * as React from 'react';
-import { XcityKeyContext } from '../key-context';
 
 export type SsoStatus = 'checking' | 'ok' | 'unauthenticated' | 'error';
 
 /** Kept under the historical name so existing users' saved keys survive. */
 const STORAGE_KEY = 'openaiApiKey';
+const SSO_KEY_REFRESH_MS = 60_000;
 
 function getStoredApiKey(): string | null {
     if (typeof window === 'undefined') return null;
@@ -33,6 +34,8 @@ export function useXcityKeyState() {
 
     const [ssoStatus, setSsoStatus] = React.useState<SsoStatus>(XCITY_SSO_ENABLED ? 'checking' : 'ok');
     const [ssoError, setSsoError] = React.useState<string | null>(null);
+    const lastSsoFetchAtRef = React.useRef(0);
+    const pendingSsoFetchRef = React.useRef<Promise<string | null> | null>(null);
 
     const setKey = React.useCallback((key: string | null) => {
         keyRef.current = key;
@@ -46,24 +49,46 @@ export function useXcityKeyState() {
         }
     }, [setKey]);
 
+    const fetchAndApplySsoKey = React.useCallback(
+        async (options: { force?: boolean; reportChecking?: boolean } = {}): Promise<string | null> => {
+            if (!XCITY_SSO_ENABLED) return keyRef.current;
+            if (!options.force && keyRef.current && Date.now() - lastSsoFetchAtRef.current < SSO_KEY_REFRESH_MS) {
+                return keyRef.current;
+            }
+            if (pendingSsoFetchRef.current) return pendingSsoFetchRef.current;
+
+            if (options.reportChecking) setSsoStatus('checking');
+            setSsoError(null);
+            const request = (async () => {
+                const result = await fetchXcityUserKey();
+                if (result.status === 'ok') {
+                    lastSsoFetchAtRef.current = Date.now();
+                    setKey(result.key);
+                    setSsoStatus('ok');
+                    return result.key;
+                }
+                setSsoStatus(result.status === 'unauthenticated' ? 'unauthenticated' : 'error');
+                if (result.status === 'error') {
+                    setSsoError(result.message);
+                }
+                return null;
+            })()
+                .catch(() => {
+                    setSsoStatus('error');
+                    return null;
+                })
+                .finally(() => {
+                    if (pendingSsoFetchRef.current === request) pendingSsoFetchRef.current = null;
+                });
+            pendingSsoFetchRef.current = request;
+            return request;
+        },
+        [setKey]
+    );
+
     const attemptSso = React.useCallback(async () => {
-        setSsoStatus('checking');
-        setSsoError(null);
-        try {
-            const result = await fetchXcityUserKey();
-            if (result.status === 'ok') {
-                setKey(result.key);
-                setSsoStatus('ok');
-                return;
-            }
-            setSsoStatus(result.status === 'unauthenticated' ? 'unauthenticated' : 'error');
-            if (result.status === 'error') {
-                setSsoError(result.message);
-            }
-        } catch {
-            setSsoStatus('error');
-        }
-    }, [setKey]);
+        await fetchAndApplySsoKey({ force: true, reportChecking: true });
+    }, [fetchAndApplySsoKey]);
 
     React.useEffect(() => {
         if (XCITY_SSO_ENABLED) {
@@ -78,20 +103,12 @@ export function useXcityKeyState() {
      */
     const resolveKey = React.useCallback(async (): Promise<string | null> => {
         if (XCITY_SSO_ENABLED) {
-            const result = await fetchXcityUserKey();
-            if (result.status === 'ok') {
-                setKey(result.key);
-                setSsoStatus('ok');
-                return result.key;
-            }
-            setSsoStatus(result.status === 'unauthenticated' ? 'unauthenticated' : 'error');
-            if (result.status === 'error') {
-                setSsoError(result.message);
-            }
+            const key = await fetchAndApplySsoKey();
+            if (key) return key;
         }
         if (keyRef.current) return keyRef.current;
         return null;
-    }, [setKey]);
+    }, [fetchAndApplySsoKey]);
 
     /** Validates and persists a manually entered key. Throws with a user-facing message. */
     const saveManualKey = React.useCallback(
@@ -112,7 +129,9 @@ export function useXcityKeyState() {
                     throw new Error('The gateway rejected this API key. Please double-check and try again.');
                 }
                 if (error instanceof RateLimitError) {
-                    throw new Error('This API key is rate-limited right now. Wait for the limit to reset or use a key with a higher RPM.');
+                    throw new Error(
+                        'This API key is rate-limited right now. Wait for the limit to reset or use a key with a higher RPM.'
+                    );
                 }
                 console.error('Error verifying API key:', error);
                 throw new Error('Failed to verify API key. Please try again.');
