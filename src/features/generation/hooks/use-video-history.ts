@@ -1,8 +1,5 @@
 'use client';
 
-import { businessStorage, flushBusiness } from '@/features/persistence/store';
-
-
 import { REFERENCE_ORIGINS, type ReferenceDeclaration, type ReferenceOrigin } from '@/features/assets/reference/origin';
 import {
     withTombstones,
@@ -11,6 +8,7 @@ import {
     type VideoPortrait
 } from '@/features/generation/history/merge';
 import { normalizePortrait, parsePortraits } from '@/features/generation/history/portraits';
+import { businessStatus, businessStorage, flushBusiness } from '@/features/persistence/store';
 import type { VideoMetadata } from '@/shared/contracts/video';
 import * as React from 'react';
 
@@ -191,7 +189,12 @@ function readLocalHistory(): HistoryDoc {
     throw new Error('Invalid history data found in businessStorage.');
 }
 
+function businessStorageReady() {
+    return businessStatus().ready;
+}
+
 function writeLocalHistory(doc: HistoryDoc) {
+    if (!businessStorageReady()) return;
     businessStorage.setItem(STORAGE_KEY, JSON.stringify(doc.history));
     businessStorage.setItem(UPDATED_AT_KEY, String(doc.updatedAt));
     businessStorage.setItem(CHARACTERS_KEY, JSON.stringify(doc.characters));
@@ -236,7 +239,6 @@ export function useVideoHistory(_resolveKey?: () => Promise<string | null>, opti
     portraitsRef.current = portraits;
     declarationsRef.current = declarations;
 
-
     React.useEffect(() => {
         onPersistenceErrorRef.current = options.onPersistenceError;
     }, [options.onPersistenceError]);
@@ -263,12 +265,14 @@ export function useVideoHistory(_resolveKey?: () => Promise<string | null>, opti
             setDeletedIds(doc.deletedIds);
         } catch (e) {
             console.error('Failed to load or parse history from localStorage:', e);
-            businessStorage.removeItem(STORAGE_KEY);
-            businessStorage.removeItem(UPDATED_AT_KEY);
-            businessStorage.removeItem(CHARACTERS_KEY);
-            businessStorage.removeItem(PORTRAITS_KEY);
-            businessStorage.removeItem(DECLARATIONS_KEY);
-            businessStorage.removeItem(DELETED_IDS_KEY);
+            if (businessStorageReady()) {
+                businessStorage.removeItem(STORAGE_KEY);
+                businessStorage.removeItem(UPDATED_AT_KEY);
+                businessStorage.removeItem(CHARACTERS_KEY);
+                businessStorage.removeItem(PORTRAITS_KEY);
+                businessStorage.removeItem(DECLARATIONS_KEY);
+                businessStorage.removeItem(DELETED_IDS_KEY);
+            }
         }
         setIsInitialLoad(false);
     }, []);
@@ -276,7 +280,7 @@ export function useVideoHistory(_resolveKey?: () => Promise<string | null>, opti
     // Persist on change (after the initial load, so an empty first render
     // doesn't wipe stored history)
     React.useEffect(() => {
-        if (!isInitialLoad) {
+        if (!isInitialLoad && businessStorageReady()) {
             try {
                 writeLocalHistory({
                     updatedAt: updatedAtRef.current,
