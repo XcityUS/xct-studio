@@ -1,23 +1,24 @@
 # Persistence And Storage Rules
 
-Last updated: 2026-09-07
+Last updated: 2026-09-14
 
 ## Current Persistence Topology
 
-2026-09-10 ownership decision: XCT Studio MUST NOT connect to a database or run database migrations. Short-drama persistence, transactions, snapshots and durable queues belong to the xcity-litellm backend. Studio consumes authenticated application APIs; its browser stores remain compatibility state/cache only. See [the backend boundary decision](../architecture/short-drama-infrastructure.md).
+The 2026-09-10 no-database decision has been superseded. PostgreSQL is authoritative for authenticated Studio business records. The browser consumes the same-origin `/api/business` API; only XCT Studio server modules may read `DATABASE_URL`, execute migrations, or access SQL. xcity-litellm remains the AI/provider gateway, not the Studio business-data authority. See [the persistence and execution boundary](../architecture/short-drama-infrastructure.md).
 
-The current Studio has deliberately lightweight persistence. Its responsibilities must remain clear during migration.
+The current Studio has a layered persistence topology. Each store's responsibility must remain clear during migration.
 
 | Store | Current role | Rule |
 | --- | --- | --- |
-| localStorage | Small history and preference compatibility state | Not a durable source of truth for new production entities. |
+| PostgreSQL | Authenticated Studio business records, revisions, tombstones, and queue claims | Authoritative for supported business flows; server access only. |
+| localStorage | Outbox, failure recovery, legacy import, and small compatibility preferences | Not a durable source of truth for authenticated production entities. |
 | IndexedDB and Dexie | Browser media cache and local playback support | A cache only; loss of browser data must not destroy selected work. |
 | Cloudflare R2 | Archived media and uploaded reference assets | Durable binary object storage, not a relational production database. |
 | Worker JSON state | Current cloud-sync compatibility state | Acceptable for legacy history and small state, not for concurrent Episode production data. |
 
-## Future Source Of Truth
+## Current Source Of Truth And Evolution
 
-Before implementing collaborative, multi-device, or durable short-drama production data, provide persistence through the xcity-litellm backend. Do not introduce a database client, database credentials or a migration runner into XCT Studio.
+Build new Studio business persistence on the existing server-only PostgreSQL repository and `/api/business` compatibility contract. Do not introduce database clients or credentials into browser bundles. New typed routes and schemas must migrate existing records rather than establishing a second authority.
 
 The minimum relational domain should support:
 
@@ -62,6 +63,7 @@ R2 should store bytes and object metadata. The database should store ownership, 
 ## Migration Rules
 
 - Schema changes require a committed migration and a rollback or recovery note.
+- Existing compatibility records and revisions must remain readable through an explicit forward migration.
 - Backfill existing history only through an explicit mapping:
 
   history item -> candidate
@@ -81,4 +83,4 @@ R2 should store bytes and object metadata. The database should store ownership, 
 
 ## Current Harness Constraint
 
-The harness phase does not add a database. It defines the boundary so new IP and Episode types do not become permanent browser-only state by accident.
+The harness must preserve the server-only database boundary and prevent browser code from importing persistence runtime modules. New IP and Episode types should evolve the delivered PostgreSQL record layer toward explicit domain relationships without making browser caches authoritative.

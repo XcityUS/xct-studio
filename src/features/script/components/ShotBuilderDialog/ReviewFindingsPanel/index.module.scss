@@ -1,0 +1,95 @@
+.panel {
+    display: grid;
+    gap: 0.7rem;
+    border: 1px solid var(--studio-border);
+    border-radius: 0.75rem;
+    background: var(--studio-surface);
+    padding: 0.8rem;
+}
+
+.header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.65rem;
+}
+
+.header div {
+    display: grid;
+    gap: 0.2rem;
+}
+
+.header p,
+.findings p,
+.findings blockquote {
+    margin: 0;
+}
+
+.header p {
+    color: var(--studio-muted);
+    font-size: 0.75rem;
+}
+
+.header > span,
+.findings em,
+.findings div > span {
+    border: 1px solid var(--studio-border);
+    border-radius: 999px;
+    padding: 0.16rem 0.45rem;
+    color: var(--studio-muted);
+    font-size: 0.68rem;
+    font-style: normal;
+}
+
+.header > span[data-clear='true'] {
+    border-color: color-mix(in srgb, var(--studio-success) 45%, var(--studio-border));
+    color: var(--studio-success);
+}
+
+.findings {
+    display: grid;
+    gap: 0.45rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.findings li {
+    display: grid;
+    gap: 0.35rem;
+    border-inline-start: 3px solid var(--studio-warning);
+    border-radius: 0.45rem;
+    background: var(--studio-background);
+    padding: 0.55rem 0.65rem;
+}
+
+.findings li[data-severity='blocking'] {
+    border-inline-start-color: var(--studio-error);
+}
+
+.findings li > div {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.findings li[data-severity='blocking'] em {
+    border-color: color-mix(in srgb, var(--studio-error) 45%, var(--studio-border));
+    color: var(--studio-error);
+}
+
+.findings p {
+    color: var(--studio-foreground);
+    font-size: 0.78rem;
+    line-height: 1.45;
+}
+
+.findings blockquote {
+    overflow: hidden;
+    color: var(--studio-muted);
+    font-size: 0.7rem;
+    line-height: 1.4;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

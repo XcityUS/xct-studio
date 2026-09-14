@@ -1,10 +1,10 @@
 # 短剧 P0 Implementation Plan
 
-日期：2026-09-10。状态：历史架构提案，部署落点已被用户最新决定取代。XCT Studio 不接数据库；此前实验性的 Studio 数据库/API/worker 已撤回，未迁移到 LiteLLM。当前执行依据是 [后端边界说明](short-drama-infrastructure.md) 与 [P0 任务拆解](../requirements/short-drama-p0-task-breakdown.md)。
+日期：2026-09-10。状态：历史架构提案。其“Studio 不接数据库”结论已被 2026-09-13 提交 `4505c6b` 取代：当前 Studio 已有 `/api/business` 和 PostgreSQL 云端业务持久化。当前执行依据是 [持久化与执行边界](short-drama-infrastructure.md) 与 [P0 任务拆解](../requirements/short-drama-p0-task-breakdown.md)。
 
-下文保留历史推导供参考，不作为 Studio 的开发指令：所有数据库、事务、解析任务、业务 API 和后台执行器均应落在 xcity-litellm 后端，不能按下文旧的 `src/server` 持久化目录方案重新接入 Studio。目标模型可以参考，但需结合 LiteLLM 实际实现重新确认；这里的测试和阶段计划不表示当前能力已交付。
+下文保留 2026-09-10 时点的推导供参考，不作为当前状态说明。目标模型仍可参考，但必须对照现有 `src/server/persistence`、`/api/business` 和 [Business Persistence Specification](../requirements/business-persistence-spec.md)；文中的 localStorage-only 基线、部署归属和测试记录均不代表 2026-09-13 之后的实现。
 
-依据：当前工作树 `e7b9f88`，以及尚未跟踪的 [P0 需求](../requirements/short-drama-p0-requirements.md)。本文不代表数据库、后台队列或 LiteLLM 扩展已经上线。
+历史依据：2026-09-10 工作树 `e7b9f88`，以及当时尚未跟踪的 [P0 需求](../requirements/short-drama-p0-requirements.md)。下文“未上线/没有数据库”等表述仅描述该历史快照；当前交付状态以上方链接的现行文档和仓库代码为准。
 
 ## 1. 交付目标与优先级
 

@@ -1,16 +1,16 @@
 # API And Worker Protocol Rules
 
-Last updated: 2026-09-07
+Last updated: 2026-09-14
 
 ## Current Boundaries
 
-2026-09-10 ownership decision: short-drama Project/Script/Shot/Binding/Preflight/Batch business APIs and durable execution belong to xcity-litellm. XCT Studio may expose thin authenticated proxies but MUST NOT own database access, business transactions or the background queue. The previously added local `/api/v1/drama/*` implementation has been removed; backend endpoint contracts still require implementation and verification. See [the backend boundary decision](../architecture/short-drama-infrastructure.md).
+The 2026-09-10 no-database ownership decision has been superseded. Since the 2026-09-13 persistence delivery, XCT Studio owns authenticated Studio business persistence through the same-origin `/api/business` route, server-only PostgreSQL repository, revisions, transactions, and persisted queue claims. xcity-litellm remains responsible for AI/provider routing, credentials, model access, and billing. Persisted queue state does not yet mean that provider execution can run independently of the browser. See [the current persistence and execution boundary](../architecture/short-drama-infrastructure.md).
 
 Xct Studio currently has three distinct integration layers:
 
 | Layer | Owner | Purpose |
 | --- | --- | --- |
-| Next route handlers | src/app/api | Server-side configuration, provider proxying, and portrait-related calls. |
+| Next route handlers and services | src/app/api; src/server | Server-side configuration, authenticated business persistence, provider proxying, and portrait-related calls. |
 | Cloudflare media worker | media-worker | R2 media, assets, shares, community, authorization, and cloud state. |
 | Provider adapters | xcity-litellm/gateway/providers; legacy clients in src/lib | BytePlus credentials and signing live in xcity-litellm; remaining browser AI transports are tracked migration debt. |
 
@@ -29,10 +29,12 @@ All new route handlers, business services, adapters, and request/response contra
 
 - Keep internal Next routes under /api.
 - Keep locale prefixes out of /api routes.
+- Keep authenticated Studio business records behind `/api/business`; browser code must not access PostgreSQL directly.
+- Keep owner isolation, revision checks, transactions, tombstones, and queue claims in server-only persistence modules.
 - Keep media byte serving and R2 object handling in media-worker.
 - Keep Worker endpoint names and storage semantics behind src/lib/media-archive.ts or a future assets feature adapter.
 - Keep provider request normalization and polling in server-only adapters. Browser polling targets the application's job API.
-- Introduce /api/v1 platform resource routes only when a server-side persistent domain API exists.
+- Introduce `/api/v1` resource routes only when they add a stable typed contract beyond the existing `/api/business` compatibility API.
 
 ## Contract Rules
 

@@ -22,7 +22,7 @@ type Props = {
     onDraftChange: (draft: EditorDraft) => void;
     onGenerateShot?: (shot: EditorDraft['shots'][number], index: number) => void | Promise<void>;
     onGenerateAllShots?: () => void | Promise<void>;
-    isGeneratingShot?: boolean;
+    isGeneratingShot?: boolean; blockedShotIds?: ReadonlySet<string>;
     pendingShotCount?: number;
     shotVideoPreviews?: ShotVideoPreviewItem[];
     onContinueShotQueue?: () => void | Promise<void>;
@@ -263,7 +263,7 @@ export function StoryboardDraftPanel({
     onDraftChange,
     onGenerateShot,
     onGenerateAllShots,
-    isGeneratingShot = false,
+    isGeneratingShot = false, blockedShotIds,
     pendingShotCount = 0,
     shotVideoPreviews = [],
     onContinueShotQueue,
@@ -334,8 +334,8 @@ export function StoryboardDraftPanel({
                     </button>
                 )}
                 {pendingShotCount === 0 && onGenerateAllShots && (
-                    <button type='button' className={styles.primaryButton} disabled={isGeneratingShot} onClick={onGenerateAllShots}>
-                        {isGeneratingShot ? t('Generating') : t('Generate storyboard videos')}
+                    <button type='button' className={styles.primaryButton} disabled={isGeneratingShot || Boolean(blockedShotIds?.size)} onClick={onGenerateAllShots}>
+                        {isGeneratingShot ? t('Producing') : draft.characters.some((item) => !item.assetId?.trim()) || draft.scenes.some((item) => !item.assetId?.trim()) ? t('Bind characters and scenes before production') : blockedShotIds?.size ? t('Resolve blocking issues first') : t('Start production')}
                     </button>
                 )}
             </div>
@@ -501,7 +501,7 @@ export function StoryboardDraftPanel({
                                         {onGenerateShot && (
                                             <button
                                                 type='button'
-                                                disabled={isGeneratingShot || !shot.description.trim()}
+                                                disabled={isGeneratingShot || blockedShotIds?.has(shot.id) || !shot.description.trim()}
                                                 onClick={() => void onGenerateShot(shot, index)}>
                                                 {t('Generate')}
                                             </button>

@@ -3,6 +3,8 @@ import { StoryboardDraftPanel } from '../StoryboardDraftPanel';
 import type { AssetBindingOptions, SceneAssetBindingProgress, ShortDramaProjectControls, ShotVideoPreview } from '../types';
 import { ProjectManagementControls } from '@/features/projects/components/ProjectManagementControls';
 import type { EditorDraft } from '@/features/script/components/ShotBuilderDialog/draft';
+import { ReviewFindingsPanel } from '@/features/script/components/ShotBuilderDialog/ReviewFindingsPanel';
+import { reviewStoryboard } from '@/features/script/review/storyboard';
 import type { ProjectAsset } from '@/shared/contracts/production';
 import { Clapperboard } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -12,6 +14,8 @@ type Props = {
     onOpen: () => void;
     projectControls?: ShortDramaProjectControls;
     storyboardDraft?: EditorDraft;
+    minDurationSeconds: number;
+    maxDurationSeconds: number;
     projectAssets: ProjectAsset[];
     onOpenAssets?: () => void;
     onDraftChange: (draft: EditorDraft) => void;
@@ -50,6 +54,8 @@ export function DramaLaunchPanel({
     onOpen,
     projectControls,
     storyboardDraft,
+    minDurationSeconds,
+    maxDurationSeconds,
     projectAssets,
     onOpenAssets,
     onDraftChange,
@@ -69,6 +75,15 @@ export function DramaLaunchPanel({
     characterAssetBindingProgress
 }: Props) {
     const t = useTranslations();
+    const reviewFindings = storyboardDraft
+        ? reviewStoryboard({ draft: storyboardDraft, minDurationSeconds, maxDurationSeconds })
+        : [];
+    const blockedShotIds = new Set(
+        reviewFindings.filter((finding) => finding.severity === 'blocking').map((finding) => finding.shotId)
+    );
+    if (reviewFindings.some((finding) => finding.code === 'UNBOUND_CHARACTER_ASSET' || finding.code === 'UNBOUND_SCENE_ASSET')) {
+        storyboardDraft?.shots.forEach((shot) => blockedShotIds.add(shot.id));
+    }
 
     return (
         <section className={styles.panel} aria-label={t('Short Drama workflow')}>
@@ -89,26 +104,34 @@ export function DramaLaunchPanel({
                 />
             </div>
             {storyboardDraft?.shots.length ? (
-                <StoryboardDraftPanel
-                    draft={storyboardDraft}
-                    assets={projectAssets}
-                    onOpenAssets={onOpenAssets}
-                    onDraftChange={onDraftChange}
-                    onGenerateShot={onGenerateShot}
-                    onGenerateAllShots={onGenerateAllShots}
-                    isGeneratingShot={isGeneratingShot}
-                    pendingShotCount={pendingShotCount}
-                    shotVideoPreviews={shotVideoPreviews}
-                    onContinueShotQueue={onContinueShotQueue}
-                    onAutoBindSceneAssets={onAutoBindSceneAssets}
-                    isAutoBindingSceneAssets={isAutoBindingSceneAssets}
-                    sceneAssetBindingError={sceneAssetBindingError}
-                    sceneAssetBindingProgress={sceneAssetBindingProgress}
-                    onAutoBindCharacterAssets={onAutoBindCharacterAssets}
-                    isAutoBindingCharacterAssets={isAutoBindingCharacterAssets}
-                    characterAssetBindingError={characterAssetBindingError}
-                    characterAssetBindingProgress={characterAssetBindingProgress}
-                />
+                <>
+                    <ReviewFindingsPanel
+                        draft={storyboardDraft}
+                        minDurationSeconds={minDurationSeconds}
+                        maxDurationSeconds={maxDurationSeconds}
+                    />
+                    <StoryboardDraftPanel
+                        draft={storyboardDraft}
+                        assets={projectAssets}
+                        onOpenAssets={onOpenAssets}
+                        onDraftChange={onDraftChange}
+                        onGenerateShot={onGenerateShot}
+                        onGenerateAllShots={onGenerateAllShots}
+                        isGeneratingShot={isGeneratingShot}
+                        blockedShotIds={blockedShotIds}
+                        pendingShotCount={pendingShotCount}
+                        shotVideoPreviews={shotVideoPreviews}
+                        onContinueShotQueue={onContinueShotQueue}
+                        onAutoBindSceneAssets={onAutoBindSceneAssets}
+                        isAutoBindingSceneAssets={isAutoBindingSceneAssets}
+                        sceneAssetBindingError={sceneAssetBindingError}
+                        sceneAssetBindingProgress={sceneAssetBindingProgress}
+                        onAutoBindCharacterAssets={onAutoBindCharacterAssets}
+                        isAutoBindingCharacterAssets={isAutoBindingCharacterAssets}
+                        characterAssetBindingError={characterAssetBindingError}
+                        characterAssetBindingProgress={characterAssetBindingProgress}
+                    />
+                </>
             ) : null}
         </section>
     );

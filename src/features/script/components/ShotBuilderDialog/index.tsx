@@ -1,6 +1,7 @@
 'use client';
 
 import { AnalysisReview } from './AnalysisReview';
+import { ReviewFindingsPanel } from './ReviewFindingsPanel';
 import { ScriptImportField } from './ScriptImportField';
 import { ShotCard } from './ShotCard';
 import { recalledDraft, rememberDraft, validShots, type EditorDraft, type EditorShot } from './draft';
@@ -235,6 +236,11 @@ export function ShotBuilderDialog({
                                     scenes: draft.scenes.map((scene) => (scene.id === id ? { ...scene, ...patch } : scene))
                                 })
                             }
+                        />
+                        <ReviewFindingsPanel
+                            draft={draft}
+                            minDurationSeconds={minDurationSeconds}
+                            maxDurationSeconds={maxDurationSeconds}
                         />
                         <div className={styles.toolbar}>
                             <strong>

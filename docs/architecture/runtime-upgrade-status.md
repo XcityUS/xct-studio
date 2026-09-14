@@ -1,12 +1,14 @@
 # Runtime Upgrade Status
 
-Last updated: 2026-09-10
+Last updated: 2026-09-14
 
 ## Approved Scope
 
-2026-09-10 short-drama UI follow-up: existing ProjectHeader now uses one project selector and create/rename/delete confirmation dialogs; a remembered Normal/Short Drama switch controls entry. ShotBuilderDialog uses owned SCSS and stable local shot keys, manual/automatic input, draft retention on close, duplicate/reorder controls, replacement confirmation and generation confirmation. Save no longer copies a multi-shot prompt into the normal form. Draft retention is ephemeral in-tab state, not cloud persistence or background execution. ProjectControls isolates hook-to-header mapping and conservatively blocks deletion while known video jobs are active. StudioWorkspace and CreationForm budgets decrease to 3,635 and 1,111 lines; remaining browser queue/provider orchestration is legacy debt.
+2026-09-13 persistence delivery: PostgreSQL is authoritative for authenticated Studio business records through `/api/business`. The server now owns owner isolation, revisions, transactional writes, tombstones and queue claims; browser storage is limited to outbox, recovery and legacy import. This delivers the cloud persistence baseline, while provider submission/polling remains browser-driven and the fully typed Episode domain model remains deferred.
 
-Current verification: 330 tests, typecheck, lint with zero errors (34 existing warnings), Harness with zero errors, and the Next.js webpack production build passed. Browser checks on `localhost` exercised Short Drama preference recovery, project configuration in dark/light themes, sticky actions, duplicate-name rejection, shared creation parameters, and the Normal/Short Drama form boundary; no paid generation was submitted. xcity-litellm drama route passed Ruff, BasedPyright and 15 tests. The default Turbopack build cannot run on this Codex host because its CSS worker is denied an internal port (`Operation not permitted`); this is an environment limitation, while the production code path was verified with webpack. Authenticated cloud sync, live AI parsing, paid generation and backend persistence were not verified. No Studio database or deployment was added.
+2026-09-10 UI snapshot: existing ProjectHeader uses one project selector and create/rename/delete confirmation dialogs; a remembered Normal/Short Drama switch controls entry. ShotBuilderDialog uses owned SCSS and stable local shot keys, manual/automatic input, draft retention on close, duplicate/reorder controls, replacement confirmation and generation confirmation. Save no longer copies a multi-shot prompt into the normal form. At that snapshot, draft retention was ephemeral in-tab state. ProjectControls isolates hook-to-header mapping and conservatively blocks deletion while known video jobs are active. StudioWorkspace and CreationForm budgets decrease to 3,635 and 1,111 lines; remaining browser queue/provider orchestration is legacy debt.
+
+2026-09-10 verification snapshot: 330 tests, typecheck, lint with zero errors (34 existing warnings), Harness with zero errors, and the Next.js webpack production build passed. Browser checks on `localhost` exercised Short Drama preference recovery, project configuration in dark/light themes, sticky actions, duplicate-name rejection, shared creation parameters, and the Normal/Short Drama form boundary; no paid generation was submitted. xcity-litellm drama route passed Ruff, BasedPyright and 15 tests. The default Turbopack build could not run on that Codex host because its CSS worker was denied an internal port (`Operation not permitted`). That snapshot did not verify authenticated cloud sync, live AI parsing, paid generation or backend persistence; it must not be used as evidence that the 2026-09-13 persistence implementation is absent.
 
 The user chose framework, internationalization, and directory architecture first. Full legacy Tailwind removal, browser AI transport migration, and new short-drama production functionality are separate follow-ups. The business harness defines target behavior, not implemented IP/Episode features.
 
@@ -110,8 +112,8 @@ The script-file import follow-up touched two legacy components without broadenin
 2. Move all provider SDK calls, submission, and polling from browser adapters into authenticated server application services.
 3. Translate deep production forms and stabilize remaining React warnings with focused behavior tests.
 4. Finish the nine oversized files in `docs/harness/file-size-baseline.json`; do not increase their budgets to fit new features.
-5. Implement versioned IP/character assets, scripts, Scenes/Shots, durable jobs, selection, Episode Versions, subtitle/dubbing localization, and traceable exports.
-6. Design durable persistence, authorization, idempotency, and multi-device conflict handling before treating drafts as production records.
+5. Evolve the delivered generic PostgreSQL business-record layer into fully typed, versioned IP/character assets, scripts, Scenes/Shots, immutable selections, Episode Versions, subtitle/dubbing localization, and traceable exports.
+6. Complete server-side provider execution, idempotent recovery, and product-level multi-device conflict handling. The `/api/business` persistence, owner authorization, revisions, transactions, outbox recovery, and queue claims delivered on 2026-09-13 are the baseline, not the remaining gap.
 
 Detailed tasks: [runtime/i18n checklist](../requirements/next16-i18n-task-list.md), [platform task list](../requirements/xct-studio-task-list.md). Product constraints: [business rules](../rules/business.md). Engineering gates: [file rules](../rules/files.md).
 

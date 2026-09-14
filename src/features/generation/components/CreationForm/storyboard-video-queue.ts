@@ -3,7 +3,8 @@ import type { CreationFormData } from './types';
 import type { EditorDraft } from '@/features/script/components/ShotBuilderDialog/draft';
 import { inferShotCharacterIds } from '@/features/script/character-matching';
 import { DEFAULT_VOICE_LANGUAGE } from '@/features/script/prompt/guards';
-import { clampSeconds, type VideoModel } from '@/shared/config/seedance';
+import { reviewStoryboard } from '@/features/script/review/storyboard';
+import { clampSeconds, secondsRange, type VideoModel } from '@/shared/config/seedance';
 
 export const SHOT_GENERATION_BATCH_LIMIT = 3;
 
@@ -46,8 +47,15 @@ export function storyboardVideoQueueItems({
     buildSubmissionData: BuildSubmissionData;
     titleForShot: (index: number) => string;
 }): ShotQueueItem[] {
+    const range = secondsRange(activeModel);
+    if (draft.characters.some((item) => !item.assetId?.trim()) || draft.scenes.some((item) => !item.assetId?.trim())) return [];
+    const blockedShotIds = new Set(
+        reviewStoryboard({ draft, minDurationSeconds: range.min, maxDurationSeconds: range.max })
+            .filter((finding) => finding.severity === 'blocking')
+            .map((finding) => finding.shotId)
+    );
     return shots
-        .filter(({ shot }) => shot.description.trim())
+        .filter(({ shot }) => shot.description.trim() && !blockedShotIds.has(shot.id))
         .map(({ shot, index }) => {
             const seconds = clampSeconds(shot.durationSeconds ?? activeSeconds, activeModel);
             const item = buildShotQueueItem({

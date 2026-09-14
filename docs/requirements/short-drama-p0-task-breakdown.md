@@ -1,54 +1,54 @@
 # Short Drama P0 任务拆解与推荐实现路径
 
-日期：2026-09-10。依据：[P0 requirements](short-drama-p0-requirements.md)、当前工作树、[架构计划](../architecture/short-drama-p0-implementation-plan.md)。本文同时记录已落地的第一段 UI/解析合同和后续任务；任务编号为 SD 系列，避免混淆原架构计划的 P0-01 等阶段编号。
+更新日期：2026-09-14。依据：[P0 requirements](short-drama-p0-requirements.md)、当前工作树、[架构计划](../architecture/short-drama-p0-implementation-plan.md) 与 [Business Persistence Specification](business-persistence-spec.md)。本文区分 2026-09-13 已落地的云端业务持久化底座和后续 P0 任务；任务编号为 SD 系列，避免混淆原架构计划的 P0-01 等阶段编号。
 
 ## 1. 当前到底做了什么
 
-此前的 Studio 数据库实验实现已按用户要求撤回。XCT Studio 不接数据库；数据库、业务事务和异步队列属于 xcity-litellm 后端，尚未迁移或部署。
+2026-09-10 的“XCT Studio 不接数据库”结论已过期。2026-09-13 提交 `4505c6b` 已在 Studio 服务端交付 PostgreSQL 业务持久化、同源 `/api/business`、owner 隔离、revision/事务、软删除、outbox 恢复和队列 claim。
 
-当前状态：Studio 原有 Normal、脚本提取、素材页与媒体归档保持不变。已新增项目独立配置、结构化角色/场景/Shot Review、资产选择和本地 Preflight；短剧 UI 拆分与普通视频 Prompt 优化保持一致，使用用户 SSO/manual key 直连 TokenHub `/v1/chat/completions`。`/api/script/breakdown` 与 xcity-litellm drama 入口仅作为兼容/后续演进参考。完整 P0 仍未交付，尤其没有云端生产数据、后台队列和刷新恢复。
+当前状态：Studio 原有 Normal、脚本提取、素材页与媒体归档保持不变。已新增项目独立配置、结构化角色/场景/Shot Review、资产选择和 Preflight，业务编辑数据会拆分为云端记录并可刷新恢复。`/api/script/breakdown` 继续通过 xcity-litellm 使用 AI 能力。完整 P0 仍未交付：现有 schema 仍偏 compatibility/JSONB，provider 提交仍由浏览器触发，尚无独立服务端后台执行器，也未完成 AnalysisRun/Chunk/Attempt 和完整批量控制。
 
 ## 2. 可复用能力与责任分界
 
 - Studio 复用 StudioWorkspace 的页面组合、项目 UI、ScriptImportField、文件提取器、素材选择和播放器。
-- 原有 projects/storage.ts 只作为旧数据导入来源，不负责新的生产持久化。
+- 原有浏览器 storage 只承担旧数据导入、outbox 和故障恢复；已登录用户的新业务记录以 PostgreSQL 为准。
 - Studio 的 script/breakdown.ts 只做输入、错误映射和响应归一化；Characters/Scenes/Shots 解析提示与严格响应合同由 xcity-litellm 实现。
-- LiteLLM 已有 PostgreSQL schema 和模型调用能力，但未据此确认具备短剧 Project/Scene/Shot 数据模型。
-- 后续仍需在 LiteLLM 仓库冻结 Project/Script/Binding/Generation 持久化合同；Studio 只消费这些接口。
-- 同一数据库实例是否复用需隔离和容量评估，不能让 Studio 直连 LiteLLM 数据库。
-- 参考 [后端边界决定](../architecture/short-drama-infrastructure.md)，不执行旧提案中的 Studio 数据库/worker 部署步骤。
+- Studio 服务端已经拥有 PostgreSQL 业务记录合同；后续需在此基础上冻结 Project/Script/Binding/Generation 的强类型语义与迁移路径。
+- xcity-litellm 继续负责模型调用、provider 凭据、路由和计费，不是 Studio 业务记录的数据源。
+- 浏览器只调用 Studio 同源 API，不能直连 Studio 或 LiteLLM 数据库。
+- 参考 [持久化与执行边界](../architecture/short-drama-infrastructure.md)，不要再按 9 月 10 日旧文档撤回现有 Studio 数据库实现。
 
 ## 3. 完整任务包
 
 ### 图片复核后的执行补充
 
-- SD-01/02 先核查 LiteLLM 已有能力，再显式覆盖 Project、ScriptVersion、Character、Scene、Shot、BindingVersion、Generation、Snapshot、Attempt、Batch；不得假设撤回的 Studio 实验数据或 v1 快照存在。
-- 每项按后端合同/实现、Studio UI、跨端测试拆分；数据库和队列测试按 LiteLLM 工程工具执行，不强制其使用 Studio 的 pnpm 命令。
+- SD-01/02 先核查 Studio 已有 persistence contract/schema，再显式补强 Project、ScriptVersion、Character、Scene、Shot、BindingVersion、Generation、Snapshot、Attempt、Batch；不得重复建设或破坏现有兼容记录。
+- 每项按 Studio 服务端合同/实现、Studio UI、跨端测试拆分；provider 网关部分再按 xcity-litellm 工程工具验证。
 - SD-05/06 增加单一下拉、新建/编辑 Modal、重名不切项目、独立配置和语言确认。
 - SD-10～15 拆为身份提取（别名/证据/出镜类型）、人工确认、项目资产绑定、分镜 ID 引用、生成快照锁定。人工重复角色映射属于基础确认，不扩展为 AI Smart Merge。
 - SD-17 增加自动拆分默认关闭、覆盖确认、关闭保留草稿、保存不套用普通 Prompt、付费生成二次确认。
 - SD-21/25 增加项目视频与 Normal 历史分区、复用单镜头分享。
 - 状态、冻结时点、防重、依赖失败、字幕交付边界按需求文件顶部复核裁定执行。
 
-2026-09-10 接线进度：改现有 ProjectHeader、CreationForm、ShotBuilderDialog，未另建独立页面；模式切换不卸载现有生成表单。项目配置按项目保存，AI Review 可编辑角色/场景/镜头并绑定当前项目素材，主要角色未绑定会阻塞生成。当前保存仍为浏览器草稿，不是云端 P0 保存。已新增 LiteLLM 专用解析 API，但没有新增 Studio DB、后端短剧数据表或后台队列。
+2026-09-13 接线进度：改现有 ProjectHeader、CreationForm、ShotBuilderDialog，未另建独立页面；模式切换不卸载现有生成表单。项目配置按项目保存，AI Review 可编辑角色/场景/镜头并绑定当前项目素材，主要角色未绑定会阻塞生成。Studio 已新增业务数据库、云端记录和持久化队列 claim；但 provider 执行仍依赖浏览器工作区，不等于后台 worker 已交付。
 
-状态定义：以下均为待交付任务。所有数据库、业务事务、分析任务、快照和队列工作归 xcity-litellm；UI、交互和薄代理归 Studio；跨端验收共同完成。此前 Studio 实验基础已撤回，不能假设这些后端能力已存在。每项交付包含接口合同、实现、自动化测试和必要文档，不允许只交 UI 或只交表。
+状态定义：以下是基于已交付持久化底座的剩余/增强任务，并非都从零开始。Studio 负责业务记录、事务、队列状态、UI 和交互；xcity-litellm 负责 AI/provider 网关；跨端验收共同完成。每项交付包含接口合同、实现、自动化测试和必要文档，不允许只交 UI 或只交表。
 
 ### M0：冻结合同与运行基座（依赖：无）
 
 | ID | 任务 / 范围 | 验收条件 |
 | --- | --- | --- |
 | SD-01 | 对照 P0 冻结领域字段、状态与错误码；修正架构计划和代码差异 | Scene/语言/对白/覆盖确认/连续依赖口径明确；Shot 编辑状态与 Generation 执行状态分离 |
-| SD-02 | 在 LiteLLM 采用其兼容迁移机制；增加 Scene、计划版本、解析 run/draft、项目素材/绑定版本、偏好所需增量 schema | 新业务空库和 LiteLLM 存量数据库均可安全升级；重复迁移幂等；旧 Script/Snapshot 不变；跨项目引用失败 |
+| SD-02 | 在 Studio 现有 PostgreSQL compatibility schema 上补强 Scene、计划版本、解析 run/draft、项目素材/绑定版本及必要强类型约束 | 新业务空库和 Studio 存量数据库均可安全升级；重复迁移幂等；现有兼容记录可读；跨项目引用失败 |
 | SD-03 | 收紧网关合同与恢复协议；鉴权失败停止模型轮换，明确可重试分类 | 稳定用户身份、审核资产、模型、预算、提交/查询/归档有 fixture；未知提交不会被自动重新计费；查不到任务时有人工对账入口 |
-| SD-04 | 在 LiteLLM 规划业务 API/worker 部署与运维；Studio 不接数据库或执行密钥 | 后端 worker 使用独立运行检查；迁移失败阻断新版本；重启保留任务；不依赖浏览器持钥运行 |
+| SD-04 | 在 Studio 持久化/队列底座上实现独立服务端执行器；provider 密钥与模型路由仍留在 LiteLLM | worker 使用独立运行检查；迁移失败阻断新版本；重启保留任务；不依赖浏览器持钥运行 |
 
 ### M1：项目与剧本入口（依赖：SD-01、02；正式联调依赖 SD-03）
 
 | ID | 任务 / 范围 | 验收条件 |
 | --- | --- | --- |
 | SD-05 | `/video` Normal / Short Drama 模式、项目工作区壳、模式与最近项目偏好 | 首次默认 Normal；返回恢复选择；项目删除后回退有效项目/空态；切模式不停止后台任务 |
-| SD-06 | 新项目 CRUD 与配置 Modal，接 LiteLLM 项目服务，补题材/基础 Prompt/明确模型版本等字段 | 重名明确报错；配置不从 Normal 表单继承；编辑冲突可恢复；删除有二次确认且不影响其他项目 |
+| SD-06 | 新项目 CRUD 与配置 Modal，接现有 `/api/business` 持久化并补题材/基础 Prompt/明确模型版本等强类型字段 | 重名明确报错；配置不从 Normal 表单继承；编辑冲突可恢复；删除有二次确认且不影响其他项目 |
 | SD-07 | TXT/MD/Word/PDF 导入、粘贴；原文件元数据/来源与文本版本持久化 | 统一大小/字符数上限；空文件/坏文件/扫描或加密 PDF 有说明；上传失败不生成假版本 |
 | SD-08 | replace/append 影响预览，关联当前计划版本 | 显示受影响角色/场景/镜头/绑定/任务数量；确认令牌与 revision 防过期；取消不丢当前计划，append 不覆盖人工修改 |
 
@@ -108,7 +108,7 @@ P0 连续性默认是角色/场景引用、叙事上下文与依赖顺序，不�
 
 ## 4. 推荐实施与 PR 顺序
 
-1. **合同补齐与增量迁移**：SD-01～04 在 LiteLLM 落地；不要立即接大 UI，不改写已有迁移。
+1. **合同补齐与增量迁移**：SD-01～04 基于 Studio 已有 PostgreSQL 持久化落地，AI/provider 合同与 LiteLLM 联调；不要立即接大 UI，不改写已有迁移。
 2. **项目、文件和基础编辑数据**：SD-05～08、13～18；先用人工小样本验证项目归属与资产继承。
 3. **单镜头最小端到端**：SD-19～21；本地用模拟 provider，验证入队、归档、刷新恢复，不用真实付费请求充当测试。
 4. **AI 解析接入该主链路**：SD-09～12；解析产出已验证的同一份 Scene/Shot 合同，不另建 AI 专属数据模型。
@@ -121,7 +121,7 @@ P0 连续性默认是角色/场景引用、叙事上下文与依赖顺序，不�
 
 ## 5. API 与模块落点
 
-以下为待确认的业务合同，不是已部署的接口：
+以下是需要从现有 `/api/business` compatibility contract 继续类型化或新增的业务合同，不表示当前完全没有云端接口：
 
 - Project/Script CRUD、文件提取结果保存与版本。
 - AnalysisRun、BreakdownDraft Review/Accept。
@@ -130,13 +130,13 @@ P0 连续性默认是角色/场景引用、叙事上下文与依赖顺序，不�
 - Preflight、Batch 创建/暂停/继续/取消、Generation 重试/对账。
 - Candidate、Snapshot 查询、Project Progress/Action Items、偏好恢复。
 
-LiteLLM 后端负责资源鉴权、revision、幂等键、稳定错误码及数据库事务。Studio 使用共享 DTO/薄代理，不引入 SQL 或后端队列。具体 URL、方法、模型字段和语言合同在 SD-01 冻结，不能假定之前被移除的本地路由仍存在。素材二进制继续由媒体 Worker/R2 保存。
+Studio 服务端负责业务资源鉴权、revision、幂等键、稳定错误码及数据库事务；xcity-litellm 负责 AI/provider 鉴权、路由和计费。具体 typed URL、方法、模型字段和语言合同在 SD-01 冻结，并兼容现有 `/api/business` 数据。素材二进制继续由媒体 Worker/R2 保存。
 
-## 6. Railway：Studio 不新增数据库服务
+## 6. 部署：沿用 Studio 云端数据库，补独立执行器
 
-XCT Studio 保留现有 Web 部署，不配置 DRAMA_DATABASE_URL、不运行数据库迁移或 drama:worker。LiteLLM 侧核验已有 PostgreSQL 服务、业务隔离和容量后，再决定数据库与消费者的部署；当前未核验线上实例。
+XCT Studio Web 服务已通过 `DATABASE_URL` 使用 PostgreSQL，并运行仓库内业务迁移。发布门禁必须保留迁移、备份恢复和 owner 隔离检查；不得把数据库连接或 provider 密钥暴露给浏览器。
 
-原文提出的“为 Studio 添加 PostgreSQL + worker”方案已撤销。后端新服务是否需要独立 worker、如何运行迁移、如何设置备份和发布门禁均属于 SD-04/30，必须依据 LiteLLM 仓库真实运行方式设计，不直接套用已删除的 TypeScript 脚本。
+下一步不是迁走业务数据库，而是在现有持久化和 queue claim 上补独立服务端执行器。执行器如何部署、扩缩容、续租、告警及回退属于 SD-04/30；AI/provider 请求继续经 xcity-litellm。
 
 ## 7. P0 §44 验收追踪
 
@@ -167,6 +167,6 @@ XCT Studio 保留现有 Web 部署，不配置 DRAMA_DATABASE_URL、不运行数
 
 每个代码 PR 跑 `pnpm check:harness`、`pnpm lint`、`pnpm typecheck`、`pnpm test`；路由/UI 变化补 build 和浏览器验证。数据库队列必须补真实 PostgreSQL 并发测试，不只依靠内存引擎。常规测试禁止付费调用、发布和部署。
 
-此前实验实现的测试结果不作为交付依据；专用 PostgreSQL 测试随撤回实现移除。后续数据库与队列测试在 LiteLLM 工程执行，Studio 验证应用接口与交互行为。
+现有 PostgreSQL repository、migration、revision 冲突和 queue claim 测试属于当前交付基线。后续 Studio 数据库与队列改动在本仓库补真实 PostgreSQL 并发测试；LiteLLM 侧只验证 provider 网关合同。Studio 同时验证应用接口与交互行为。
 
-**现在只做一个主链路：项目 → 剧本 → 已确认角色/场景/Shot → 素材绑定 → Preflight → 单镜头持久化生成 → 归档并刷新恢复。** 先用手工样本打通，随后把 AI 解析草稿接到同一个入口，再扩展 Generate All。立即下一项是在 LiteLLM 执行 SD-01/02：补齐合同和可升级模型，避免 UI 接入后反复返工。
+**现在只做一个主链路：项目 → 剧本 → 已确认角色/场景/Shot → 素材绑定 → Preflight → 单镜头持久化生成 → 归档并刷新恢复。** 先基于现有云端记录补强类型与服务端执行，再把 AI 解析草稿接到同一个入口，最后扩展 Generate All。立即下一项是在 Studio 执行 SD-01/02：冻结现有合同的演进方式并补可升级模型，避免重复建设。

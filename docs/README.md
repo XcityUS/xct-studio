@@ -8,7 +8,7 @@ Project -> Project Assets -> IP -> Episode -> Scene -> Shot -> Candidate -> Sele
 
 ## Reading Order
 
-Current delivery tracking: [Short Drama P0 task breakdown and backend ownership](requirements/short-drama-p0-task-breakdown.md). XCT Studio does not connect to a database; business persistence and execution belong to xcity-litellm. The checklist maps all 18 P0 acceptance items to tasks.
+Current delivery tracking: [Short Drama P0 task breakdown and backend ownership](requirements/short-drama-p0-task-breakdown.md). Since the 2026-09-13 persistence delivery, XCT Studio owns its authenticated business persistence through the same-origin `/api/business` API and PostgreSQL; xcity-litellm remains the AI/provider gateway. The checklist maps all 18 P0 acceptance items to tasks and distinguishes the delivered persistence baseline from the remaining server-side executor and domain-model work.
 
 For the current short-drama P0 work, start with [P0 requirements](requirements/short-drama-p0-requirements.md), then [P0 Implementation Plan](architecture/short-drama-p0-implementation-plan.md). The plan records current `/video` evidence, data models, state machines, APIs, module boundaries, migration, and task dependencies. It is proposed, not an implementation-completion claim. P0 requirements take precedence over conflicting older product scopes and sequencing.
 
@@ -30,9 +30,13 @@ The current research-backed proposal for the next production chain is
 [Episode Production Pipeline Architecture Proposal](architecture/episode-production-pipeline-proposal.md).
 It is a proposed design awaiting human approval; it does not override the accepted business rules or authorize implementation.
 
+The current capability catalog, overlap policy, storyboard review gate and
+follow-up slices are tracked in
+[Screenwriting capability integration](architecture/screenwriting-capability-integration.md).
+
 ## Directory Ownership
 
-Current boundary decision: [Short-drama backend ownership](architecture/short-drama-infrastructure.md). The experimental Studio database/API/worker implementation was withdrawn; it has not been migrated or deployed to LiteLLM.
+Current boundary: [Short-drama cloud persistence and execution ownership](architecture/short-drama-infrastructure.md). The 2026-09-10 no-database decision is historical; the 2026-09-13 implementation makes PostgreSQL-backed Studio business data authoritative while keeping AI/provider routing in xcity-litellm.
 
 | Directory     | Purpose                                                             |
 | ------------- | ------------------------------------------------------------------- |

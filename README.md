@@ -31,24 +31,28 @@ Browser (this app)
   ├──► Next /api/script/*
   │      file text extraction + retained server-compatible breakdown route
   │
+  ├──► Next /api/business/* → PostgreSQL
+  │      authoritative business records, revisions, tombstones, outbox sync, and queue claims
+  │
   └──► xcity-media worker (Cloudflare Workers + R2, media-worker/)
          POST /archive   copy a finished video into R2 (key-authenticated)
          POST /upload    host a local reference image  (key-authenticated)
          GET  /media/*   serve stored media (public, immutable, CORS, ranges)
 ```
 
-- Video/image **bytes** live in the browser (IndexedDB) and in R2; **history metadata** uses browser state and Worker sync. The Next.js app does not yet own a production database. `/api/config` exposes browser-safe runtime configuration; existing portrait and video-content API routes remain in place. Prompt optimization and short-drama script breakdown currently share the browser-direct TokenHub chat-completions path.
+- PostgreSQL is authoritative for Studio business records through `/api/business`; browser storage is retained for outbox, recovery, imports, and media caching. Video/image **bytes** live in the browser cache and R2. `/api/config` exposes browser-safe runtime configuration; existing portrait and video-content API routes remain in place. Prompt optimization and short-drama script breakdown currently share the browser-direct TokenHub chat-completions path.
 - Keys are resolved **at call time** through a ref (`src/features/settings/hooks/use-xcity-key.ts`) — SSO keys arrive async and rotate, so no closure ever trusts a key it captured at render time. When SSO is enabled, call-time resolution fetches the current SSO key before falling back to a browser-stored manual key.
 - Archiving is **reconciliation-based** (`src/features/assets/hooks/use-media-archive.ts`): any completed history item without a permanent URL gets one, with exponential backoff — not a completion callback that can race the CDN link appearing.
 
 ## 🚀 Local development
 
-Use Node.js 22.18+ and pnpm 10.34.5, pinned in `package.json`. Corepack runs the project version without changing other repositories. The runtime is Next.js 16.3.4, React 19.2.8, and next-intl 4.14.2.
+Install and activate [mise](https://mise.jdx.dev/getting-started), then let the committed `mise.toml` select Node.js 22.22.1 and pnpm 10.34.5. The pnpm version remains independently enforced by `package.json`. The runtime is Next.js 16.3.4, React 19.2.8, and next-intl 4.14.2.
 
 ```bash
-corepack pnpm install --frozen-lockfile
+mise install
+pnpm install --frozen-lockfile
 cp .env.local.example .env.local   # then fill in what you need
-corepack pnpm dev
+pnpm dev
 ```
 
 Open [Chinese Studio](http://localhost:3000/zh) or [English Studio](http://localhost:3000/en). `/` redirects to `/zh`. With no SSO configured you'll be prompted for a TokenHub API key (stored only in the browser).
@@ -56,11 +60,11 @@ Open [Chinese Studio](http://localhost:3000/zh) or [English Studio](http://local
 `pnpm-lock.yaml` is the only dependency lockfile. Use `pnpm add` and `pnpm remove` for dependency changes; do not run npm or Yarn installs. The install guard enforces the pinned pnpm version.
 
 ```bash
-corepack pnpm check:harness
-corepack pnpm lint
-corepack pnpm typecheck
-corepack pnpm test
-corepack pnpm build
+pnpm check:harness
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build
 ```
 
 The upgrade introduces Server Component route shells, CSS Modules for the localized shell and migrated settings, and typed runtime configuration under `src/server` and `src/shared/contracts`. Existing production UI, Tailwind styling, and browser AI adapters are explicitly retained for separate migration. Initial translations cover navigation, the account gate/dialog, sharing, verification callbacks, and error pages; deeper production forms remain a translation follow-up. See [implementation status](docs/architecture/runtime-upgrade-status.md) and [file naming and size rules](docs/rules/files.md).

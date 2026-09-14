@@ -1,6 +1,6 @@
 # Xct Studio Harness Plan
 
-Last updated: 2026-09-07
+Last updated: 2026-09-14
 
 ## Goal
 
@@ -47,13 +47,14 @@ Current strengths:
 - R2 media archive
 - share page, community review, authorization review
 - basic cloud state sync via the media worker
+- authenticated PostgreSQL business persistence through `/api/business`
+- owner isolation, revisions, transactional writes, tombstones, and persisted queue claims
 
 Current platform gaps:
 
-- no backend business database
-- no workspace / project / IP / episode model
-- no server-side job queue
-- no durable shot-level production state
+- the cloud business schema remains a compatibility-oriented record layer rather than a fully typed relational Project / IP / Episode model
+- provider submission and polling are still browser-driven; persisted queue claims are not yet an independent server-side worker
+- complete immutable shot/candidate/selection and Episode Version semantics remain pending
 - deep production forms are not fully translated yet
 - domain-state and provider-boundary test coverage remains pending beyond the installed foundation tests
 
@@ -115,9 +116,9 @@ Use the harness as a staged migration boundary:
 2. Keep the installed Server Component locale shell thin and isolate future browser interactions by feature.
 3. Move UI strings behind `next-intl` incrementally.
 4. Migrate existing styling to CSS Modules, remaining runtime JavaScript to TypeScript, and AI transport to server-only services in separate reviewable steps.
-5. Introduce IP / Episode types and mock data before persistence.
+5. Evolve the delivered compatibility persistence records into typed IP / Episode domain contracts and migrations.
 6. Move existing components into `src/features/*` only when their ownership is clear.
-7. Add server-side persistence and queueing after the feature model is stable. The server AI boundary does not depend on adding a database or queue.
+7. Move provider submission and polling onto the delivered server persistence/queue foundation after the typed execution contract is stable.
 
 ## Next.js 16 Upgrade Intent
 

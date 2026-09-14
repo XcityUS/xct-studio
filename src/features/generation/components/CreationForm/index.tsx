@@ -429,7 +429,6 @@ export function CreationForm({
         setShotQueue(nextQueue);
         writeShotQueue(nextQueue, shotQueueScope);
     };
-
     const processShotQueue = async (initialQueue = shotQueue) => {
         if (blockedReferences.length > 0 || isGeneratingShotBatch) return;
         await executeShotQueue({ items: initialQueue, limit: SHOT_GENERATION_BATCH_LIMIT, previews: shotVideoPreviews, onSubmit, onUpdate: updateShotQueue, onBusy: setIsGeneratingShotBatch });
@@ -511,6 +510,7 @@ export function CreationForm({
                             onOpen={() => setIsShotBuilderOpen(true)}
                             projectControls={projectControls}
                             storyboardDraft={storyboardDraft}
+                            minDurationSeconds={minSeconds} maxDurationSeconds={maxSeconds}
                             projectAssets={projectAssets}
                             onOpenAssets={onOpenAssets ? () => onOpenAssets() : undefined}
                             onDraftChange={handleStoryboardDraftChange}
