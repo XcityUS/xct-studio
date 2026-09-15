@@ -9,6 +9,10 @@ export type VideoPlayerProps = {
     loop?: boolean;
     muted?: boolean;
     preload?: 'none' | 'metadata' | 'auto';
+    subtitle?: {
+        url: string;
+        type: 'srt' | 'vtt';
+    };
     onDurationChange?: (duration: number) => void;
     onSourceError?: () => void;
 };
@@ -17,4 +21,6 @@ export type PlayerCallbacks = Pick<VideoPlayerProps, 'onDurationChange' | 'onSou
 
 export type PlayerBehavior = Required<Pick<VideoPlayerProps, 'autoPlay' | 'loop' | 'muted' | 'preload'>> & {
     instanceKey?: string;
+    subtitle?: VideoPlayerProps['subtitle'];
+    subtitleVisibilityLabel: string;
 };

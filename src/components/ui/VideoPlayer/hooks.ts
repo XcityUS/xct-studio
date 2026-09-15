@@ -1,7 +1,13 @@
 import type { PlayerBehavior, PlayerCallbacks } from './types';
-import { requestExclusiveVideoPlayback, subscribeExclusiveVideoPlayback } from '@/shared/media/exclusive-video-playback';
+import {
+    requestExclusiveVideoPlayback,
+    subscribeExclusiveVideoPlayback
+} from '@/shared/media/exclusive-video-playback';
 import type Artplayer from 'artplayer';
 import * as React from 'react';
+
+const SUBTITLE_VISIBILITY_STORAGE_KEY = 'xctSubtitleVisible';
+const SUBTITLE_OFFSET_STORAGE_PREFIX = 'xctSubtitleOffset:';
 
 type PlayerSetup = PlayerBehavior & {
     containerRef: React.RefObject<HTMLDivElement | null>;
@@ -40,10 +46,47 @@ function createPlayer(ArtplayerConstructor: typeof Artplayer, setup: PlayerSetup
         mutex: true,
         fullscreen: true,
         fullscreenWeb: true,
+        subtitleOffset: Boolean(setup.subtitle),
         miniProgressBar: true,
         playsInline: true,
+        ...(setup.subtitle
+            ? {
+                  subtitle: {
+                      ...setup.subtitle,
+                      encoding: 'utf-8',
+                      escape: true
+                  },
+                  settings: [
+                      {
+                          name: 'subtitleVisibility',
+                          html: setup.subtitleVisibilityLabel,
+                          switch: true,
+                          mounted(_panel, item) {
+                              const visible = this.storage.get(SUBTITLE_VISIBILITY_STORAGE_KEY) !== false;
+                              item.switch = visible;
+                              this.subtitle.show = visible;
+                          },
+                          onSwitch(item) {
+                              const visible = !item.switch;
+                              this.subtitle.show = visible;
+                              this.storage.set(SUBTITLE_VISIBILITY_STORAGE_KEY, visible);
+                              return visible;
+                          }
+                      }
+                  ]
+              }
+            : {}),
         moreVideoAttr: { preload: setup.preload }
     });
+}
+
+function bindSubtitleOffset(player: Artplayer, instanceKey?: string) {
+    const storageKey = `${SUBTITLE_OFFSET_STORAGE_PREFIX}${instanceKey ?? 'default'}`;
+    player.on('subtitleLoad', () => {
+        const storedOffset = player.storage.get(storageKey);
+        if (typeof storedOffset === 'number' && Number.isFinite(storedOffset)) player.subtitleOffset = storedOffset;
+    });
+    player.on('subtitleOffset', (offset: number) => player.storage.set(storageKey, offset));
 }
 
 function bindPlayerEvents(player: Artplayer, latestRef: React.RefObject<PlayerCallbacks>, playbackToken: string) {
@@ -59,7 +102,19 @@ function bindPlayerEvents(player: Artplayer, latestRef: React.RefObject<PlayerCa
 export function usePlayerInstance(setup: PlayerSetup) {
     const playerRef = React.useRef<Artplayer | null>(null);
     const playbackToken = `artplayer:${React.useId()}`;
-    const { autoPlay, containerRef, instanceKey, latestRef, loadedSourceRef, locale, loop, muted, preload } = setup;
+    const {
+        autoPlay,
+        containerRef,
+        instanceKey,
+        latestRef,
+        loadedSourceRef,
+        locale,
+        loop,
+        muted,
+        preload,
+        subtitle,
+        subtitleVisibilityLabel
+    } = setup;
 
     React.useEffect(() => {
         let disposed = false;
@@ -78,18 +133,18 @@ export function usePlayerInstance(setup: PlayerSetup) {
                     locale,
                     loop,
                     muted,
-                    preload
+                    preload,
+                    subtitle,
+                    subtitleVisibilityLabel
                 });
                 if (!instance) return;
                 playerRef.current = instance;
                 loadedSourceRef.current = latestRef.current.src;
                 bindPlayerEvents(instance, latestRef, playbackToken);
-                unsubscribeExclusivePlayback = subscribeExclusiveVideoPlayback(
-                    playbackToken,
-                    () => {
-                        if (instance && !instance.isDestroy && instance.playing) instance.pause();
-                    }
-                );
+                if (subtitle) bindSubtitleOffset(instance, instanceKey);
+                unsubscribeExclusivePlayback = subscribeExclusiveVideoPlayback(playbackToken, () => {
+                    if (instance && !instance.isDestroy && instance.playing) instance.pause();
+                });
             })
             .catch((error: unknown) => {
                 console.warn('ArtPlayer failed to initialize:', error);
@@ -102,7 +157,20 @@ export function usePlayerInstance(setup: PlayerSetup) {
             instance?.destroy();
             if (playerRef.current === instance) playerRef.current = null;
         };
-    }, [autoPlay, containerRef, instanceKey, latestRef, loadedSourceRef, locale, loop, muted, playbackToken, preload]);
+    }, [
+        autoPlay,
+        containerRef,
+        instanceKey,
+        latestRef,
+        loadedSourceRef,
+        locale,
+        loop,
+        muted,
+        playbackToken,
+        preload,
+        subtitle,
+        subtitleVisibilityLabel
+    ]);
 
     return playerRef;
 }

@@ -1,5 +1,6 @@
 'use client';
 
+import { autoBindCharacterAssets } from './character-asset-autobind';
 import {
     BRANDING_WATERMARK_TEXT,
     FINALIZE_UNSUPPORTED_MODEL_MESSAGE,
@@ -14,7 +15,9 @@ import {
     referenceVideoDownloadErrorMessage,
     summarizeWebUrl
 } from './references';
+import { autoBindSceneAssets } from './scene-asset-autobind';
 import { captionModeFromLanguages, shareParamsToForm, sharePromptWithinLimit, shareTitleFromItem } from './share';
+import { shotVideoPreviewsForProject } from './shot-video-previews';
 import type { ErrorScope, SocialShareTarget, StudioTab, WatermarkQueueItem } from './types';
 import {
     fileNameWithoutExtension,
@@ -76,7 +79,12 @@ import { CommunityPanel } from '@/features/community/components/CommunityPanel';
 import { GallerySection } from '@/features/community/components/GallerySection';
 import { reconcilePreset } from '@/features/community/gallery/preset';
 import type { GalleryItem } from '@/features/community/gallery/utils';
-import { CreationForm, type AssetBindingOptions, type CreationFormData, type SceneAssetBindingProgress } from '@/features/generation/components/CreationForm';
+import {
+    CreationForm,
+    type AssetBindingOptions,
+    type CreationFormData,
+    type SceneAssetBindingProgress
+} from '@/features/generation/components/CreationForm';
 import { FinalizeDialog, type FinalizeSettings } from '@/features/generation/components/FinalizeDialog';
 import { ImageStudio } from '@/features/generation/components/ImageStudio';
 import { VideoHistoryPanel } from '@/features/generation/components/VideoHistoryPanel';
@@ -85,7 +93,8 @@ import { useVideoHistory } from '@/features/generation/hooks/use-video-history';
 import { useVideoJobs } from '@/features/generation/hooks/use-video-jobs';
 import { calculateVideoCost } from '@/features/generation/utils/cost';
 import { estimateVideoProgress } from '@/features/generation/utils/progress';
-import { burnBrandingWatermarkIntoVideo, burnTitleOverlayIntoVideo } from '@/features/post-production/assembly/client';
+import { burnBrandingWatermarkIntoVideo } from '@/features/post-production/assembly/client';
+import { renderTextOverlays } from '@/features/post-production/overlays/render';
 import { useShortDramaProject } from '@/features/projects/hooks/use-short-drama-project';
 import { useVideoMode } from '@/features/projects/hooks/use-video-mode';
 import type { EditorDraft } from '@/features/script/components/ShotBuilderDialog/draft';
@@ -103,7 +112,8 @@ import {
     normalizeTitleOverlayStyle,
     normalizeTitleOverlayText,
     normalizeVoiceLanguage,
-    promptWithLanguageControls
+    promptWithLanguageControls,
+    shouldAvoidGeneratedCaptions
 } from '@/features/script/prompt/guards';
 import { AccountConnection } from '@/features/settings/components/AccountConnection';
 import { ApiKeyDialog } from '@/features/settings/components/ApiKeyDialog';
@@ -113,9 +123,6 @@ import { XCITY_SSO_ENABLED } from '@/features/settings/sso';
 import { useAssetIdIntake } from '@/features/studio/hooks/use-asset-id-intake';
 import { useStudioTabRouting } from '@/features/studio/hooks/use-studio-tab-routing';
 import { studioVideoSharePath } from '@/features/studio/routing';
-import { autoBindCharacterAssets } from './character-asset-autobind';
-import { autoBindSceneAssets } from './scene-asset-autobind';
-import { shotVideoPreviewsForProject } from './shot-video-previews';
 import type { AppLocale } from '@/i18n/routing';
 import { transcribeVideo, type CaptionSegment } from '@/lib/captions';
 import {
@@ -284,6 +291,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
     const { apiKey, keyRef, ssoStatus, ssoError, attemptSso, resolveKey, saveManualKey, invalidateKey } = useXcityKey();
     const {
         history,
+        getItem,
         characters,
         portraits,
         declarations,
@@ -818,10 +826,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
             const groups = (await listPortraitGroups(key, 'aigc')).groups;
             if (!cancelled) setVirtualCharacterGroups(groups);
         })().catch((err) => {
-            if (
-                err instanceof Error &&
-                err.message.toLowerCase().includes('authentication failed')
-            ) {
+            if (err instanceof Error && err.message.toLowerCase().includes('authentication failed')) {
                 if (!cancelled) setVirtualCharacterGroups([]);
                 return;
             }
@@ -922,41 +927,89 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         getAsset: handleGetPortraitAsset
     });
 
-    const handleAutoBindSceneAssets = React.useCallback(async (draft: EditorDraft, onProgress?: (draft: EditorDraft, progress: SceneAssetBindingProgress) => void, options?: AssetBindingOptions): Promise<EditorDraft> => {
+    const handleAutoBindSceneAssets = React.useCallback(
+        async (
+            draft: EditorDraft,
+            onProgress?: (draft: EditorDraft, progress: SceneAssetBindingProgress) => void,
+            options?: AssetBindingOptions
+        ): Promise<EditorDraft> => {
             const imageModel = imageModels[0]?.id;
             if (!imageModel) throw new Error('Image generation is not configured.');
             if (!isPortraitEnabled) throw new Error('Asset review is not configured.');
             const nextDraft = await autoBindSceneAssets({
-                draft, imageAssets, imageModel, ratio: createRatio, uploadEnabled,
-                basePrompt: projectDraft.activeProject.basePrompt, styleNote: projectDraft.activeProject.styleNote,
-                loadImageAssets: handleLoadAssets, generateImages: handleGenerateImages,
-                reviewAsset: handleReviewReferenceAsset, resolveKey, onProgress, options
+                draft,
+                imageAssets,
+                imageModel,
+                ratio: createRatio,
+                uploadEnabled,
+                basePrompt: projectDraft.activeProject.basePrompt,
+                styleNote: projectDraft.activeProject.styleNote,
+                loadImageAssets: handleLoadAssets,
+                generateImages: handleGenerateImages,
+                reviewAsset: handleReviewReferenceAsset,
+                resolveKey,
+                onProgress,
+                options
             });
             void refreshImageAssets();
             return nextDraft;
-        }, [
-            createRatio, handleGenerateImages, handleLoadAssets, handleReviewReferenceAsset, imageAssets,
-            imageModels, isPortraitEnabled, projectDraft.activeProject.basePrompt,
-            projectDraft.activeProject.styleNote, refreshImageAssets, resolveKey, uploadEnabled
-        ]);
+        },
+        [
+            createRatio,
+            handleGenerateImages,
+            handleLoadAssets,
+            handleReviewReferenceAsset,
+            imageAssets,
+            imageModels,
+            isPortraitEnabled,
+            projectDraft.activeProject.basePrompt,
+            projectDraft.activeProject.styleNote,
+            refreshImageAssets,
+            resolveKey,
+            uploadEnabled
+        ]
+    );
 
-    const handleAutoBindCharacterAssets = React.useCallback(async (draft: EditorDraft, onProgress?: (draft: EditorDraft, progress: SceneAssetBindingProgress) => void, options?: AssetBindingOptions): Promise<EditorDraft> => {
+    const handleAutoBindCharacterAssets = React.useCallback(
+        async (
+            draft: EditorDraft,
+            onProgress?: (draft: EditorDraft, progress: SceneAssetBindingProgress) => void,
+            options?: AssetBindingOptions
+        ): Promise<EditorDraft> => {
             const imageModel = imageModels[0]?.id;
             if (!imageModel) throw new Error('Image generation is not configured.');
             if (!isPortraitEnabled) throw new Error('Asset review is not configured.');
             const nextDraft = await autoBindCharacterAssets({
-                draft, imageAssets, imageModel, uploadEnabled,
-                basePrompt: projectDraft.activeProject.basePrompt, styleNote: projectDraft.activeProject.styleNote,
-                loadImageAssets: handleLoadAssets, generateImages: handleGenerateImages,
-                reviewAsset: handleReviewReferenceAsset, resolveKey, onProgress, options
+                draft,
+                imageAssets,
+                imageModel,
+                uploadEnabled,
+                basePrompt: projectDraft.activeProject.basePrompt,
+                styleNote: projectDraft.activeProject.styleNote,
+                loadImageAssets: handleLoadAssets,
+                generateImages: handleGenerateImages,
+                reviewAsset: handleReviewReferenceAsset,
+                resolveKey,
+                onProgress,
+                options
             });
             void refreshImageAssets();
             return nextDraft;
-        }, [
-            handleGenerateImages, handleLoadAssets, handleReviewReferenceAsset, imageAssets,
-            imageModels, isPortraitEnabled, projectDraft.activeProject.basePrompt,
-            projectDraft.activeProject.styleNote, refreshImageAssets, resolveKey, uploadEnabled
-        ]);
+        },
+        [
+            handleGenerateImages,
+            handleLoadAssets,
+            handleReviewReferenceAsset,
+            imageAssets,
+            imageModels,
+            isPortraitEnabled,
+            projectDraft.activeProject.basePrompt,
+            projectDraft.activeProject.styleNote,
+            refreshImageAssets,
+            resolveKey,
+            uploadEnabled
+        ]
+    );
 
     const handleLoadAssemblyAudioAssets = React.useCallback(async (): Promise<UserAsset[]> => {
         const key = await resolveKey();
@@ -1172,7 +1225,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
             const key = await resolveKey();
             if (!key) return false;
 
-            const historyItem = history.find((item) => item.id === videoId);
+            const historyItem = getItem(videoId);
             const shouldPreferBranded =
                 brandingRequestedIdsRef.current.get(videoId) ??
                 historyItem?.brandingWatermark?.enabled ??
@@ -1196,7 +1249,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
             updateItem(videoId, { storedUrl: archived.url, mediaExpired: false });
             return true;
         },
-        [history, markPreviewResolving, markPreviewUnresolved, resolveKey, setRemoteSource, updateItem]
+        [getItem, markPreviewResolving, markPreviewUnresolved, resolveKey, setRemoteSource, updateItem]
     );
 
     /** Finalizes a finished video, archives it to R2, then caches locally best-effort. */
@@ -1261,7 +1314,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
             try {
                 const blob = await videoService.downloadContent(job.id, sourceUrl);
                 updateItem(job.id, { fileSizeBytes: blob.size });
-                const historyItem = history.find((item) => item.id === job.id);
+                const historyItem = getItem(job.id);
                 const shouldAddBranding =
                     brandingRequestedIdsRef.current.get(job.id) ??
                     historyItem?.brandingWatermark?.enabled ??
@@ -1282,41 +1335,26 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                 });
 
                 let originalArchiveUrl: string | undefined;
-                let titledArchiveUrl: string | undefined;
+                let processedArchiveUrl: string | undefined;
                 let watermarkedArchiveUrl: string | undefined;
                 let brandedBlob: Blob | null = null;
                 let processedBlob = blob;
-                const titleOverlayText = normalizeTitleOverlayText(historyItem?.createParams?.title_overlay_text);
-                const shouldAddTitleOverlay =
-                    historyItem?.createParams?.title_overlay_enabled === true && Boolean(titleOverlayText);
-
-                if (shouldAddTitleOverlay) {
-                    try {
-                        console.log(`[title-overlay] adding opening title to ${job.id}`);
-                        processedBlob = await burnTitleOverlayIntoVideo(
-                            processedBlob,
-                            {
-                                text: titleOverlayText,
-                                style: historyItem?.createParams?.title_overlay_style,
-                                duration: historyItem?.createParams?.title_overlay_duration
-                            },
-                            (progress) => {
-                                if (progress === 0 || progress === 1) {
-                                    console.log(`[title-overlay] ${job.id} ${Math.round(progress * 100)}%`);
-                                }
-                            }
-                        );
-                        await db.videos.put({
-                            id: job.id,
-                            filename: `${job.id}.mp4`,
-                            blob: processedBlob,
-                            thumbnail: thumbnailBlob,
-                            created_at: job.created_at
-                        });
-                    } catch (err) {
-                        console.warn(`Could not add opening title to ${job.id}; keeping provider video.`, err);
-                    }
-                }
+                const overlays = await renderTextOverlays(
+                    blob,
+                    historyItem?.createParams,
+                    historyItem?.prompt ?? ''
+                );
+                processedBlob = overlays.film;
+                if (overlays.titleWarning)
+                    console.warn(`Could not add opening title to ${job.id}.`, overlays.titleWarning);
+                if (processedBlob !== blob)
+                    await db.videos.put({
+                        id: job.id,
+                        filename: `${job.id}.mp4`,
+                        blob: processedBlob,
+                        thumbnail: thumbnailBlob,
+                        created_at: job.created_at
+                    });
 
                 try {
                     const key = await resolveKey();
@@ -1334,21 +1372,27 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                     console.warn(`Could not archive original video ${job.id} to R2.`, err);
                 }
 
-                if (shouldAddTitleOverlay && processedBlob !== blob) {
+                if (processedBlob !== blob) {
                     try {
                         const key = await resolveKey();
                         if (key) {
-                            const archiveId = `${job.id}_title`;
+                            const suffix = [
+                                overlays.titleApplied ? 'title' : '',
+                                overlays.captionTrack?.status === 'completed' ? 'captions' : ''
+                            ]
+                                .filter(Boolean)
+                                .join('_');
+                            const archiveId = `${job.id}_${suffix}`;
                             const archived = await archiveLocalVideo(archiveId, processedBlob, key, `${archiveId}.mp4`);
                             if (archived?.url) {
-                                titledArchiveUrl = archived.url;
+                                processedArchiveUrl = archived.url;
                                 if (!shouldAddBranding) {
                                     setRemoteSource(job.id, archived.url);
                                 }
                             }
                         }
                     } catch (err) {
-                        console.warn(`Could not archive titled video ${job.id} to R2.`, err);
+                        console.warn(`Could not archive processed video ${job.id} to R2.`, err);
                     }
                 }
 
@@ -1390,21 +1434,27 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                     }
                 }
 
-                const storedUrl = watermarkedArchiveUrl ?? titledArchiveUrl ?? originalArchiveUrl;
-                const brandingEnabled = Boolean(watermarkedArchiveUrl || (brandedBlob && !storedUrl));
-                if (!watermarkedArchiveUrl && (titledArchiveUrl || originalArchiveUrl)) {
-                    setRemoteSource(job.id, titledArchiveUrl ?? originalArchiveUrl!);
-                }
+                const hasProcessedVideo = processedBlob !== blob;
+                const storedUrl = brandedBlob
+                    ? watermarkedArchiveUrl
+                    : hasProcessedVideo
+                      ? processedArchiveUrl
+                      : originalArchiveUrl;
+                const brandingEnabled = Boolean(watermarkedArchiveUrl || brandedBlob);
+                if (storedUrl) setRemoteSource(job.id, storedUrl);
                 updateItem(job.id, {
                     durationMs: Date.now() - job.created_at * 1000,
                     fileSizeBytes: brandedBlob?.size ?? processedBlob.size,
                     storageModeUsed: storedUrl ? 'r2' : 'indexeddb',
                     status: 'completed',
+                    ...(overlays.captionTrack ? { captionTrack: overlays.captionTrack } : {}),
                     ...(storedUrl ? { storedUrl, mediaExpired: false } : {}),
                     brandingWatermark: {
                         enabled: brandingEnabled,
                         text: watermarkText,
-                        ...(originalArchiveUrl ? { originalUrl: originalArchiveUrl } : {}),
+                        ...(processedArchiveUrl || originalArchiveUrl
+                            ? { originalUrl: processedArchiveUrl ?? originalArchiveUrl }
+                            : {}),
                         ...(watermarkedArchiveUrl ? { watermarkedUrl: watermarkedArchiveUrl } : {})
                     }
                 });
@@ -1427,7 +1477,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         },
         [
             resolveKey,
-            history,
+            getItem,
             videoService,
             setRemoteSource,
             updateItem,
@@ -1512,7 +1562,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
             },
             onCompleted: (job: VideoJob) => {
                 brandingPendingIdsRef.current.add(job.id);
-                const historyItem = history.find((item) => item.id === job.id);
+                const historyItem = getItem(job.id);
                 const completedSeconds = Number(job.seconds);
                 const actualSeconds =
                     Number.isFinite(completedSeconds) && completedSeconds > 0 ? completedSeconds : undefined;
@@ -1590,6 +1640,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         }),
         [
             history,
+            getItem,
             updateItem,
             deleteCloudCopyForItem,
             protectedArchiveKeysForVideo,
@@ -1848,7 +1899,9 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
             onSubmitStage?: (message: string) => void;
         } = {}
     ): Promise<string | null> => {
-        const replacementItem = options.replacesItem ?? (options.replacesItemId ? history.find((item) => item.id === options.replacesItemId) : undefined);
+        const replacementItem =
+            options.replacesItem ??
+            (options.replacesItemId ? history.find((item) => item.id === options.replacesItemId) : undefined);
         const voiceLanguage = normalizeVoiceLanguage(
             rawFormData.voice_language ?? (rawFormData.generate_audio ? DEFAULT_VOICE_LANGUAGE : SILENT_VOICE_LANGUAGE)
         );
@@ -1858,9 +1911,10 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         const titleOverlayStyle = normalizeTitleOverlayStyle(rawFormData.title_overlay_style);
         const titleOverlayDuration = normalizeTitleOverlayDuration(rawFormData.title_overlay_duration);
         const titleOverlayLanguage = normalizeTitleOverlayLanguage(rawFormData.title_overlay_language);
+        const captionSourcePrompt = rawFormData.caption_source_prompt ?? rawFormData.prompt;
         const formData: CreationFormData = {
             ...rawFormData,
-            prompt: promptWithLanguageControls(rawFormData.prompt, {
+            prompt: promptWithLanguageControls(captionSourcePrompt, {
                 voiceLanguage,
                 captionMode,
                 titleOverlay: {
@@ -1872,11 +1926,12 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                 }
             }),
             generate_audio: voiceLanguage !== SILENT_VOICE_LANGUAGE,
-            avoid_generated_captions: captionMode === 'none',
+            avoid_generated_captions: shouldAvoidGeneratedCaptions(captionMode),
             generated_captions: undefined,
             generated_caption_languages: undefined,
             voice_language: voiceLanguage,
             caption_mode: captionMode,
+            caption_source_prompt: captionSourcePrompt,
             title_overlay_enabled: titleOverlayEnabled,
             title_overlay_text: titleOverlayEnabled ? titleOverlayText : undefined,
             title_overlay_style: titleOverlayStyle,
@@ -2258,7 +2313,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                 prompt: cleanPromptForReuse(item.prompt),
                 watermarkText: normalizeWatermarkText(item.createParams.watermarkText ?? item.brandingWatermark?.text),
                 generate_audio: voiceLanguage !== SILENT_VOICE_LANGUAGE,
-                avoid_generated_captions: captionMode === 'none',
+                avoid_generated_captions: shouldAvoidGeneratedCaptions(captionMode),
                 generated_captions: undefined,
                 generated_caption_languages: undefined,
                 voice_language: voiceLanguage,
@@ -3385,7 +3440,17 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
     const currentVideoSrc =
         currentJobId && !currentMediaExpired ? (getVideoSrc(currentJobId) ?? currentFallbackVideoSrc) : null;
     const currentThumbnailSrc = currentJobId ? getThumbnailSrc(currentJobId) : null;
-    const shotVideoPreviews = React.useMemo(() => shotVideoPreviewsForProject({ history, activeJobs, projectId: projectDraft.activeProject.id, getVideoSrc, getThumbnailSrc }), [activeJobs, getThumbnailSrc, getVideoSrc, history, projectDraft.activeProject.id]);
+    const shotVideoPreviews = React.useMemo(
+        () =>
+            shotVideoPreviewsForProject({
+                history,
+                activeJobs,
+                projectId: projectDraft.activeProject.id,
+                getVideoSrc,
+                getThumbnailSrc
+            }),
+        [activeJobs, getThumbnailSrc, getVideoSrc, history, projectDraft.activeProject.id]
+    );
 
     React.useEffect(() => {
         if (currentHistoryItem?.status === 'completed' && currentVideoSrc) {
@@ -3437,7 +3502,9 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                 </Alert>
             )}
             <div className='grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,0.8fr)_minmax(560px,1.2fr)] lg:items-start xl:grid-cols-[minmax(0,0.75fr)_minmax(640px,1.25fr)]'>
-                <div ref={creationFormRef} className='relative flex min-h-[600px] flex-col overflow-hidden lg:sticky lg:top-6 lg:col-span-1 lg:h-[calc(100vh-3rem)] lg:min-h-0 lg:self-start'>
+                <div
+                    ref={creationFormRef}
+                    className='relative flex min-h-[600px] flex-col overflow-hidden lg:sticky lg:top-6 lg:col-span-1 lg:h-[calc(100vh-3rem)] lg:min-h-0 lg:self-start'>
                     <ApiKeyGate
                         isBlocked={isApiKeyGateBlocked}
                         onConfigure={() => setIsApiKeyDialogOpen(true)}
@@ -3513,8 +3580,14 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                                 projectConfig={projectDraft.activeProject}
                                 buildProductionSnapshot={projectDraft.buildProductionSnapshot}
                                 projectControls={{
-                                    project: projectDraft.activeProject, projects: projectDraft.projects, projectAssets: projectDraft.projectAssets, onCreateProject: projectDraft.addProject,
-                                    onSelectProject: projectDraft.setActiveProjectId, onUpdateProject: projectDraft.updateActiveProject, onDeleteProject: projectDraft.deleteProject, deletionBlocked: isSubmitting || activeJobs.size > 0
+                                    project: projectDraft.activeProject,
+                                    projects: projectDraft.projects,
+                                    projectAssets: projectDraft.projectAssets,
+                                    onCreateProject: projectDraft.addProject,
+                                    onSelectProject: projectDraft.setActiveProjectId,
+                                    onUpdateProject: projectDraft.updateActiveProject,
+                                    onDeleteProject: projectDraft.deleteProject,
+                                    deletionBlocked: isSubmitting || activeJobs.size > 0
                                 }}
                                 storyboardEditorOpen={isShotBuilderOpen}
                                 onStoryboardEditorOpenChange={setIsShotBuilderOpen}
@@ -3557,35 +3630,37 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
 
             <GallerySection onUsePreset={applyPreset} onUseAsReference={applyReferenceFrame} />
 
-            {videoMode !== 'drama' && <div className='min-h-[450px]'>
-                <VideoHistoryPanel
-                    history={history}
-                    activeJobs={activeJobs}
-                    isInitialLoad={isInitialLoad}
-                    onSelectVideo={handleHistorySelect}
-                    onClearHistory={handleClearHistory}
-                    getVideoSrc={getVideoSrc}
-                    getThumbnailSrc={getThumbnailSrc}
-                    hasLocalCopy={hasLocalCopy}
-                    onRetryArchive={handleRetryArchive}
-                    archivePendingIds={manualArchiveIds}
-                    onDeleteItem={handleDeleteVideo}
-                    onReuseItem={handleReuseItem}
-                    onRegenerateItem={handleRegenerateItem}
-                    onFinalizeItem={handleFinalizeItem}
-                    onExtendItem={handleExtendVideo}
-                    extendPendingIds={extendPendingIds}
-                    onShareItem={handleShareItem}
-                    onAddWatermark={handleAddWatermarkToItem}
-                    onRemoveWatermark={handleRemoveWatermarkFromItem}
-                    onRenameItem={handleRenameHistoryItem}
-                    sharePendingId={sharingVideoId}
-                    watermarkPendingIds={watermarkPendingIds}
-                    watermarkActiveId={watermarkActiveId}
-                    loadAudioAssets={handleLoadAssemblyAudioAssets}
-                    onTranscribeVideo={handleTranscribeVideo}
-                />
-            </div>}
+            {videoMode !== 'drama' && (
+                <div className='min-h-[450px]'>
+                    <VideoHistoryPanel
+                        history={history}
+                        activeJobs={activeJobs}
+                        isInitialLoad={isInitialLoad}
+                        onSelectVideo={handleHistorySelect}
+                        onClearHistory={handleClearHistory}
+                        getVideoSrc={getVideoSrc}
+                        getThumbnailSrc={getThumbnailSrc}
+                        hasLocalCopy={hasLocalCopy}
+                        onRetryArchive={handleRetryArchive}
+                        archivePendingIds={manualArchiveIds}
+                        onDeleteItem={handleDeleteVideo}
+                        onReuseItem={handleReuseItem}
+                        onRegenerateItem={handleRegenerateItem}
+                        onFinalizeItem={handleFinalizeItem}
+                        onExtendItem={handleExtendVideo}
+                        extendPendingIds={extendPendingIds}
+                        onShareItem={handleShareItem}
+                        onAddWatermark={handleAddWatermarkToItem}
+                        onRemoveWatermark={handleRemoveWatermarkFromItem}
+                        onRenameItem={handleRenameHistoryItem}
+                        sharePendingId={sharingVideoId}
+                        watermarkPendingIds={watermarkPendingIds}
+                        watermarkActiveId={watermarkActiveId}
+                        loadAudioAssets={handleLoadAssemblyAudioAssets}
+                        onTranscribeVideo={handleTranscribeVideo}
+                    />
+                </div>
+            )}
         </>
     );
 

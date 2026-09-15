@@ -44,6 +44,7 @@ The proposal recommends delivering one vertical production slice before expandin
 - [x] Add centralized message files with matching keys.
 - [x] Move navigation and shell copy behind translations.
 - [x] Translate VideoOutput lifecycle, recovery, task metadata, and known error copy; centralize full playback on ArtPlayer with built-in English/Simplified Chinese controls while preserving production content and action restrictions.
+- [x] Let completed videos with a generated subtitle track download the SRT or locally burn that track into the current video as a fallback MP4, without another paid video-generation request.
 - [x] Translate creation, prompt inspiration, shot builder, reference input, history, and community UI with flat normalized keys and locale-aware dates.
 - [x] Keep /api, media, and share URLs outside locale matching; preserve the legacy Studio implementation.
 - [x] Give Video, Image, Assets, and Community durable locale-prefixed paths without duplicating the workspace implementation.
@@ -122,6 +123,10 @@ The proposal recommends delivering one vertical production slice before expandin
 
 - [ ] Create Episode Versions from selected takes.
 - [x] Move existing assembly UI, browser FFmpeg assembly client, and NLE export helpers into post-production ownership.
+- [x] Burn ordinary-video English, Simplified Chinese, or bilingual captions after generation from the script-timed subtitle track; persist the resulting cue track and report burn failures without claiming caption completion.
+- [x] Expose an extensible ordinary-video subtitle mode selector that separates no subtitles, script-timed English/Chinese/bilingual player tracks, and Studio-burned English/Chinese/bilingual subtitles.
+- [x] Compile subtitle parameters at the highest prompt priority: only the None mode prohibits generated captions; automatic modes require provider-rendered captions in the selected language while retaining the Studio subtitle-track fallback. Keep provider-rendered subtitle instructions at 64 English or 28 Chinese characters per line, while Studio player cues may hold up to 112 English or 48 Chinese characters before timed splitting and use responsive visual wrapping. Prefer persisted transcription segments for audio-synchronized timing, fall back to spoken-word and punctuation estimates, and expose a per-video cached subtitle offset for old videos without transcription timestamps.
+- [x] Sort video history newest-first by normalized creation time after cloud merge and after UI filtering.
 - [ ] Migrate remaining captions/TTS/BGM orchestration and legacy transports with the application/server boundary.
 - [ ] Add editable source subtitle tracks.
 - [ ] Preserve current browser-side FFmpeg behavior during the migration.

@@ -3,6 +3,18 @@ import { isRecord, isVideoJobCreateParams, isVideoRatio, isVideoResolution, norm
 import { reconcilePreset } from '@/features/community/gallery/preset';
 import { type CreationFormData } from '@/features/generation/components/CreationForm';
 import {
+    DEFAULT_VOICE_LANGUAGE,
+    SILENT_VOICE_LANGUAGE,
+    cleanPromptForReuse,
+    normalizeCaptionMode,
+    normalizeTitleOverlayDuration,
+    normalizeTitleOverlayLanguage,
+    normalizeTitleOverlayStyle,
+    normalizeTitleOverlayText,
+    normalizeVoiceLanguage,
+    shouldAvoidGeneratedCaptions
+} from '@/features/script/prompt/guards';
+import {
     DEFAULT_MODEL,
     DEFAULT_RATIO,
     DEFAULT_RESOLUTION,
@@ -12,18 +24,6 @@ import {
     modelSupportsResolution,
     type VideoModel
 } from '@/shared/config/seedance';
-import {
-    DEFAULT_CAPTION_MODE,
-    DEFAULT_VOICE_LANGUAGE,
-    SILENT_VOICE_LANGUAGE,
-    cleanPromptForReuse,
-    normalizeCaptionMode,
-    normalizeTitleOverlayDuration,
-    normalizeTitleOverlayLanguage,
-    normalizeTitleOverlayStyle,
-    normalizeTitleOverlayText,
-    normalizeVoiceLanguage
-} from '@/features/script/prompt/guards';
 import type { VideoMetadata } from '@/shared/contracts/video';
 
 export function shareTitleFromPrompt(prompt: string): string {
@@ -48,16 +48,17 @@ export function shareTitleFromItem(item: VideoMetadata): string {
 
 export function captionModeFromLanguages(languages: readonly string[] | undefined): string | undefined {
     const active = new Set((languages ?? []).filter((language) => language === 'en-US' || language === 'zh-CN'));
-    if (active.has('en-US') && active.has('zh-CN')) return DEFAULT_CAPTION_MODE;
-    if (active.has('en-US')) return 'en-US';
-    if (active.has('zh-CN')) return 'zh-CN';
+    if (active.has('en-US') && active.has('zh-CN')) return 'auto-bilingual-en-zh';
+    if (active.has('en-US')) return 'auto-en-US';
+    if (active.has('zh-CN')) return 'auto-zh-CN';
     return undefined;
 }
 
 export function shareParamsToForm(prompt: string, params: unknown): { params: CreationFormData; adjusted: string[] } {
     const reusablePrompt = cleanPromptForReuse(prompt);
     if (isVideoJobCreateParams(params)) {
-        const reconciled = reconcilePreset({ ...params, prompt: reusablePrompt });
+        const captionSourcePrompt = cleanPromptForReuse(params.caption_source_prompt ?? reusablePrompt);
+        const reconciled = reconcilePreset({ ...params, prompt: captionSourcePrompt });
         const captionMode = normalizeCaptionMode(
             reconciled.caption_mode ?? captionModeFromLanguages(reconciled.generated_caption_languages)
         );
@@ -71,7 +72,8 @@ export function shareParamsToForm(prompt: string, params: unknown): { params: Cr
                         (reconciled.generate_audio ? DEFAULT_VOICE_LANGUAGE : SILENT_VOICE_LANGUAGE)
                 ),
                 caption_mode: captionMode,
-                avoid_generated_captions: captionMode === 'none',
+                caption_source_prompt: captionSourcePrompt,
+                avoid_generated_captions: shouldAvoidGeneratedCaptions(captionMode),
                 generated_captions: undefined,
                 generated_caption_languages: undefined,
                 title_overlay_enabled: titleOverlayEnabled,
@@ -85,6 +87,9 @@ export function shareParamsToForm(prompt: string, params: unknown): { params: Cr
     }
 
     const record = isRecord(params) ? params : {};
+    const captionSourcePrompt = cleanPromptForReuse(
+        typeof record.caption_source_prompt === 'string' ? record.caption_source_prompt : reusablePrompt
+    );
     const model =
         typeof record.model === 'string' && getSeedanceModel(record.model)
             ? (record.model as VideoModel)
@@ -124,7 +129,7 @@ export function shareParamsToForm(prompt: string, params: unknown): { params: Cr
     return {
         params: {
             model,
-            prompt: reusablePrompt,
+            prompt: captionSourcePrompt,
             ratio,
             resolution,
             seconds,
@@ -136,7 +141,7 @@ export function shareParamsToForm(prompt: string, params: unknown): { params: Cr
                 typeof record.watermarkText === 'string'
                     ? normalizeWatermarkText(record.watermarkText)
                     : BRANDING_WATERMARK_TEXT,
-            avoid_generated_captions: captionMode === 'none',
+            avoid_generated_captions: shouldAvoidGeneratedCaptions(captionMode),
             generated_captions: undefined,
             generated_caption_languages: undefined,
             voice_language: normalizeVoiceLanguage(
@@ -147,6 +152,7 @@ export function shareParamsToForm(prompt: string, params: unknown): { params: Cr
                       : SILENT_VOICE_LANGUAGE
             ),
             caption_mode: captionMode,
+            caption_source_prompt: captionSourcePrompt,
             title_overlay_enabled: titleOverlayEnabled,
             title_overlay_text: titleOverlayEnabled ? titleOverlayText : undefined,
             title_overlay_style: normalizeTitleOverlayStyle(

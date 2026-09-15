@@ -1,12 +1,18 @@
 'use client';
 
-import { executeShotQueue } from './queue-execution';
 import { CharacterSelectors } from './CharacterSelectors';
 import { DramaLaunchPanel } from './DramaLaunchPanel';
 import { InlineError } from './InlineError';
 import { CAMERA_TEMPLATES, nativeCheckboxClass, nativeRangeClass } from './constants';
 import { useCreationOptions } from './options';
-import { readShotQueue, storyboardQueueSignature, type ShotQueueItem, type ShotQueueScope, writeShotQueue } from './shot-queue';
+import { executeShotQueue } from './queue-execution';
+import {
+    readShotQueue,
+    storyboardQueueSignature,
+    type ShotQueueItem,
+    type ShotQueueScope,
+    writeShotQueue
+} from './shot-queue';
 import { SHOT_GENERATION_BATCH_LIMIT, storyboardVideoQueueItems } from './storyboard-video-queue';
 import { createSubmissionBuilder } from './submission';
 import type { CreationFormProps, GenerationMode } from './types';
@@ -129,7 +135,15 @@ export function CreationForm({
     onBreakdownScript,
     onAutoBindSceneAssets,
     onAutoBindCharacterAssets,
-    projectAssets = [], projectConfig, buildProductionSnapshot, onOpenAssets, projectControls, storyboardEditorOpen, onStoryboardEditorOpenChange, onStoryboardDraftChange, shotVideoPreviews = [],
+    projectAssets = [],
+    projectConfig,
+    buildProductionSnapshot,
+    onOpenAssets,
+    projectControls,
+    storyboardEditorOpen,
+    onStoryboardEditorOpenChange,
+    onStoryboardDraftChange,
+    shotVideoPreviews = [],
     notice,
     onClearNotice,
     error
@@ -186,7 +200,13 @@ export function CreationForm({
     const [isInspirationOpen, setIsInspirationOpen] = React.useState(false);
     const [localShotBuilderOpen, setLocalShotBuilderOpen] = React.useState(false);
     const isShotBuilderOpen = storyboardEditorOpen ?? localShotBuilderOpen;
-    const setIsShotBuilderOpen = React.useCallback((open: boolean) => { setLocalShotBuilderOpen(open); onStoryboardEditorOpenChange?.(open); }, [onStoryboardEditorOpenChange]);
+    const setIsShotBuilderOpen = React.useCallback(
+        (open: boolean) => {
+            setLocalShotBuilderOpen(open);
+            onStoryboardEditorOpenChange?.(open);
+        },
+        [onStoryboardEditorOpenChange]
+    );
     const [isOptimizing, setIsOptimizing] = React.useState(false);
     const [isAdvancedOpen, setIsAdvancedOpen] = React.useState(false);
     const [optimizeError, setOptimizeError] = React.useState<string | null>(null);
@@ -194,7 +214,9 @@ export function CreationForm({
     const [shotQueue, setShotQueue] = React.useState<ShotQueueItem[]>([]);
     const pendingShotCount = shotQueue.length;
     const shotDraftKey = projectConfig?.id ?? buildProductionSnapshot?.().project.id ?? 'normal';
-    const [storyboardDraft, setStoryboardDraft] = React.useState<EditorDraft | undefined>(() => recalledDraft(shotDraftKey));
+    const [storyboardDraft, setStoryboardDraft] = React.useState<EditorDraft | undefined>(() =>
+        recalledDraft(shotDraftKey)
+    );
     const storyboardDraftRef = React.useRef(storyboardDraft);
     const shotQueueScope = React.useMemo<ShotQueueScope>(
         () => ({ projectKey: shotDraftKey, draftSignature: storyboardQueueSignature(storyboardDraft) }),
@@ -253,34 +275,37 @@ export function CreationForm({
         },
         [onStoryboardDraftChange, shotDraftKey]
     );
-    const mergeAssetBindings = React.useCallback((draft: EditorDraft, baseDraft?: EditorDraft) => {
-        const current = storyboardDraftRef.current;
-        if (!current) {
-            handleStoryboardDraftChange(draft);
-            return;
-        }
-        const baseCharacterAssets = new Map(baseDraft?.characters.map((item) => [item.id, item.assetId]));
-        const baseSceneAssets = new Map(baseDraft?.scenes.map((item) => [item.id, item.assetId]));
-        const characterAssets = new Map(
-            draft.characters
-                .filter((item) => item.assetId !== baseCharacterAssets.get(item.id))
-                .map((item) => [item.id, item.assetId])
-        );
-        const sceneAssets = new Map(
-            draft.scenes
-                .filter((item) => item.assetId !== baseSceneAssets.get(item.id))
-                .map((item) => [item.id, item.assetId])
-        );
-        handleStoryboardDraftChange({
-            ...current,
-            characters: current.characters.map((item) =>
-                characterAssets.has(item.id) ? { ...item, assetId: characterAssets.get(item.id) } : item
-            ),
-            scenes: current.scenes.map((item) =>
-                sceneAssets.has(item.id) ? { ...item, assetId: sceneAssets.get(item.id) } : item
-            )
-        });
-    }, [handleStoryboardDraftChange]);
+    const mergeAssetBindings = React.useCallback(
+        (draft: EditorDraft, baseDraft?: EditorDraft) => {
+            const current = storyboardDraftRef.current;
+            if (!current) {
+                handleStoryboardDraftChange(draft);
+                return;
+            }
+            const baseCharacterAssets = new Map(baseDraft?.characters.map((item) => [item.id, item.assetId]));
+            const baseSceneAssets = new Map(baseDraft?.scenes.map((item) => [item.id, item.assetId]));
+            const characterAssets = new Map(
+                draft.characters
+                    .filter((item) => item.assetId !== baseCharacterAssets.get(item.id))
+                    .map((item) => [item.id, item.assetId])
+            );
+            const sceneAssets = new Map(
+                draft.scenes
+                    .filter((item) => item.assetId !== baseSceneAssets.get(item.id))
+                    .map((item) => [item.id, item.assetId])
+            );
+            handleStoryboardDraftChange({
+                ...current,
+                characters: current.characters.map((item) =>
+                    characterAssets.has(item.id) ? { ...item, assetId: characterAssets.get(item.id) } : item
+                ),
+                scenes: current.scenes.map((item) =>
+                    sceneAssets.has(item.id) ? { ...item, assetId: sceneAssets.get(item.id) } : item
+                )
+            });
+        },
+        [handleStoryboardDraftChange]
+    );
 
     React.useEffect(() => {
         if (!supportsDraftMode) {
@@ -431,12 +456,27 @@ export function CreationForm({
     };
     const processShotQueue = async (initialQueue = shotQueue) => {
         if (blockedReferences.length > 0 || isGeneratingShotBatch) return;
-        await executeShotQueue({ items: initialQueue, limit: SHOT_GENERATION_BATCH_LIMIT, previews: shotVideoPreviews, onSubmit, onUpdate: updateShotQueue, onBusy: setIsGeneratingShotBatch });
+        await executeShotQueue({
+            items: initialQueue,
+            limit: SHOT_GENERATION_BATCH_LIMIT,
+            previews: shotVideoPreviews,
+            onSubmit,
+            onUpdate: updateShotQueue,
+            onBusy: setIsGeneratingShotBatch
+        });
     };
 
     const handleGenerateShot = async (shot: EditorDraft['shots'][number], index: number) => {
-        if (!storyboardDraft || blockedReferences.length > 0 || isGeneratingShotBatch || !shot.description.trim()) return;
-        const queue = storyboardVideoQueueItems({ draft: storyboardDraft, shots: [{ shot, index }], activeSeconds, activeModel, buildSubmissionData, titleForShot: (itemIndex) => t('Shot <lcur>number<rcur>', { number: itemIndex + 1 }) });
+        if (!storyboardDraft || blockedReferences.length > 0 || isGeneratingShotBatch || !shot.description.trim())
+            return;
+        const queue = storyboardVideoQueueItems({
+            draft: storyboardDraft,
+            shots: [{ shot, index }],
+            activeSeconds,
+            activeModel,
+            buildSubmissionData,
+            titleForShot: (itemIndex) => t('Shot <lcur>number<rcur>', { number: itemIndex + 1 })
+        });
         updateShotQueue(queue);
         await processShotQueue(queue);
     };
@@ -446,7 +486,14 @@ export function CreationForm({
         const queue = storyboardDraft.shots
             .map((shot, index) => ({ shot, index }))
             .filter(({ shot }) => shot.description.trim());
-        const items = storyboardVideoQueueItems({ draft: storyboardDraft, shots: queue, activeSeconds, activeModel, buildSubmissionData, titleForShot: (index) => t('Shot <lcur>number<rcur>', { number: index + 1 }) });
+        const items = storyboardVideoQueueItems({
+            draft: storyboardDraft,
+            shots: queue,
+            activeSeconds,
+            activeModel,
+            buildSubmissionData,
+            titleForShot: (index) => t('Shot <lcur>number<rcur>', { number: index + 1 })
+        });
         if (items.length === 0) return;
         updateShotQueue(items);
         await processShotQueue(items);
@@ -460,7 +507,7 @@ export function CreationForm({
                 ? value.scenes.filter((scene) => scene.id === options.targetId).length
                 : options?.forceGenerate
                   ? value.scenes.length
-                : value.scenes.filter((scene) => !scene.assetId).length
+                  : value.scenes.filter((scene) => !scene.assetId).length
     });
     const characterAssetAutobind = useSceneAssetAutobind({
         draft: storyboardDraft,
@@ -471,7 +518,7 @@ export function CreationForm({
                 ? value.characters.filter((character) => character.id === options.targetId).length
                 : options?.forceGenerate
                   ? value.characters.length
-                : value.characters.filter((character) => !character.assetId).length,
+                  : value.characters.filter((character) => !character.assetId).length,
         fallbackError: 'Character asset auto binding failed.'
     });
 
@@ -510,7 +557,8 @@ export function CreationForm({
                             onOpen={() => setIsShotBuilderOpen(true)}
                             projectControls={projectControls}
                             storyboardDraft={storyboardDraft}
-                            minDurationSeconds={minSeconds} maxDurationSeconds={maxSeconds}
+                            minDurationSeconds={minSeconds}
+                            maxDurationSeconds={maxSeconds}
                             projectAssets={projectAssets}
                             onOpenAssets={onOpenAssets ? () => onOpenAssets() : undefined}
                             onDraftChange={handleStoryboardDraftChange}
@@ -520,8 +568,14 @@ export function CreationForm({
                             pendingShotCount={pendingShotCount}
                             shotVideoPreviews={shotVideoPreviews}
                             onContinueShotQueue={() => void processShotQueue()}
-                            onAutoBindSceneAssets={sceneAssetAutobind.run} isAutoBindingSceneAssets={sceneAssetAutobind.busy} sceneAssetBindingError={sceneAssetAutobind.error} sceneAssetBindingProgress={sceneAssetAutobind.progress}
-                            onAutoBindCharacterAssets={characterAssetAutobind.run} isAutoBindingCharacterAssets={characterAssetAutobind.busy} characterAssetBindingError={characterAssetAutobind.error} characterAssetBindingProgress={characterAssetAutobind.progress}
+                            onAutoBindSceneAssets={sceneAssetAutobind.run}
+                            isAutoBindingSceneAssets={sceneAssetAutobind.busy}
+                            sceneAssetBindingError={sceneAssetAutobind.error}
+                            sceneAssetBindingProgress={sceneAssetAutobind.progress}
+                            onAutoBindCharacterAssets={characterAssetAutobind.run}
+                            isAutoBindingCharacterAssets={characterAssetAutobind.busy}
+                            characterAssetBindingError={characterAssetAutobind.error}
+                            characterAssetBindingProgress={characterAssetAutobind.progress}
                         />
                     ) : (
                         <>
@@ -974,7 +1028,7 @@ export function CreationForm({
                                         <div className='space-y-2'>
                                             <div className='flex items-center gap-1.5'>
                                                 <Label htmlFor='caption-mode-select' className='text-white/80'>
-                                                    {t('Subtitles')}
+                                                    {t('Subtitle mode')}
                                                 </Label>
                                                 <Tooltip>
                                                     <TooltipTrigger asChild>
@@ -989,7 +1043,7 @@ export function CreationForm({
                                                         side='top'
                                                         className='max-w-64 border border-white/20 bg-black text-white'>
                                                         {t(
-                                                            'Controls subtitle language through the Seedance prompt<dot> Choose None for no subtitles'
+                                                            'Automatic modes create a timed player subtitle track directly from the script<dot> Burn<dash>in modes permanently write that script<dash>timed track into the generated video'
                                                         )}
                                                     </TooltipContent>
                                                 </Tooltip>

@@ -7,7 +7,7 @@ import { WatermarkDialog } from './WatermarkDialog';
 import { MAX_CONCURRENT_WATERMARKS, MAX_WATERMARK_TEXT_LENGTH, STATUS_FILTERS } from './constants';
 import styles from './index.module.scss';
 import type { StatusFilter, VideoHistoryPanelProps } from './types';
-import { formatTokens, formatVideoMegabytes, getHistoryItemState, hasTokenCostDetails } from './utils';
+import { formatTokens, formatVideoMegabytes, getHistoryItemState, hasTokenCostDetails, newestHistoryFirst } from './utils';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import {
@@ -170,7 +170,7 @@ export function VideoHistoryPanel({
     }, [history, statusFilter, modelFilter, promptQuery, activeJobs, getMediaState, getVideoSrc, hasLocalCopy]);
 
     const visibleHistory = React.useMemo(() => {
-        return filteredHistory.slice(0, visibleCount);
+        return newestHistoryFirst(filteredHistory).slice(0, visibleCount);
     }, [filteredHistory, visibleCount]);
     const hasMoreHistory = visibleCount < filteredHistory.length;
     const loadingPlaceholderCount = isLoadingNextPage

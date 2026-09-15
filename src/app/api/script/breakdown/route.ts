@@ -14,7 +14,7 @@ function bearerFrom(request: Request): string {
 }
 
 function serverBearer(): string {
-    return (process.env.XCITY_LITELLM_API_KEY || process.env.TOKENHUB_API_KEY || process.env.OPENAI_API_KEY || '').trim();
+    return (process.env.XCITY_LITELLM_API_KEY || process.env.TOKENHUB_API_KEY || '').trim();
 }
 
 async function readRequestBody(request: Request): Promise<BreakdownBody | null> {

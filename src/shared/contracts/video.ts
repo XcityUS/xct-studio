@@ -79,6 +79,28 @@ export type VideoMetadata = {
     mediaExpired?: boolean;
     error?: string;
     progress?: number;
+    /** Timed captions generated from the script or aligned against generated audio. */
+    captionTrack?: CaptionTrack;
+};
+
+export type CaptionCue = {
+    id: string;
+    startMs: number;
+    endMs: number;
+    english?: string;
+    chinese?: string;
+};
+
+export type CaptionTrack = {
+    mode: 'en-US' | 'zh-CN' | 'bilingual-en-zh';
+    delivery: 'player' | 'burned';
+    status: 'completed' | 'failed';
+    source: 'script-timed' | 'transcription-aligned-script';
+    cues: CaptionCue[];
+    expectedDialogueCount: number;
+    matchedDialogueCount: number;
+    transcriptSegmentCount: number;
+    warning?: string;
 };
 
 export type VideoJobCreate = {
@@ -147,7 +169,7 @@ export type VideoJobCreate = {
     watermark?: boolean;
     /** Studio branding watermark text; handled after provider generation. */
     watermarkText?: string;
-    /** Studio-only prompt guard to discourage model-rendered subtitles or on-screen text. */
+    /** Studio-only prompt guard; deterministic captions are burned after generation. */
     avoid_generated_captions?: boolean;
     /** Studio-only custom caption text directives, capped by the create form. */
     generated_captions?: string[];
@@ -157,6 +179,8 @@ export type VideoJobCreate = {
     voice_language?: string;
     /** Studio-only subtitle language selector. */
     caption_mode?: string;
+    /** Original copy retained for Studio subtitles when the provider prompt removes translation-only dialogue. */
+    caption_source_prompt?: string;
     /** Studio-only opening title overlay toggle. */
     title_overlay_enabled?: boolean;
     /** Studio-only opening title text. */

@@ -5,6 +5,7 @@
  * decides what survives when two devices (or a stale tab) disagree.
  */
 import type { ReferenceDeclaration, ReferenceOrigin } from '@/features/assets/reference/origin';
+import { newestHistoryFirst } from '@/features/generation/history/order';
 import type { VideoMetadata } from '@/shared/contracts/video';
 
 export type VideoCharacter = {
@@ -146,7 +147,7 @@ export function mergeDocs(local: HistoryDoc, remote: HistoryDoc): HistoryDoc {
 
     return {
         updatedAt: Math.max(local.updatedAt, remote.updatedAt),
-        history: Array.from(byId.values()).sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0)),
+        history: newestHistoryFirst(Array.from(byId.values())),
         characters: Array.from(characterById.values()),
         portraits: Array.from(portraitByAssetId.values()),
         declarations: withDeclarations(Object.fromEntries(declarationByKey)),

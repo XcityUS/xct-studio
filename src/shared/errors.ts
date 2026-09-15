@@ -25,6 +25,22 @@ export class StateConflictError extends Error {
     }
 }
 
+function safeInvalidParameterReason(message: string) {
+    const cleaned = message
+        .replace(/data:[^\s,]+,[A-Za-z0-9+/=_-]+/gi, '[inline media]')
+        .replace(/\b(?:sk|xct)-[A-Za-z0-9_-]{8,}\b/g, '[redacted key]')
+        .replace(/\s*(?:request|trace)[ _-]?id\s*[:=]\s*[^\s,;]+/gi, '')
+        .replace(/^\s*(?:error\s*[:=-]\s*)?InvalidParameter(?:\.[A-Za-z0-9_.-]+)?\s*[:=-]?\s*/i, '')
+        .replace(/\b(?:LiteLLM|BytePlus|ByteDance)\b\s*[:=-]?\s*/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .replace(/[\s,;:.]+$/, '')
+        .slice(0, 240);
+    return cleaned
+        ? `Video request parameter is invalid: ${cleaned}.`
+        : 'A video request parameter is invalid. Please check the generation settings and try again.';
+}
+
 export function sanitizeStudioErrorMessage(message?: string | null): string {
     if (!message) return 'Studio could not complete this request. Please check the input settings and try again.';
 
@@ -60,8 +76,12 @@ export function sanitizeStudioErrorMessage(message?: string | null): string {
         return 'Studio could not load the reference video. The link may have expired or the archived copy may not be ready yet.';
     }
 
-    if (/image_url|input_reference|reference image|image instead|InvalidParameter/i.test(message)) {
+    if (/image_url|input_reference(?:_url)?|reference image|image instead/i.test(message)) {
         return 'Studio could not use the reference image. Please check the image size, format, and content, then try again.';
+    }
+
+    if (/InvalidParameter/i.test(message)) {
+        return safeInvalidParameterReason(message);
     }
 
     if (/litellm|byteplus|bytedance|model group|fallbacks|request id|provider/i.test(message)) {

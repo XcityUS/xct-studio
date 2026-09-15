@@ -1,6 +1,10 @@
 import { appendProjectReferenceUrls } from './shot-queue';
 import type { CreationFormData } from './types';
-import { SILENT_VOICE_LANGUAGE } from '@/features/script/prompt/guards';
+import {
+    normalizeCaptionMode,
+    shouldAvoidGeneratedCaptions,
+    SILENT_VOICE_LANGUAGE
+} from '@/features/script/prompt/guards';
 import { clampSeconds, type VideoModel, type VideoRatio, type VideoResolution } from '@/shared/config/seedance';
 import type { ProductionSnapshot } from '@/shared/contracts/production';
 
@@ -49,6 +53,7 @@ export function createSubmissionBuilder(context: Context) {
         productionShot?: ProductionShot
     ): CreationFormData => {
         const production = context.buildProductionSnapshot?.(productionShot);
+        const captionMode = normalizeCaptionMode(context.captionMode);
         const data: CreationFormData = {
             model: context.model,
             prompt: nextPrompt,
@@ -60,9 +65,9 @@ export function createSubmissionBuilder(context: Context) {
             seed: context.seed,
             watermark: context.watermark,
             watermarkText: context.watermark ? context.watermarkText.trim().slice(0, 100) : undefined,
-            avoid_generated_captions: context.captionMode === 'none',
+            avoid_generated_captions: shouldAvoidGeneratedCaptions(captionMode),
             voice_language: context.voiceLanguage,
-            caption_mode: context.captionMode,
+            caption_mode: captionMode,
             title_overlay_enabled: context.titleOverlayEnabled && Boolean(context.titleOverlayText),
             title_overlay_text: context.titleOverlayEnabled ? context.titleOverlayText : undefined,
             title_overlay_style: context.titleOverlayEnabled ? context.titleOverlayStyle : undefined,

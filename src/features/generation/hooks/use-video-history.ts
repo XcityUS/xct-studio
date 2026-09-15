@@ -412,6 +412,8 @@ export function useVideoHistory(_resolveKey?: () => Promise<string | null>, opti
         [mutateHistory]
     );
 
+    const getItem = React.useCallback((id: string) => historyRef.current.find((item) => item.id === id), []);
+
     const removeItem = React.useCallback(
         (id: string) => {
             tombstone([id]);
@@ -513,6 +515,7 @@ export function useVideoHistory(_resolveKey?: () => Promise<string | null>, opti
 
     return {
         history,
+        getItem,
         characters,
         portraits,
         declarations,

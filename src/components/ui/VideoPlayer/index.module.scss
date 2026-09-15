@@ -3,3 +3,14 @@
     overflow: hidden;
     background: var(--studio-media-background);
 }
+
+.player :global(.art-subtitle) {
+    color: var(--studio-media-foreground);
+    font-size: 18px;
+    line-height: 1.35;
+    text-shadow:
+        -1px -1px 0 var(--studio-media-background),
+        1px -1px 0 var(--studio-media-background),
+        -1px 1px 0 var(--studio-media-background),
+        1px 1px 0 var(--studio-media-background);
+}

@@ -39,6 +39,8 @@ describe('translation dictionaries', () => {
             currentCost: '12.50',
             date: '2026-09-07',
             failed: 1,
+            expected: 12,
+            matched: 11,
             blocking: 1,
             warnings: 2,
             required: 8,
@@ -57,6 +59,7 @@ describe('translation dictionaries', () => {
             error: 'Example error',
             kind: 'image',
             note: 'Example note',
+            reason: 'Example reason',
             title: 'Example video',
             width: '200',
             height: '100'

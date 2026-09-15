@@ -1,14 +1,19 @@
 'use client';
 
+import { CaptionDownloads } from './CaptionDownloads';
 import { ClickablePrompt } from './ClickablePrompt';
 import { CompletedVideoPlayer } from './CompletedVideoPlayer';
 import { Metadata } from './Metadata';
 import { StatusBadge } from './StatusBadge';
 import { useDisplayProgress } from './hooks';
+import styles from './index.module.scss';
 import { useOutputMessages } from './messages';
 import type { VideoOutputProps } from './types';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
+import { captionCuesToSrt } from '@/features/post-production/captions/alignment';
+import { createScriptCaptionTrack } from '@/features/post-production/captions/process';
+import { captionDelivery, captionLanguage, normalizeVoiceLanguage } from '@/features/script/prompt/guards';
 import { XCITY_BILLING_URL, shouldShowBillingAction } from '@/features/settings/billing';
 import { sanitizeStudioErrorMessage } from '@/shared/errors';
 import { cn } from '@/shared/utils/classnames';
@@ -48,6 +53,23 @@ export function VideoOutput({
     const t = useTranslations();
     const messages = useOutputMessages();
     const displayProgress = useDisplayProgress(job);
+    const storedCaptionTrack = shareItem?.captionTrack;
+    const selectedCaptionLanguage = captionLanguage(shareItem?.createParams?.caption_mode);
+    const canRestorePlayerCaptions =
+        !storedCaptionTrack &&
+        shareItem?.status === 'completed' &&
+        selectedCaptionLanguage &&
+        captionDelivery(shareItem.createParams?.caption_mode) === 'player';
+    const captionTrack = canRestorePlayerCaptions
+        ? createScriptCaptionTrack({
+              mode: selectedCaptionLanguage,
+              prompt:
+                  shareItem.createParams?.caption_source_prompt ?? shareItem.createParams?.prompt ?? shareItem.prompt,
+              voiceLanguage: normalizeVoiceLanguage(shareItem.createParams?.voice_language),
+              durationSeconds: shareItem.seconds
+          })
+        : storedCaptionTrack;
+    const subtitleSrt = captionTrack?.status === 'completed' ? captionCuesToSrt(captionTrack.cues) : '';
 
     const handleDownload = () => {
         if (job && onDownload) {
@@ -290,10 +312,38 @@ export function VideoOutput({
                             videoSrc={completedOutput.videoSrc}
                             size={completedOutput.job.size}
                             thumbnailSrc={thumbnailSrc}
+                            captionTrack={captionTrack}
                             onSourceError={onRetryPreview}
                         />
 
-                        <div className='flex shrink-0 flex-wrap gap-3'>
+                        {captionTrack && (
+                            <p
+                                role='status'
+                                className={cn(
+                                    'rounded-md border px-3 py-2 text-sm',
+                                    captionTrack.status === 'completed'
+                                        ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-100'
+                                        : 'border-amber-500/25 bg-amber-500/10 text-amber-100'
+                                )}>
+                                {captionTrack.status === 'completed'
+                                    ? captionTrack.delivery === 'player'
+                                        ? t('Automatic subtitles ready<colon> <lcur>count<rcur> dialogue lines', {
+                                              count: captionTrack.expectedDialogueCount
+                                          })
+                                        : t(
+                                              'Subtitles burned<colon> <lcur>matched<rcur> of <lcur>expected<rcur> spoken lines matched',
+                                              {
+                                                  matched: captionTrack.matchedDialogueCount,
+                                                  expected: captionTrack.expectedDialogueCount
+                                              }
+                                          )
+                                    : t('Subtitle generation failed<colon> <lcur>reason<rcur>', {
+                                          reason: captionTrack.warning ?? t('Unknown error')
+                                      })}
+                            </p>
+                        )}
+
+                        <div className={styles.completedActions}>
                             {onDownload && (
                                 <Button
                                     onClick={handleDownload}
@@ -302,6 +352,14 @@ export function VideoOutput({
                                     <Download className='mr-2 h-4 w-4' />
                                     {t('Download')}
                                 </Button>
+                            )}
+                            {subtitleSrt && job && (
+                                <CaptionDownloads
+                                    jobId={job.id}
+                                    videoSrc={completedOutput.videoSrc}
+                                    subtitleSrt={subtitleSrt}
+                                    filename={shareItem?.filename}
+                                />
                             )}
                             {onExtend && (
                                 <Button

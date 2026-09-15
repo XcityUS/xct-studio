@@ -1,8 +1,10 @@
+import { createSharedSubtitle, shareAspectRatio } from './media';
 import styles from './page.module.scss';
+import { VideoPlayer } from '@/components/ui/VideoPlayer';
 import { studioPath, studioVideoSharePath } from '@/features/studio/routing';
 import type { AppLocale } from '@/i18n/routing';
 import { getRuntimeConfig } from '@/server/config/runtime-config';
-import { ExternalLink, RotateCcw } from 'lucide-react';
+import { Download, ExternalLink, RotateCcw } from 'lucide-react';
 import type { Metadata } from 'next';
 import { getTranslations } from 'next-intl/server';
 import { notFound } from 'next/navigation';
@@ -92,6 +94,8 @@ export default async function SharePage({ params }: SharePageProps) {
 
     const title = record.title || t('Shared video');
     const recreateUrl = `${studioPath(locale, 'video')}?share=${encodeURIComponent(record.id)}`;
+    const subtitle = createSharedSubtitle(record);
+    const aspectRatio = shareAspectRatio(setting(record.params, 'ratio'));
     const settings = [
         [t('Model'), setting(record.params, 'model')],
         [t('Aspect Ratio'), setting(record.params, 'ratio')],
@@ -109,12 +113,22 @@ export default async function SharePage({ params }: SharePageProps) {
                             <h1>{title}</h1>
                         </summary>
                     </details>
-                    {record.created_at && <p className={styles.meta}>{t('Shared on <lcur>date<rcur>', { date: record.created_at })}</p>}
+                    {record.created_at && (
+                        <p className={styles.meta}>{t('Shared on <lcur>date<rcur>', { date: record.created_at })}</p>
+                    )}
                 </div>
             </section>
 
             <section className={styles.viewer} aria-label={title}>
-                <video controls playsInline preload='metadata' src={record.video_url} />
+                <VideoPlayer
+                    src={record.video_url}
+                    instanceKey={`share:${record.id}:${subtitle ? 'subtitles-v2' : 'plain'}`}
+                    aspectRatio={aspectRatio}
+                    className={styles.player}
+                    title={title}
+                    preload='metadata'
+                    subtitle={subtitle}
+                />
             </section>
 
             <section className={styles.details}>
@@ -146,6 +160,12 @@ export default async function SharePage({ params }: SharePageProps) {
                     <ExternalLink size={15} aria-hidden='true' />
                     {t('Open video file')}
                 </a>
+                {subtitle && (
+                    <a className={styles.secondaryAction} href={subtitle.url} download={`${record.id}.srt`}>
+                        <Download size={15} aria-hidden='true' />
+                        {t('Download subtitles')}
+                    </a>
+                )}
             </div>
         </main>
     );

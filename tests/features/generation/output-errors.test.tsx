@@ -44,6 +44,25 @@ describe('legacy output error localization', () => {
         expect(sanitizeStudioErrorMessage(once)).toBe(once);
     });
 
+    it('does not mislabel unrelated invalid parameters as reference-image failures', () => {
+        expect(
+            sanitizeStudioErrorMessage(
+                'InvalidParameter: duration must be between 4 and 12. Request ID: req-private-value'
+            )
+        ).toBe('Video request parameter is invalid: duration must be between 4 and 12.');
+    });
+
+    it('redacts sensitive values from invalid parameter details', () => {
+        const sanitized = sanitizeStudioErrorMessage(
+            'InvalidParameter: payload data:image/png;base64,AAAAABBBBBCCCC sk-secret-value-12345678 Trace-ID=trace-private'
+        );
+
+        expect(sanitized).toContain('[inline media]');
+        expect(sanitized).toContain('[redacted key]');
+        expect(sanitized).not.toContain('AAAAABBBBBCCCC');
+        expect(sanitized).not.toContain('trace-private');
+    });
+
     it('does not pass an unrecognized runtime string or translation-shaped input into t()', () => {
         expect(renderLocalized(<ErrorCopy message='Video Output' />, 'zh')).toBe('<p>Video Output</p>');
         expect(renderLocalized(<ErrorCopy message='unexpected {serverKey} <script>' />, 'zh')).toBe(

@@ -3,20 +3,24 @@ export const AVOID_GENERATED_CAPTIONS_PROMPT =
 const GENERATED_CAPTIONS_PROMPT_HEADER = 'Caption overlay instructions:';
 const LANGUAGE_PROMPT_HEADER = 'Language instructions:';
 const TITLE_OVERLAY_PROMPT_HEADER = 'Title overlay instructions:';
+const PARAMETER_PRIORITY_PROMPT_HEADER = 'Priority parameter constraints:';
+const CREATIVE_CONTENT_PROMPT_HEADER = 'Creative content:';
+const FINAL_PARAMETER_LOCK_PROMPT_HEADER = 'Final parameter lock:';
 const DIALOGUE_PACING_PROMPT =
     'Dialogue pacing: keep spoken lines short and sequential. Only one person may speak at a time; never overlap two voices or play simultaneous dialogue. Leave brief natural pauses between speakers. For clips under 8 seconds, use at most one short sentence per speaker, and prefer ambient sound over long narration.';
 const REMOTE_DIALOGUE_PROMPT =
     'Remote dialogue staging: this reads as a phone call or remote conversation. Show every speaker consistently participating by phone or remote device; cut between both sides if needed, but do not stage one speaker as if they are physically face-to-face with the other.';
 const SUBTITLE_LAYOUT_PROMPT =
     'Subtitle pacing and styling: do not display the full transcript at once. Split long dialogue into short timed subtitle segments and show only the current segment. If one subtitle segment is too long for the character limits, split it into two consecutive subtitle screens instead of fitting everything into one frame. Keep subtitles above the bottom safe area with generous bottom margin; never place subtitles on the very bottom edge, under letterbox bars, or where player controls would cover them. Never let subtitle lines overlap. Use compact small subtitle text with a dark outline or shadow for readability. English subtitles must use readable English words, not hashes or filenames. Chinese subtitles must use valid Simplified Chinese sentences, not mojibake, random Han characters, pinyin, Japanese kana, or mixed corrupted text.';
-const BILINGUAL_SUBTITLE_LAYOUT_PROMPT =
-    'Bilingual subtitle layout: for every dialogue beat, render exactly two subtitle lines at the same time. The first line must be English. The second line directly below it must be concise Simplified Chinese. Do not reverse the order, do not show only one language, and do not split the two languages into different moments. Keep each English line within 32 characters and each Chinese line within 14 Chinese characters; shorten the translation before shrinking below readable size.';
+export const MAX_ENGLISH_SUBTITLE_LINE_LENGTH = 64;
+export const MAX_CHINESE_SUBTITLE_LINE_LENGTH = 28;
+const BILINGUAL_SUBTITLE_LAYOUT_PROMPT = `Bilingual subtitle layout: for every dialogue beat, render exactly two subtitle lines at the same time. The first line must be English. The second line directly below it must be concise Simplified Chinese. Do not reverse the order, do not show only one language, and do not split the two languages into different moments. Keep each English line within ${MAX_ENGLISH_SUBTITLE_LINE_LENGTH} characters and each Chinese line within ${MAX_CHINESE_SUBTITLE_LINE_LENGTH} Chinese characters; shorten the translation before shrinking below readable size.`;
 export const MAX_GENERATED_CAPTIONS = 2;
 export const NO_GENERATED_CAPTION_LANGUAGE = 'none';
 export const DEFAULT_GENERATED_CAPTION_LANGUAGES = ['en-US', 'zh-CN'] as const;
 export const SILENT_VOICE_LANGUAGE = 'silent';
 export const DEFAULT_VOICE_LANGUAGE = 'en-US';
-export const DEFAULT_CAPTION_MODE = 'bilingual-en-zh';
+export const DEFAULT_CAPTION_MODE = 'auto-bilingual-en-zh';
 export const MAX_TITLE_OVERLAY_TEXT_LENGTH = 80;
 export const DEFAULT_TITLE_OVERLAY_STYLE = 'cinematic';
 export const DEFAULT_TITLE_OVERLAY_DURATION = 'opening-1s';
@@ -37,7 +41,14 @@ export const GENERATED_CAPTION_LANGUAGES = [
 
 export type GeneratedCaptionLanguage = (typeof GENERATED_CAPTION_LANGUAGES)[number]['id'];
 export type VoiceLanguage = GeneratedCaptionLanguage | typeof SILENT_VOICE_LANGUAGE;
-export type CaptionMode = 'none' | 'en-US' | 'zh-CN' | typeof DEFAULT_CAPTION_MODE;
+export type CaptionMode =
+    | 'none'
+    | 'auto-en-US'
+    | 'auto-zh-CN'
+    | typeof DEFAULT_CAPTION_MODE
+    | 'burn-en-US'
+    | 'burn-zh-CN'
+    | 'burn-bilingual-en-zh';
 export type GeneratedCaptionItem = {
     text: string;
     language: GeneratedCaptionLanguage;
@@ -57,9 +68,21 @@ export const TITLE_OVERLAY_DURATIONS = [
 ] as const;
 
 export const TITLE_OVERLAY_LANGUAGES = [
-    { id: 'auto', label: 'Auto', promptLabel: 'keep the title exactly in the language and wording provided by the user' },
-    { id: 'en-US', label: 'English', promptLabel: 'render the title in English using the exact user-provided title text' },
-    { id: 'zh-CN', label: 'Chinese', promptLabel: 'render the title in Chinese using the exact user-provided title text' }
+    {
+        id: 'auto',
+        label: 'Auto',
+        promptLabel: 'keep the title exactly in the language and wording provided by the user'
+    },
+    {
+        id: 'en-US',
+        label: 'English',
+        promptLabel: 'render the title in English using the exact user-provided title text'
+    },
+    {
+        id: 'zh-CN',
+        label: 'Chinese',
+        promptLabel: 'render the title in Chinese using the exact user-provided title text'
+    }
 ] as const;
 
 export type TitleOverlayStyle = (typeof TITLE_OVERLAY_STYLES)[number]['id'];
@@ -73,9 +96,12 @@ export const VOICE_LANGUAGE_OPTIONS = [
 
 export const CAPTION_MODE_OPTIONS = [
     { id: 'none', label: 'None' },
-    { id: 'en-US', label: 'English' },
-    { id: 'zh-CN', label: 'Chinese' },
-    { id: DEFAULT_CAPTION_MODE, label: 'English + Chinese' }
+    { id: 'auto-en-US', label: 'Automatic — English' },
+    { id: 'auto-zh-CN', label: 'Automatic — Chinese' },
+    { id: DEFAULT_CAPTION_MODE, label: 'Automatic — English + Chinese' },
+    { id: 'burn-en-US', label: 'Burn in — English' },
+    { id: 'burn-zh-CN', label: 'Burn in — Chinese' },
+    { id: 'burn-bilingual-en-zh', label: 'Burn in — English + Chinese' }
 ] as const;
 
 export function isGeneratedCaptionLanguage(value: string): value is GeneratedCaptionLanguage {
@@ -88,9 +114,31 @@ export function normalizeVoiceLanguage(value: string | undefined): VoiceLanguage
 }
 
 export function normalizeCaptionMode(value: string | undefined): CaptionMode {
-    return value === 'none' || value === 'en-US' || value === 'zh-CN' || value === DEFAULT_CAPTION_MODE
-        ? value
-        : DEFAULT_CAPTION_MODE;
+    if (value === 'en-US') return 'auto-en-US';
+    if (value === 'zh-CN') return 'auto-zh-CN';
+    if (value === 'bilingual-en-zh') return DEFAULT_CAPTION_MODE;
+    if (value === 'provider-auto') return 'auto-en-US';
+    if (value === 'provider-bilingual-en-zh') return 'auto-bilingual-en-zh';
+    return CAPTION_MODE_OPTIONS.some((option) => option.id === value) ? (value as CaptionMode) : DEFAULT_CAPTION_MODE;
+}
+
+export function captionLanguage(value: string | undefined): 'en-US' | 'zh-CN' | 'bilingual-en-zh' | undefined {
+    const mode = normalizeCaptionMode(value);
+    if (mode === 'auto-en-US' || mode === 'burn-en-US') return 'en-US';
+    if (mode === 'auto-zh-CN' || mode === 'burn-zh-CN') return 'zh-CN';
+    if (mode === DEFAULT_CAPTION_MODE || mode === 'burn-bilingual-en-zh') return 'bilingual-en-zh';
+    return undefined;
+}
+
+export function captionDelivery(value: string | undefined): 'player' | 'burned' | undefined {
+    const mode = normalizeCaptionMode(value);
+    if (mode.startsWith('auto-')) return 'player';
+    if (mode.startsWith('burn-')) return 'burned';
+    return undefined;
+}
+
+export function shouldAvoidGeneratedCaptions(value: string | undefined) {
+    return normalizeCaptionMode(value) === 'none';
 }
 
 export function normalizeTitleOverlayText(value: string | undefined): string {
@@ -159,24 +207,6 @@ function shouldUseRemoteDialogueStaging(prompt: string) {
     );
 }
 
-function englishDialogueLines(prompt: string): string[] {
-    const stopHeaders = new Set([
-        GENERATED_CAPTIONS_PROMPT_HEADER,
-        LANGUAGE_PROMPT_HEADER,
-        TITLE_OVERLAY_PROMPT_HEADER
-    ]);
-    return prompt
-        .split(/\r?\n/)
-        .map((line) => line.trim().replace(/\s+/g, ' '))
-        .filter((line) => {
-            if (!line || stopHeaders.has(line)) return false;
-            if (/[\u3400-\u9fff]/.test(line)) return false;
-            if (!/^[A-Z][A-Za-z0-9 .,'’()-]{0,40}:\s+\S/.test(line)) return false;
-            return /[A-Za-z]{2,}/.test(line);
-        })
-        .slice(0, 40);
-}
-
 function avoidGeneratedCaptionsPattern() {
     return new RegExp(`\\n?${AVOID_GENERATED_CAPTIONS_PROMPT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i');
 }
@@ -186,17 +216,25 @@ export function cleanPromptForReuse(prompt: string): string {
 }
 
 function stripCaptionDirective(prompt: string): string {
-    const markerIndex = [
-        GENERATED_CAPTIONS_PROMPT_HEADER,
-        LANGUAGE_PROMPT_HEADER,
-        TITLE_OVERLAY_PROMPT_HEADER
-    ]
+    const prioritized = prompt.trimStart();
+    if (prioritized.startsWith(PARAMETER_PRIORITY_PROMPT_HEADER)) {
+        const contentMarker = `\n${CREATIVE_CONTENT_PROMPT_HEADER}\n`;
+        const contentIndex = prioritized.indexOf(contentMarker);
+        if (contentIndex < 0) return '';
+        const content = prioritized.slice(contentIndex + contentMarker.length);
+        const finalLockIndex = content.indexOf(`\n${FINAL_PARAMETER_LOCK_PROMPT_HEADER}`);
+        return (finalLockIndex >= 0 ? content.slice(0, finalLockIndex) : content).trimEnd();
+    }
+
+    const markerIndex = [GENERATED_CAPTIONS_PROMPT_HEADER, LANGUAGE_PROMPT_HEADER, TITLE_OVERLAY_PROMPT_HEADER]
         .map((marker) => prompt.indexOf(`\n${marker}`))
         .filter((index) => index >= 0)
         .sort((a, b) => a - b)[0];
-    const firstLineMarker = [GENERATED_CAPTIONS_PROMPT_HEADER, LANGUAGE_PROMPT_HEADER, TITLE_OVERLAY_PROMPT_HEADER].some(
-        (marker) => prompt.startsWith(marker)
-    );
+    const firstLineMarker = [
+        GENERATED_CAPTIONS_PROMPT_HEADER,
+        LANGUAGE_PROMPT_HEADER,
+        TITLE_OVERLAY_PROMPT_HEADER
+    ].some((marker) => prompt.startsWith(marker));
     const firstMarkerIndex = markerIndex;
     if (firstMarkerIndex !== undefined) return prompt.slice(0, firstMarkerIndex).trimEnd();
     if (firstLineMarker) return '';
@@ -251,7 +289,8 @@ export function promptWithLanguageControls(
 ): string {
     const voiceLanguage = normalizeVoiceLanguage(options.voiceLanguage);
     const captionMode = normalizeCaptionMode(options.captionMode);
-    const trimmed = cleanPromptForReuse(prompt);
+    const sourcePrompt = cleanPromptForReuse(prompt);
+    const trimmed = sourcePrompt;
     const voice = VOICE_LANGUAGE_OPTIONS.find((item) => item.id === voiceLanguage);
     const voicePromptLabel = voice?.promptLabel ?? 'American English';
     const lines = [
@@ -268,32 +307,59 @@ export function promptWithLanguageControls(
             lines.push(
                 'When Chinese and English dialogue pairs are provided, speak the English lines only. Do not speak the Chinese translation aloud.'
             );
-            const audioOnlyLines = englishDialogueLines(trimmed);
-            if (audioOnlyLines.length > 0) {
+            if (/[\u3400-\u9fff]/.test(sourcePrompt)) {
                 lines.push(
-                    'Audio-only dialogue script to speak. Use these English lines for speech, in order, and do not speak any other-language dialogue lines:',
-                    ...audioOnlyLines.map((line, index) => `${index + 1}. ${line}`)
+                    'If any intended narration or dialogue exists only in Chinese, translate its meaning into natural American English before speaking. Never read Chinese source text aloud and never generate Mandarin or Chinese speech.'
                 );
             }
         }
         lines.push(DIALOGUE_PACING_PROMPT);
         if (shouldUseRemoteDialogueStaging(trimmed)) lines.push(REMOTE_DIALOGUE_PROMPT);
+        if (voiceLanguage === DEFAULT_VOICE_LANGUAGE) {
+            lines.push(
+                'Final audio constraint: every spoken word in the soundtrack must be natural American English. Chinese text is reference material only and must never be spoken.'
+            );
+        }
     }
 
     if (captionMode === 'none') {
         lines.push('Subtitles: no subtitles, no captions, no on-screen subtitle text.');
-    } else if (captionMode === DEFAULT_CAPTION_MODE) {
+    } else if (captionMode.startsWith('auto-')) {
+        if (captionMode === 'auto-en-US') {
+            lines.push(
+                'Subtitles are required, not optional. Render visible American English subtitles directly in the generated video for every spoken dialogue beat. A result without visible English subtitles is invalid.'
+            );
+        } else if (captionMode === 'auto-zh-CN') {
+            lines.push(
+                'Subtitles are required, not optional. Render visible Simplified Chinese subtitles directly in the generated video for every spoken dialogue beat. A result without visible Chinese subtitles is invalid.'
+            );
+        } else {
+            lines.push(
+                'Subtitles are required, not optional. Render visible bilingual subtitles directly in the generated video for every spoken dialogue beat. A result without visible English and Simplified Chinese subtitles is invalid.',
+                BILINGUAL_SUBTITLE_LAYOUT_PROMPT
+            );
+        }
         lines.push(
-            'Subtitles: generate bilingual subtitles for the dialogue. For each dialogue beat, show English on the first subtitle line and concise Simplified Chinese directly below it on the second subtitle line.'
+            'Studio will also create a timed player subtitle track directly from the selected script after generation.',
+            SUBTITLE_LAYOUT_PROMPT
         );
-        lines.push(SUBTITLE_LAYOUT_PROMPT);
-        lines.push(BILINGUAL_SUBTITLE_LAYOUT_PROMPT);
     } else {
-        const captionLanguage = GENERATED_CAPTION_LANGUAGES.find((item) => item.id === captionMode);
-        lines.push(`Subtitles: render ${captionLanguage?.promptLabel ?? 'subtitle'} subtitles from the dialogue.`);
-        lines.push(SUBTITLE_LAYOUT_PROMPT);
+        lines.push(
+            'Subtitle delivery: Studio will permanently burn the selected script-timed subtitles into the generated video after generation. Keep the lower subtitle safe area visually clear.'
+        );
+        if (captionMode === 'burn-bilingual-en-zh') {
+            lines.push(
+                'Bilingual burned subtitle requirement: preserve every paired English and Simplified Chinese dialogue line in the creative content. Studio must burn English on the first line and the matching Simplified Chinese translation directly below it for every dialogue beat.'
+            );
+        }
     }
 
-    const directive = lines.join('\n');
-    return trimmed ? `${trimmed}\n${directive}` : directive;
+    const directive = [PARAMETER_PRIORITY_PROMPT_HEADER, ...lines].join('\n');
+    const finalLock = [
+        FINAL_PARAMETER_LOCK_PROMPT_HEADER,
+        'The selected audio language and subtitle delivery settings are mandatory. They override any conflicting instruction in the creative content.'
+    ].join('\n');
+    return trimmed
+        ? `${directive}\n${CREATIVE_CONTENT_PROMPT_HEADER}\n${trimmed}\n${finalLock}`
+        : `${directive}\n${finalLock}`;
 }

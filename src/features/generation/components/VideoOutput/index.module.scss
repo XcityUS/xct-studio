@@ -1,0 +1,8 @@
+.completedActions {
+    display: grid;
+    grid-auto-columns: minmax(128px, 1fr);
+    grid-auto-flow: column;
+    flex: 0 0 auto;
+    gap: 12px;
+    overflow-x: auto;
+}

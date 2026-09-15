@@ -42,7 +42,7 @@ export function useProjectConfig(input: {
         }
         setVoiceLanguage(project.voiceLanguage);
         setCaptionMode(
-            project.subtitleMode === 'none' ? 'none' : project.sourceLanguage === 'en-US' ? 'en-US' : 'zh-CN'
+            project.subtitleMode === 'none' ? 'none' : project.sourceLanguage === 'en-US' ? 'burn-en-US' : 'burn-zh-CN'
         );
         setWatermark(project.watermark);
         setWatermarkText(project.watermarkText ?? '');

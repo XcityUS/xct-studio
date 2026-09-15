@@ -1,5 +1,4 @@
-import { InvalidApiKeyError } from '../shared/errors';
-import { createFrontendOpenAI } from './openai-client';
+import { InvalidApiKeyError, sanitizeStudioErrorMessage } from '../shared/errors';
 
 export type CaptionSegment = {
     start: number;
@@ -7,19 +6,23 @@ export type CaptionSegment = {
     text: string;
 };
 
-function transcriptionModelUnavailableError(model: string) {
-    return new Error(
-        `Transcription model "${model}" is not available on the gateway. Set TRANSCRIBE_MODEL to a model your plan includes.`
-    );
-}
-
-function getStatus(error: unknown) {
-    if (!error || typeof error !== 'object') return undefined;
-    return (error as { status?: unknown }).status;
-}
-
 function fileFromBlob(blob: Blob) {
     return new File([blob], 'assembled.mp4', { type: blob.type || 'video/mp4' });
+}
+
+function transcriptionUrl(baseURL?: string) {
+    const base = (baseURL || 'https://tokenhub.xcity.one/v1').trim().replace(/\/+$/, '');
+    return `${base.endsWith('/v1') ? base : `${base}/v1`}/audio/transcriptions`;
+}
+
+function errorMessage(payload: unknown) {
+    if (!payload || typeof payload !== 'object') return undefined;
+    const error = (payload as { error?: unknown }).error;
+    if (typeof error === 'string') return error;
+    if (error && typeof error === 'object' && typeof (error as { message?: unknown }).message === 'string') {
+        return sanitizeStudioErrorMessage((error as { message: string }).message);
+    }
+    return undefined;
 }
 
 export async function transcribeVideo(
@@ -28,33 +31,39 @@ export async function transcribeVideo(
     model: string,
     baseURL?: string
 ): Promise<CaptionSegment[]> {
-    const client = createFrontendOpenAI(apiKey, baseURL);
-
-    try {
-        const transcription = await client.audio.transcriptions.create({
-            file: fileFromBlob(blob),
-            model,
-            response_format: 'verbose_json',
-            timestamp_granularities: ['segment']
-        });
-
-        return (transcription.segments ?? [])
-            .map((segment) => ({
-                start: segment.start,
-                end: segment.end,
-                text: segment.text.trim()
-            }))
-            .filter((segment) => segment.text && Number.isFinite(segment.start) && Number.isFinite(segment.end));
-    } catch (error) {
-        const status = getStatus(error);
-        if (typeof status === 'number' && (status === 401 || status === 403)) {
-            throw new InvalidApiKeyError();
+    const body = new FormData();
+    body.append('file', fileFromBlob(blob));
+    body.append('model', model);
+    body.append('response_format', 'verbose_json');
+    body.append('timestamp_granularities[]', 'segment');
+    const response = await fetch(transcriptionUrl(baseURL), {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body
+    });
+    const payload = (await response.json().catch(() => ({}))) as {
+        error?: { message?: unknown };
+        segments?: CaptionSegment[];
+    };
+    if (!response.ok) {
+        const message = errorMessage(payload);
+        if (response.status === 401) throw new InvalidApiKeyError(message || 'Invalid Xcity API key');
+        if (response.status === 403) {
+            throw new Error(message || `Your Xcity API key does not have access to model "${model}".`);
         }
-        if (status === 400 || status === 404) {
-            throw transcriptionModelUnavailableError(model);
-        }
-        throw error instanceof Error ? error : new Error('Video transcription failed.');
+        throw new Error(message);
     }
+    if (!Array.isArray(payload.segments)) {
+        throw new Error('Transcription response did not include segment timestamps.');
+    }
+    return payload.segments.flatMap((value) => {
+        if (!value || typeof value !== 'object') return [];
+        const segment = value as { start?: unknown; end?: unknown; text?: unknown };
+        const start = Number(segment.start);
+        const end = Number(segment.end);
+        const text = typeof segment.text === 'string' ? segment.text.trim() : '';
+        return text && Number.isFinite(start) && Number.isFinite(end) && end >= start ? [{ start, end, text }] : [];
+    });
 }
 
 function formatSrtTime(value: number) {

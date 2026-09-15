@@ -29,6 +29,7 @@ export function VideoPlayer({
     loop = false,
     muted = false,
     preload = 'metadata',
+    subtitle,
     onDurationChange,
     onSourceError
 }: VideoPlayerProps) {
@@ -46,6 +47,8 @@ export function VideoPlayer({
         loop,
         muted,
         preload,
+        subtitle,
+        subtitleVisibilityLabel: t('Show subtitles'),
         instanceKey
     });
 

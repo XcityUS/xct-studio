@@ -6,6 +6,7 @@ const JOINED_FILE = 'joined.mp4';
 const OUTPUT_FILE = 'out.mp4';
 const CAPTION_INPUT_FILE = 'caption_input.mp4';
 const CAPTION_SRT_FILE = 'subs.srt';
+const CAPTION_IMAGE_PREFIX = 'caption_overlay_';
 const WATERMARK_INPUT_FILE = 'watermark_input.mp4';
 const WATERMARK_IMAGE_FILE = 'watermark.png';
 const WATERMARK_OUTPUT_FILE = 'watermark_output.mp4';
@@ -334,10 +335,7 @@ async function createTitleOverlayImage(film: Blob, options: TitleOverlayOptions)
 
     const minSide = Math.min(width, height);
     const maxWidth = width * 0.78;
-    const fontFamily =
-        options.style === 'elegant'
-            ? 'Georgia, Times New Roman, serif'
-            : 'Arial, Helvetica, sans-serif';
+    const fontFamily = options.style === 'elegant' ? 'Georgia, Times New Roman, serif' : 'Arial, Helvetica, sans-serif';
     let fontSize = Math.max(30, Math.round(minSide * (options.style === 'bold' ? 0.084 : 0.074)));
     let lines: string[] = [];
 
@@ -422,6 +420,7 @@ export async function burnCaptionsIntoVideo(
     let ffmpeg: FFmpegRuntime | null = null;
     let progressHandler: ((event: FFmpegProgressEvent) => void) | null = null;
     let lastProgress = 0;
+    let captionImageFiles: string[] = [];
 
     const reportProgress = (ratio: number) => {
         if (!onProgress) return;
@@ -433,7 +432,11 @@ export async function burnCaptionsIntoVideo(
 
     try {
         reportProgress(0);
-        const [{ fetchFile }, loadedFFmpeg] = await Promise.all([import('@ffmpeg/util'), getFFmpeg()]);
+        const [{ fetchFile }, { createCaptionImages }, loadedFFmpeg] = await Promise.all([
+            import('@ffmpeg/util'),
+            import('../captions/images'),
+            getFFmpeg()
+        ]);
         ffmpeg = loadedFFmpeg;
 
         if (onProgress) {
@@ -444,8 +447,44 @@ export async function burnCaptionsIntoVideo(
         }
 
         await ffmpeg.writeFile(CAPTION_INPUT_FILE, await fetchFile(film));
+        const captionImages = await createCaptionImages(film, captions.srt);
+        captionImageFiles = captionImages.map((_, index) => `${CAPTION_IMAGE_PREFIX}${index}.png`);
+        for (const [index, caption] of captionImages.entries()) {
+            await ffmpeg.writeFile(captionImageFiles[index], await fetchFile(caption.blob));
+        }
         reportProgress(0.05);
-        await reencodeVideoFile(ffmpeg, CAPTION_INPUT_FILE, FINAL_OUTPUT_FILE, { captions });
+        const filters = captionImages.map((caption, index) => {
+            const input = index === 0 ? '[0:v]' : `[caption${index - 1}]`;
+            const output = index === captionImages.length - 1 ? '[captioned]' : `[caption${index}]`;
+            return `${input}[${index + 1}:v]overlay=0:0:enable='between(t,${formatFfmpegNumber(caption.start)},${formatFfmpegNumber(caption.end)})':format=auto${output}`;
+        });
+        await deleteIfExists(ffmpeg, FINAL_OUTPUT_FILE);
+        await execOrThrow(
+            ffmpeg,
+            [
+                '-i',
+                CAPTION_INPUT_FILE,
+                ...captionImageFiles.flatMap((file) => ['-i', file]),
+                '-filter_complex',
+                filters.join(';'),
+                '-map',
+                '[captioned]',
+                '-map',
+                '0:a?',
+                '-c:v',
+                'libx264',
+                '-preset',
+                'veryfast',
+                '-crf',
+                '20',
+                '-c:a',
+                'copy',
+                '-movflags',
+                '+faststart',
+                FINAL_OUTPUT_FILE
+            ],
+            'FFmpeg caption burn-in'
+        );
         const output = await ffmpeg.readFile(FINAL_OUTPUT_FILE);
         reportProgress(1);
         return createOutputBlob(output);
@@ -458,11 +497,12 @@ export async function burnCaptionsIntoVideo(
         if (ffmpeg && progressHandler) {
             ffmpeg.off?.('progress', progressHandler);
         }
-
         if (ffmpeg) {
             const loadedFFmpeg = ffmpeg;
             await Promise.allSettled(
-                [CAPTION_INPUT_FILE, CAPTION_SRT_FILE, FINAL_OUTPUT_FILE].map((file) => loadedFFmpeg.deleteFile(file))
+                [CAPTION_INPUT_FILE, FINAL_OUTPUT_FILE, ...captionImageFiles].map((file) =>
+                    loadedFFmpeg.deleteFile(file)
+                )
             );
         }
     }

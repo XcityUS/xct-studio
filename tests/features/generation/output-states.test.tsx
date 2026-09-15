@@ -106,6 +106,22 @@ describe('localized output lifecycle', () => {
 });
 
 describe('completed output controls', () => {
+    it('hides subtitle downloads when the completed video has no SRT track', () => {
+        const html = render(
+            {
+                job: makeJob(),
+                videoSrc: '/fixture.mp4',
+                onDownload: vi.fn(),
+                shareItem: makeShareItem({ storedUrl: '/fixture.mp4' })
+            },
+            'zh'
+        );
+
+        expect(html).toContain('>下载<');
+        expect(html).not.toContain('下载字幕');
+        expect(html).not.toContain('字幕视频');
+    });
+
     it.each(['en', 'zh'] as const)(
         'renders localized player and action labels in %s without invoking actions',
         (locale) => {
@@ -167,5 +183,71 @@ describe('completed output controls', () => {
         );
         expect(html).toContain('title="分享此视频"');
         expect(html.match(/<button[^>]*disabled=""/g)).toHaveLength(1);
+    });
+
+    it('shows persisted audio-to-caption alignment results', () => {
+        const shareItem = makeShareItem({
+            storedUrl: '/fixture.mp4',
+            captionTrack: {
+                mode: 'bilingual-en-zh',
+                delivery: 'burned',
+                status: 'completed',
+                source: 'transcription-aligned-script',
+                cues: [],
+                expectedDialogueCount: 12,
+                matchedDialogueCount: 11,
+                transcriptSegmentCount: 11
+            }
+        });
+        const html = render({ job: makeJob(), videoSrc: '/fixture.mp4', shareItem }, 'zh');
+        expect(html).toContain('字幕已烧录：实际发音匹配 11/12 句');
+    });
+
+    it('loads completed automatic captions as a player subtitle track', () => {
+        const shareItem = makeShareItem({
+            storedUrl: '/fixture.mp4',
+            captionTrack: {
+                mode: 'bilingual-en-zh',
+                delivery: 'player',
+                status: 'completed',
+                source: 'transcription-aligned-script',
+                cues: [{ id: 'cue-1', startMs: 1000, endMs: 2000, english: 'Hello!', chinese: '你好！' }],
+                expectedDialogueCount: 1,
+                matchedDialogueCount: 1,
+                transcriptSegmentCount: 1
+            }
+        });
+        const html = render({ job: makeJob(), videoSrc: '/fixture.mp4', shareItem }, 'zh');
+
+        expect(html).toContain('自动字幕已生成：共 1 句对白');
+        expect(html).toContain('下载字幕');
+        expect(html).toContain('字幕视频');
+        expect(html).toContain('download="local-output-fixture.srt"');
+        expect(html).toContain('data:text/plain;charset=utf-8');
+    });
+
+    it('restores a missing automatic subtitle track from an older completed item', () => {
+        const shareItem = makeShareItem({
+            status: 'completed',
+            storedUrl: '/fixture.mp4',
+            prompt: 'compiled provider prompt',
+            createParams: {
+                model: 'seedance-1-5-pro-251215',
+                ratio: '16:9',
+                resolution: '480p',
+                seconds: 30,
+                prompt: 'compiled provider prompt',
+                caption_source_prompt: '妹妹：你好！\nSister: Hello!',
+                caption_mode: 'auto-bilingual-en-zh',
+                voice_language: 'en-US',
+                generate_audio: true
+            }
+        });
+        const html = render({ job: makeJob({ seconds: '30' }), videoSrc: '/fixture.mp4', shareItem }, 'zh');
+
+        expect(html).toContain('自动字幕已生成：共 1 句对白');
+        expect(html).toContain('下载字幕');
+        expect(html).toContain('字幕视频');
+        expect(html).toContain('data:text/plain;charset=utf-8');
     });
 });

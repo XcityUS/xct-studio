@@ -61,9 +61,12 @@ export function useCreationOptions() {
         ],
         captions: [
             { value: CAPTION_MODE_OPTIONS[0].id, label: t('None') },
-            { value: CAPTION_MODE_OPTIONS[1].id, label: t('English') },
-            { value: CAPTION_MODE_OPTIONS[2].id, label: t('Chinese') },
-            { value: CAPTION_MODE_OPTIONS[3].id, label: t('English <plus> Chinese') }
+            { value: CAPTION_MODE_OPTIONS[1].id, label: t('Automatic subtitles <mdash> English') },
+            { value: CAPTION_MODE_OPTIONS[2].id, label: t('Automatic subtitles <mdash> Chinese') },
+            { value: CAPTION_MODE_OPTIONS[3].id, label: t('Automatic subtitles <mdash> English <plus> Chinese') },
+            { value: CAPTION_MODE_OPTIONS[4].id, label: t('Burn in <mdash> English') },
+            { value: CAPTION_MODE_OPTIONS[5].id, label: t('Burn in <mdash> Chinese') },
+            { value: CAPTION_MODE_OPTIONS[6].id, label: t('Burn in <mdash> English <plus> Chinese') }
         ]
     };
 }

@@ -1,4 +1,5 @@
 import type { VideoJob, VideoMetadata } from '@/shared/contracts/video';
+export { newestHistoryFirst } from '@/features/generation/history/order';
 
 export function formatVideoMegabytes(bytes?: number): string | null {
     if (typeof bytes !== 'number' || !Number.isFinite(bytes) || bytes <= 0) return null;
