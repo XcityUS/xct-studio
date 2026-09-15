@@ -1,6 +1,11 @@
 'use client';
 
 import { safeRecordData } from './codec';
+import {
+    ARCHIVE_UNAVAILABLE_ERROR,
+    findPendingArchivesWithoutLocalSource,
+    LOCAL_SOURCE_MISSING_ARCHIVE_ERROR
+} from './archive-state';
 import { businessOwner, businessRecords, businessSessionMatches, saveBusinessRecord } from './store';
 import { db } from '@/features/assets/storage/db';
 import { archiveLocalVideo, listUserAssets, mediaKeyFromUrl, uploadReferenceImage } from '@/lib/media-archive';
@@ -39,6 +44,14 @@ export function useMediaPersistence(apiKey: string | null) {
                 const hasLocalMedia = images.length > 0 || videos.length > 0;
                 const known = businessRecords();
                 nextDelay = hasLocalMedia || hasPendingArchive() ? 10_000 : 60_000;
+                for (const record of findPendingArchivesWithoutLocalSource(known, images, videos)) {
+                    if (!alive() || !record.data) return;
+                    persist(record.scope, record.id, {
+                        ...record.data,
+                        archivePending: false,
+                        archiveError: LOCAL_SOURCE_MISSING_ARCHIVE_ERROR
+                    });
+                }
                 for (const image of images) {
                     if (!alive()) return;
                     if ((retryAt.get(image.id) ?? 0) > Date.now()) continue;
@@ -77,7 +90,7 @@ export function useMediaPersistence(apiKey: string | null) {
                         persist('images', image.id, {
                             ...image,
                             archivePending: true,
-                            archiveError: 'ARCHIVE_UNAVAILABLE'
+                            archiveError: ARCHIVE_UNAVAILABLE_ERROR
                         });
                     }
                 }
@@ -112,7 +125,16 @@ export function useMediaPersistence(apiKey: string | null) {
                             bytes: archived.bytes,
                             archivePending: false
                         });
-                    else retryAt.set(video.id, Date.now() + 60000);
+                    else {
+                        retryAt.set(video.id, Date.now() + 60000);
+                        persist('videos', video.id, {
+                            id: video.id,
+                            filename: video.filename,
+                            created_at: video.created_at,
+                            archivePending: true,
+                            archiveError: ARCHIVE_UNAVAILABLE_ERROR
+                        });
+                    }
                 }
                 if (!remoteInventoryEmpty && Date.now() - lastInventory > 60000) {
                     lastInventory = Date.now();

@@ -938,6 +938,7 @@ export function VideoHistoryPanel({
                                             <div className={styles.details}>
                                                 <TileTitle
                                                     prompt={item.prompt}
+                                                    sourcePrompt={item.createParams?.caption_source_prompt}
                                                     title={item.title}
                                                     onTitleChange={
                                                         onRenameItem ? (title) => onRenameItem(item, title) : undefined

@@ -2,6 +2,7 @@ import { makeJob, makeShareItem, renderLocalized } from './fixtures';
 import { VideoOutput } from '@/features/generation/components/VideoOutput';
 import { StatusBadge } from '@/features/generation/components/VideoOutput/StatusBadge';
 import type { VideoOutputProps } from '@/features/generation/components/VideoOutput/types';
+import { isCompiledPromptDebugEnabled } from '@/features/generation/use-display-prompt';
 import type { VideoJob } from '@/shared/contracts/video';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -54,20 +55,37 @@ describe('localized output lifecycle', () => {
     );
 
     it.each(['queued', 'in_progress', 'failed'] as const)(
-        'preserves prompt/model/parameters in %s regardless of UI language',
+        'shows only the reusable user prompt with model parameters in %s',
         (status) => {
-            const job: VideoJob = Object.freeze(makeJob({ status, progress: 42 }));
+            const job: VideoJob = Object.freeze(
+                makeJob({
+                    status,
+                    progress: 42,
+                    prompt: 'Priority parameter constraints:\nInternal rules\nCreative content:\nOriginal user prompt: {hero} <close-up>\nFinal parameter lock:\nInternal lock'
+                })
+            );
             for (const locale of ['en', 'zh'] as const) {
                 const html = render({ job }, locale);
                 expect(html).toContain('Original user prompt: {hero} &lt;close-up&gt;');
+                expect(html).not.toContain('Priority parameter constraints');
+                expect(html).not.toContain('Internal lock');
                 expect(html).toContain(job.model);
                 expect(html).toContain(job.size);
                 expect(html).toContain(locale === 'en' ? '>5s<' : '>5 秒<');
                 expect(html.match(/<dl/g)).toHaveLength(1);
             }
-            expect(job.prompt).toBe('Original user prompt: {hero} <close-up>');
+            expect(job.prompt).toContain('Priority parameter constraints');
         }
     );
+
+    it('enables compiled prompt debug mode only on localhost with debug=true', () => {
+        expect(isCompiledPromptDebugEnabled('localhost', '?debug=true')).toBe(true);
+        expect(isCompiledPromptDebugEnabled('127.0.0.1', '?debug=true')).toBe(true);
+        expect(isCompiledPromptDebugEnabled('::1', '?debug=true')).toBe(true);
+        expect(isCompiledPromptDebugEnabled('localhost', '')).toBe(false);
+        expect(isCompiledPromptDebugEnabled('localhost', '?debug=false')).toBe(false);
+        expect(isCompiledPromptDebugEnabled('studio.xcity.ai', '?debug=true')).toBe(false);
+    });
 
     it.each([
         [{ previewUnavailable: true }, 'Preview unavailable', '预览不可用', true],
@@ -200,7 +218,7 @@ describe('completed output controls', () => {
             }
         });
         const html = render({ job: makeJob(), videoSrc: '/fixture.mp4', shareItem }, 'zh');
-        expect(html).toContain('字幕已烧录：实际发音匹配 11/12 句');
+        expect(html).toContain('字幕就绪 11/12 句');
     });
 
     it('loads completed automatic captions as a player subtitle track', () => {
@@ -219,8 +237,8 @@ describe('completed output controls', () => {
         });
         const html = render({ job: makeJob(), videoSrc: '/fixture.mp4', shareItem }, 'zh');
 
-        expect(html).toContain('自动字幕已生成：共 1 句对白');
-        expect(html).toContain('下载字幕');
+        expect(html).toContain('字幕就绪 1 句');
+        expect(html).toContain('>字幕</a>');
         expect(html).toContain('字幕视频');
         expect(html).toContain('download="local-output-fixture.srt"');
         expect(html).toContain('data:text/plain;charset=utf-8');
@@ -245,8 +263,8 @@ describe('completed output controls', () => {
         });
         const html = render({ job: makeJob({ seconds: '30' }), videoSrc: '/fixture.mp4', shareItem }, 'zh');
 
-        expect(html).toContain('自动字幕已生成：共 1 句对白');
-        expect(html).toContain('下载字幕');
+        expect(html).toContain('字幕就绪 1 句');
+        expect(html).toContain('>字幕</a>');
         expect(html).toContain('字幕视频');
         expect(html).toContain('data:text/plain;charset=utf-8');
     });

@@ -127,6 +127,7 @@ The proposal recommends delivering one vertical production slice before expandin
 - [x] Expose an extensible ordinary-video subtitle mode selector that separates no subtitles, script-timed English/Chinese/bilingual player tracks, and Studio-burned English/Chinese/bilingual subtitles.
 - [x] Compile subtitle parameters at the highest prompt priority: only the None mode prohibits generated captions; automatic modes require provider-rendered captions in the selected language while retaining the Studio subtitle-track fallback. Keep provider-rendered subtitle instructions at 64 English or 28 Chinese characters per line, while Studio player cues may hold up to 112 English or 48 Chinese characters before timed splitting and use responsive visual wrapping. Prefer persisted transcription segments for audio-synchronized timing, fall back to spoken-word and punctuation estimates, and expose a per-video cached subtitle offset for old videos without transcription timestamps.
 - [x] Sort video history newest-first by normalized creation time after cloud merge and after UI filtering.
+- [x] Show and copy only the original user prompt by default; expose provider-ready compiled prompts only on localhost when `debug=true`.
 - [ ] Migrate remaining captions/TTS/BGM orchestration and legacy transports with the application/server boundary.
 - [ ] Add editable source subtitle tracks.
 - [ ] Preserve current browser-side FFmpeg behavior during the migration.
@@ -145,6 +146,7 @@ The proposal recommends delivering one vertical production slice before expandin
 - [ ] Introduce workspace ownership, migrations, concurrency behavior, and backups as the Episode vertical-slice foundation.
 - [ ] Move local browser storage to cache and migration compatibility roles.
 - [ ] Add job idempotency and durable retry behavior.
+- [x] Reconcile stale media archive markers against the current device cache; stop indefinite working status when no uploadable local source remains, while retaining explicit failure metadata and retrying recoverable uploads.
 - [ ] Add telemetry, failure dashboards, and operational release checks.
 
 Phase 9 remains the operations hardening rollup. Its database and durable-job prerequisites are intentionally pulled forward into the first Episode production slice; they must not be deferred until after Scene/Shot/Candidate UI work.

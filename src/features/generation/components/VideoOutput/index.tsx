@@ -201,7 +201,12 @@ export function VideoOutput({
                             </div>
                         )}
 
-                        {job.prompt && !job.id.startsWith('temp_') && <ClickablePrompt prompt={job.prompt} />}
+                        {job.prompt && !job.id.startsWith('temp_') && (
+                            <ClickablePrompt
+                                prompt={job.prompt}
+                                sourcePrompt={shareItem?.createParams?.caption_source_prompt}
+                            />
+                        )}
 
                         {!job.id.startsWith('temp_') && <Metadata job={job} />}
                     </div>
@@ -221,7 +226,12 @@ export function VideoOutput({
                             </p>
                         </div>
 
-                        {job.prompt && <ClickablePrompt prompt={job.prompt} />}
+                        {job.prompt && (
+                            <ClickablePrompt
+                                prompt={job.prompt}
+                                sourcePrompt={shareItem?.createParams?.caption_source_prompt}
+                            />
+                        )}
 
                         <Metadata job={job} />
 
@@ -327,16 +337,13 @@ export function VideoOutput({
                                 )}>
                                 {captionTrack.status === 'completed'
                                     ? captionTrack.delivery === 'player'
-                                        ? t('Automatic subtitles ready<colon> <lcur>count<rcur> dialogue lines', {
+                                        ? t('Subtitles ready <lcur>count<rcur>', {
                                               count: captionTrack.expectedDialogueCount
                                           })
-                                        : t(
-                                              'Subtitles burned<colon> <lcur>matched<rcur> of <lcur>expected<rcur> spoken lines matched',
-                                              {
-                                                  matched: captionTrack.matchedDialogueCount,
-                                                  expected: captionTrack.expectedDialogueCount
-                                              }
-                                          )
+                                        : t('Subtitles ready <lcur>matched<rcur><slash><lcur>expected<rcur>', {
+                                              matched: captionTrack.matchedDialogueCount,
+                                              expected: captionTrack.expectedDialogueCount
+                                          })
                                     : t('Subtitle generation failed<colon> <lcur>reason<rcur>', {
                                           reason: captionTrack.warning ?? t('Unknown error')
                                       })}
@@ -418,7 +425,12 @@ export function VideoOutput({
 
                         {actionError}
 
-                        {completedOutput.job.prompt && <ClickablePrompt prompt={completedOutput.job.prompt} />}
+                        {completedOutput.job.prompt && (
+                            <ClickablePrompt
+                                prompt={completedOutput.job.prompt}
+                                sourcePrompt={shareItem?.createParams?.caption_source_prompt}
+                            />
+                        )}
 
                         <Metadata job={completedOutput.job} />
                     </div>
@@ -459,7 +471,12 @@ export function VideoOutput({
                             </ul>
                         </div>
 
-                        {job.prompt && <ClickablePrompt prompt={job.prompt} />}
+                        {job.prompt && (
+                            <ClickablePrompt
+                                prompt={job.prompt}
+                                sourcePrompt={shareItem?.createParams?.caption_source_prompt}
+                            />
+                        )}
 
                         <Metadata job={job} />
                     </div>

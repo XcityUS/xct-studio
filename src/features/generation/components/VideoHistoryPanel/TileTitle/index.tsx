@@ -1,5 +1,6 @@
 'use client';
 
+import { useDisplayedPrompt } from '@/features/generation/use-display-prompt';
 import { Check, Copy, PencilLine } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import * as React from 'react';
@@ -10,15 +11,18 @@ import * as React from 'react';
  */
 export function TileTitle({
     prompt,
+    sourcePrompt,
     title,
     onTitleChange
 }: {
     prompt: string;
+    sourcePrompt?: string;
     title?: string;
     onTitleChange?: (title: string) => void;
 }) {
     const t = useTranslations();
-    const displayTitle = title?.trim() || prompt;
+    const displayedPrompt = useDisplayedPrompt(prompt, sourcePrompt);
+    const displayTitle = title?.trim() || displayedPrompt;
     const [editing, setEditing] = React.useState(false);
     const [draft, setDraft] = React.useState(displayTitle);
     const [copied, setCopied] = React.useState(false);
@@ -38,7 +42,7 @@ export function TileTitle({
     const handleCopy = async (e: React.MouseEvent) => {
         e.stopPropagation();
         try {
-            await navigator.clipboard.writeText(prompt);
+            await navigator.clipboard.writeText(displayedPrompt);
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
         } catch (err) {
@@ -71,7 +75,7 @@ export function TileTitle({
             ) : (
                 <p
                     className='line-clamp-2 flex-1 text-xs leading-4 font-medium break-words text-white/75'
-                    title={prompt}>
+                    title={displayedPrompt}>
                     {displayTitle}
                 </p>
             )}

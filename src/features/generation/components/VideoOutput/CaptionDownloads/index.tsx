@@ -44,7 +44,7 @@ export function CaptionDownloads({ jobId, videoSrc, subtitleSrt, filename }: Cap
                 className='min-w-0 flex-1 basis-36 border-white/20 bg-black text-white hover:bg-white/10 hover:text-white'>
                 <a href={subtitleDownloadUrl} download={`${jobId}.srt`}>
                     <Download className='mr-2 h-4 w-4' />
-                    {t('Download subtitles')}
+                    {t('Subtitles')}
                 </a>
             </Button>
             <Button
@@ -62,8 +62,8 @@ export function CaptionDownloads({ jobId, videoSrc, subtitleSrt, filename }: Cap
                 {isBurning
                     ? t('Burning <lcur>progress<rcur><pct>', { progress: progressPercent })
                     : error
-                      ? t('Subtitle video failed <mdash> retry')
-                      : t('Download captioned video')}
+                      ? t('Retry captioned')
+                      : t('Captioned')}
             </Button>
         </>
     );
