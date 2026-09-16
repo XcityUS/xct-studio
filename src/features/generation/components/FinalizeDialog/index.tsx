@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/Label';
 import { Textarea } from '@/components/ui/Textarea';
 import { ReferenceImagesInput } from '@/features/assets/components/ReferenceImagesInput';
 import type { ProviderAssetReviewInput } from '@/features/assets/hooks/use-provider-asset-review';
+import type { PortraitSetupRequest } from '@/features/assets/portrait/setup-flow';
 import {
     declarationSatisfied,
     refKey,
@@ -60,7 +61,7 @@ type FinalizeDialogProps = {
     onReviewReferenceAsset?: (input: ProviderAssetReviewInput) => Promise<string>;
     onDeclareReference: (url: string, origin: ReferenceOrigin) => void;
     onUploadImage?: (file: File) => Promise<string>;
-    onOpenAssets?: (referenceKey?: string) => void;
+    onOpenAssets?: (request?: PortraitSetupRequest) => void;
     onOpenChange: (open: boolean) => void;
     onConfirm: (settings: FinalizeSettings) => void;
 };

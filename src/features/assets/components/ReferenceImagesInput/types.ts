@@ -1,4 +1,5 @@
 import type { ProviderAssetReviewInput } from '@/features/assets/hooks/use-provider-asset-review';
+import type { PortraitSetupRequest } from '@/features/assets/portrait/setup-flow';
 import { type ReferenceDeclaration, type ReferenceOrigin } from '@/features/assets/reference/origin';
 import type { VideoCharacter, VideoPortrait } from '@/features/generation/history/merge';
 import type { UserAsset } from '@/lib/media-archive';
@@ -17,7 +18,7 @@ export interface ReferenceImagesInputProps {
     declarations: Record<string, ReferenceDeclaration>;
     onDeclare: (url: string, origin: ReferenceOrigin) => void;
     approvedAuthorizationIds: ReadonlySet<string>;
-    onOpenAssets?: (referenceKey?: string) => void;
+    onOpenAssets?: (request?: PortraitSetupRequest) => void;
     characters?: VideoCharacter[];
     portraits?: VideoPortrait[];
     imageAssets?: UserAsset[];

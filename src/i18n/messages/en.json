@@ -656,6 +656,8 @@
     "Name this image for reuse in video prompts": "Name this image for reuse in video prompts.",
     "Uploaded reference media and cloud<dash>archived videos": "Uploaded reference media and cloud-archived videos",
     "Verified people": "Verified people",
+    "Pending real<dash>person image": "Pending real-person image",
+    "Complete face verification<comma> then Studio will review and bind this image automatically": "Complete face verification, then Studio will review and bind this image automatically.",
     "Real people require consent and face verification before their images can be used": "Real people require consent and face verification before their images can be used.",
     "Checking": "Checking...",
     "Check setup": "Check setup",

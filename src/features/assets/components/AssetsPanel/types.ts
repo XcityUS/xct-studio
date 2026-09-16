@@ -7,6 +7,7 @@ import {
     type PortraitSession,
     type PortraitStatus
 } from '@/features/assets/portrait/api';
+import type { PortraitSetupCompletion, PortraitSetupRequest } from '@/features/assets/portrait/setup-flow';
 import type { ReferenceDeclaration, ReferenceOrigin } from '@/features/assets/reference/origin';
 import type { VideoCharacter, VideoPortrait } from '@/features/generation/hooks/use-video-history';
 import type { UserAsset } from '@/lib/media-archive';
@@ -46,6 +47,8 @@ export type AssetsPanelProps = {
     /** Operator self-test of the real-human library configuration. */
     getPortraitStatus: () => Promise<PortraitStatus>;
     reviewAsset: (input: ProviderAssetReviewInput) => Promise<string>;
+    pendingPortraitSetup?: PortraitSetupRequest | null;
+    onPortraitSetupComplete?: (completion: PortraitSetupCompletion) => void;
     /** Loads an image asset into the video form's reference list. */
     onUseAsReference: (sourceUrl: string, providerReferenceUrl?: string, options?: ReferenceUseOptions) => void;
     /** Loads a video asset into the video form's reference video list. */

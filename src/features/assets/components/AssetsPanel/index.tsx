@@ -7,6 +7,7 @@ import { CharacterDialog } from './CharacterDialog';
 import { CharacterGroupBrowser } from './CharacterGroupBrowser';
 import { DeleteCharacterGroupDialog } from './DeleteCharacterGroupDialog';
 import { buildAssetList, selectablePortraitSourceAssets } from './asset-list';
+import styles from './index.module.scss';
 import type { AssetsPanelProps } from './types';
 import { defaultCharacterName, portraitCollections, portraitGroupLabel, shortAssetId } from './utils';
 import { Button } from '@/components/ui/Button';
@@ -19,6 +20,11 @@ import { useProcessingPortraitRefresh } from '@/features/assets/hooks/use-proces
 import { useProviderAssetList } from '@/features/assets/hooks/use-provider-asset-list';
 import { validateAssetImage } from '@/features/assets/image/validation';
 import type { PortraitGroup, PortraitGroupType } from '@/features/assets/portrait/api';
+import {
+    PORTRAIT_VERIFICATION_RESULT_STORAGE_KEY,
+    clearPortraitVerificationResult,
+    readPortraitVerificationResult
+} from '@/features/assets/portrait/setup-flow';
 import { createAndTrackPortraitAsset } from '@/features/assets/portrait/track';
 import { assetIdFromReferenceUrl, refKey } from '@/features/assets/reference/origin';
 import { characterPreviewUrl } from '@/features/generation/history/characters';
@@ -82,6 +88,8 @@ export function AssetsPanel({
     getPortraitAsset,
     getPortraitStatus,
     reviewAsset,
+    pendingPortraitSetup,
+    onPortraitSetupComplete,
     onUseAsReference,
     onUseAsReferenceVideo,
     onAttachAssetId,
@@ -98,7 +106,17 @@ export function AssetsPanel({
     const assetsSignInError = t('Sign in at xcity<dot>ai or set an API key to view your assets');
     const characterFallback = t('Character');
     const unknownError = t('Unknown error');
-    const assetCharacterName = (asset: UserAsset) => defaultCharacterName(asset, characterFallback);
+    const invalidReferenceImageError = t(
+        'Studio could not use the reference image<dot> Please check the image size<comma> format<comma> and content<comma> then try again'
+    );
+    const unknownImageValidationNotice = t('Studio will validate this image after submission');
+    const virtualCharacterAddedNotice = t('Virtual character image added');
+    const verifiedPhotoAddedNotice = t('Verified photo added');
+    const portraitImageError = t('Could not add portrait image');
+    const assetCharacterName = React.useCallback(
+        (asset: UserAsset) => defaultCharacterName(asset, characterFallback),
+        [characterFallback]
+    );
     const [assets, setAssets] = React.useState<UserAsset[] | null>(null);
     const [assetNameAliases, setAssetNameAliases] = React.useState<Record<string, string>>(() =>
         readAssetNameAliases()
@@ -122,7 +140,10 @@ export function AssetsPanel({
     const [addingPortraitGroupId, setAddingPortraitGroupId] = React.useState<string | null>(null);
     const [portraitDrafts, setPortraitDrafts] = React.useState<Record<string, { assetKey: string; name: string }>>({});
     const [portraitStatus, setPortraitStatus] = React.useState<string | null>(null);
+    const [verifiedSetupGroupId, setVerifiedSetupGroupId] = React.useState<string | null>(null);
+    const [automaticSetupRetry, setAutomaticSetupRetry] = React.useState(0);
     const [isCheckingPortraitSetup, setIsCheckingPortraitSetup] = React.useState(false);
+    const automaticSetupAttemptRef = React.useRef('');
     const errorMessage = React.useCallback(
         (value: unknown) => (value instanceof Error && value.message ? value.message : unknownError),
         [unknownError]
@@ -228,6 +249,31 @@ export function AssetsPanel({
             void refreshPortraitGroups();
         }
     }, [active, portraitEnabled, refreshPortraitGroups]);
+
+    React.useEffect(() => {
+        if (!active || !portraitEnabled || !pendingPortraitSetup) return;
+        const receiveVerification = () => {
+            const result = readPortraitVerificationResult();
+            if (!result || result.completedAt < pendingPortraitSetup.requestedAt) return;
+            setVerifiedSetupGroupId(result.groupId);
+            void refreshPortraitGroups();
+        };
+        const handleStorage = (event: StorageEvent) => {
+            if (event.key === PORTRAIT_VERIFICATION_RESULT_STORAGE_KEY) receiveVerification();
+        };
+        const handleVisibility = () => {
+            if (document.visibilityState === 'visible') receiveVerification();
+        };
+        receiveVerification();
+        window.addEventListener('storage', handleStorage);
+        window.addEventListener('focus', receiveVerification);
+        document.addEventListener('visibilitychange', handleVisibility);
+        return () => {
+            window.removeEventListener('storage', handleStorage);
+            window.removeEventListener('focus', receiveVerification);
+            document.removeEventListener('visibilitychange', handleVisibility);
+        };
+    }, [active, pendingPortraitSetup, portraitEnabled, refreshPortraitGroups]);
 
     const deletedIdSet = React.useMemo(() => new Set(deletedIds), [deletedIds]);
     const visibleProviderAssets = React.useMemo(
@@ -360,6 +406,8 @@ export function AssetsPanel({
         setPortraitError(null);
         setPortraitNotice(null);
         try {
+            clearPortraitVerificationResult();
+            setVerifiedSetupGroupId(null);
             const session = await startPortraitSession(window.location.origin);
             window.open(session.h5Link, '_blank', 'noopener,noreferrer');
             setPortraitNotice(t('Complete verification in the opened page<comma> then return'));
@@ -458,68 +506,131 @@ export function AssetsPanel({
         }
     };
 
+    const submitPortraitAsset = React.useCallback(
+        async (groupId: string, groupType: PortraitGroupType, sourceUrl: string, name: string) => {
+            const setOperationError = groupType === 'AIGC' ? setCharacterGroupError : setPortraitError;
+            const setOperationNotice = groupType === 'AIGC' ? setCharacterGroupNotice : setPortraitNotice;
+            setAddingPortraitGroupId(groupId);
+            setOperationError(null);
+            setOperationNotice(null);
+            try {
+                const validation = await validateAssetImage(sourceUrl);
+                if (validation.status === 'rejected') {
+                    throw new Error(invalidReferenceImageError);
+                }
+                if (validation.status === 'unknown') {
+                    setOperationNotice(unknownImageValidationNotice);
+                }
+
+                const providerAsset = await createAndTrackPortraitAsset(
+                    {
+                        groupId,
+                        groupType,
+                        referenceOrigin: groupType === 'AIGC' ? 'thirdparty-ai' : 'real-person',
+                        name,
+                        thumbUrl: sourceUrl
+                    },
+                    () => createPortraitAsset({ groupId, url: sourceUrl, name, assetType: 'Image' }),
+                    getPortraitAsset,
+                    addPortrait,
+                    syncPortraitState
+                );
+                const updatedAt = new Date().toISOString();
+                upsertProviderAsset({
+                    ...providerAsset,
+                    groupType,
+                    name,
+                    assetType: 'Image',
+                    createdAt: updatedAt,
+                    updatedAt
+                });
+                setOperationNotice(groupType === 'AIGC' ? virtualCharacterAddedNotice : verifiedPhotoAddedNotice);
+                setPortraitDrafts((prev) => ({
+                    ...prev,
+                    [groupId]: { assetKey: '', name: '' }
+                }));
+                void refreshProviderAssets();
+                return providerAsset;
+            } catch {
+                setOperationNotice(null);
+                setOperationError(portraitImageError);
+                return null;
+            } finally {
+                setAddingPortraitGroupId(null);
+            }
+        },
+        [
+            addPortrait,
+            createPortraitAsset,
+            getPortraitAsset,
+            invalidReferenceImageError,
+            portraitImageError,
+            refreshProviderAssets,
+            syncPortraitState,
+            unknownImageValidationNotice,
+            upsertProviderAsset,
+            verifiedPhotoAddedNotice,
+            virtualCharacterAddedNotice
+        ]
+    );
+
     const handleAddPortraitAsset = async (groupId: string, groupType: PortraitGroupType) => {
-        const setOperationError = groupType === 'AIGC' ? setCharacterGroupError : setPortraitError;
-        const setOperationNotice = groupType === 'AIGC' ? setCharacterGroupNotice : setPortraitNotice;
         const draft = portraitDrafts[groupId];
         const selected = selectableImageAssets.find((asset) => asset.key === draft?.assetKey);
         if (!selected) {
-            setOperationError(t('Choose an image asset first'));
+            (groupType === 'AIGC' ? setCharacterGroupError : setPortraitError)(t('Choose an image asset first'));
             return;
         }
-
-        const name = draft?.name.trim() || assetCharacterName(selected);
-        setAddingPortraitGroupId(groupId);
-        setOperationError(null);
-        setOperationNotice(null);
-        try {
-            const validation = await validateAssetImage(selected.url);
-            if (validation.status === 'rejected') {
-                throw new Error(
-                    t(
-                        'Studio could not use the reference image<dot> Please check the image size<comma> format<comma> and content<comma> then try again'
-                    )
-                );
-            }
-            if (validation.status === 'unknown') {
-                setOperationNotice(t('Studio will validate this image after submission'));
-            }
-
-            const providerAsset = await createAndTrackPortraitAsset(
-                {
-                    groupId,
-                    groupType,
-                    referenceOrigin: groupType === 'AIGC' ? 'thirdparty-ai' : 'real-person',
-                    name,
-                    thumbUrl: selected.url
-                },
-                () => createPortraitAsset({ groupId, url: selected.url, name, assetType: 'Image' }),
-                getPortraitAsset,
-                addPortrait,
-                syncPortraitState
-            );
-            const updatedAt = new Date().toISOString();
-            upsertProviderAsset({
-                ...providerAsset,
-                groupType,
-                name,
-                assetType: 'Image',
-                createdAt: updatedAt,
-                updatedAt
-            });
-            setOperationNotice(groupType === 'AIGC' ? t('Virtual character image added') : t('Verified photo added'));
-            setPortraitDrafts((prev) => ({
-                ...prev,
-                [groupId]: { assetKey: '', name: '' }
-            }));
-            void refreshProviderAssets();
-        } catch {
-            setOperationNotice(null);
-            setOperationError(t('Could not add portrait image'));
-        } finally {
-            setAddingPortraitGroupId(null);
+        const providerAsset = await submitPortraitAsset(
+            groupId,
+            groupType,
+            selected.url,
+            draft?.name.trim() || assetCharacterName(selected)
+        );
+        if (
+            providerAsset?.status === 'Active' &&
+            groupType === 'LivenessFace' &&
+            pendingPortraitSetup &&
+            refKey(selected.url) === pendingPortraitSetup.referenceKey
+        ) {
+            clearPortraitVerificationResult();
+            onPortraitSetupComplete?.({ ...pendingPortraitSetup, assetId: providerAsset.assetId, groupId });
         }
     };
+
+    React.useEffect(() => {
+        if (!pendingPortraitSetup || !verifiedSetupGroupId || addingPortraitGroupId) return;
+        const attemptKey = `${pendingPortraitSetup.referenceKey}:${verifiedSetupGroupId}`;
+        if (automaticSetupAttemptRef.current === attemptKey) return;
+        automaticSetupAttemptRef.current = attemptKey;
+        const matchingAsset = selectableImageAssets.find(
+            (asset) => refKey(asset.url) === pendingPortraitSetup.referenceKey
+        );
+        const name = matchingAsset ? assetCharacterName(matchingAsset) : characterFallback;
+        void submitPortraitAsset(verifiedSetupGroupId, 'LivenessFace', pendingPortraitSetup.sourceUrl, name).then(
+            (providerAsset) => {
+                if (providerAsset?.status !== 'Active') {
+                    return;
+                }
+                clearPortraitVerificationResult();
+                onPortraitSetupComplete?.({
+                    ...pendingPortraitSetup,
+                    assetId: providerAsset.assetId,
+                    groupId: verifiedSetupGroupId
+                });
+            }
+        );
+    }, [
+        addingPortraitGroupId,
+        assetCharacterName,
+        automaticSetupRetry,
+        characterFallback,
+        onPortraitSetupComplete,
+        pendingPortraitSetup,
+        selectableImageAssets,
+        submitPortraitAsset,
+        verifiedSetupGroupId
+    ]);
 
     return (
         <Card className='flex h-full w-full flex-col overflow-hidden rounded-lg border border-white/10 bg-black'>
@@ -653,6 +764,35 @@ export function AssetsPanel({
                                 </Button>
                             </div>
                         </div>
+
+                        {pendingPortraitSetup && (
+                            <div className={styles.portraitSetup}>
+                                <span className={styles.portraitSetupPreview}>
+                                    {/* eslint-disable-next-line @next/next/no-img-element -- user-selected reference URL */}
+                                    <img
+                                        src={pendingPortraitSetup.sourceUrl}
+                                        alt={t('Pending real<dash>person image')}
+                                    />
+                                </span>
+                                <p className={styles.portraitSetupMessage}>
+                                    {t(
+                                        'Complete face verification<comma> then Studio will review and bind this image automatically'
+                                    )}
+                                </p>
+                                {verifiedSetupGroupId && portraitError && (
+                                    <button
+                                        type='button'
+                                        disabled={Boolean(addingPortraitGroupId)}
+                                        onClick={() => {
+                                            automaticSetupAttemptRef.current = '';
+                                            setAutomaticSetupRetry((value) => value + 1);
+                                        }}
+                                        className={styles.portraitSetupRetry}>
+                                        {t('Retry')}
+                                    </button>
+                                )}
+                            </div>
+                        )}
 
                         {portraitNotice && <p className='text-xs text-emerald-300'>{portraitNotice}</p>}
                         {portraitStatus && <p className='text-xs text-white/50'>{portraitStatus}</p>}

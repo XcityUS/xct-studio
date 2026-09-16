@@ -483,9 +483,13 @@ export function ReferenceImagesInput({
                                                                 onSwitchToAssetModel?.();
                                                             }
                                                             onOpenAssets?.(
-                                                                declaration?.origin === 'licensed-ip' ||
-                                                                    declaration?.origin === 'public-figure'
-                                                                    ? referenceKey
+                                                                declaration?.origin === 'real-person'
+                                                                    ? {
+                                                                          origin: 'real-person',
+                                                                          referenceKey,
+                                                                          requestedAt: Date.now(),
+                                                                          sourceUrl: item.url
+                                                                      }
                                                                     : undefined
                                                             );
                                                         }}

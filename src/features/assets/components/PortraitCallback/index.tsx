@@ -2,6 +2,7 @@
 
 import styles from './index.module.scss';
 import { resolvePortraitResult } from '@/features/assets/portrait/api';
+import { writePortraitVerificationResult } from '@/features/assets/portrait/setup-flow';
 import { useXcityKeyState } from '@/features/settings/hooks/use-xcity-key';
 import { Link } from '@/i18n/navigation';
 import { Loader2, ShieldCheck } from 'lucide-react';
@@ -54,7 +55,9 @@ export function PortraitCallback() {
                 }
                 const result = await resolvePortraitResult(bytedToken, key);
                 if (!cancelled) {
+                    writePortraitVerificationResult(result.groupId);
                     setState({ status: 'verified', groupId: result.groupId });
+                    window.setTimeout(() => window.close(), 900);
                 }
             } catch (err) {
                 if (!cancelled) {
@@ -95,7 +98,7 @@ export function PortraitCallback() {
                         </h1>
                         <p>{t('Return to the studio and add photos of this person')}</p>
                         <p className={styles.identifier}>{state.groupId}</p>
-                        <Link href='/' className={styles.returnLink}>
+                        <Link href='/assets' className={styles.returnLink}>
                             {t('Return to studio')}
                         </Link>
                     </div>
@@ -106,7 +109,7 @@ export function PortraitCallback() {
                             {state.message || failureMessages[state.reason]}
                         </p>
                         <p>{t('Try again from Assets <rarr> Verified people')}</p>
-                        <Link href='/' className={styles.returnLink}>
+                        <Link href='/assets' className={styles.returnLink}>
                             {t('Return to studio')}
                         </Link>
                     </div>

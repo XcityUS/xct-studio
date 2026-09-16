@@ -659,6 +659,8 @@
     "Name this image for reuse in video prompts": "为图片命名，以便在视频提示词中复用。",
     "Uploaded reference media and cloud<dash>archived videos": "上传的参考素材与云端归档视频",
     "Verified people": "已认证真人",
+    "Pending real<dash>person image": "待认证真人图片",
+    "Complete face verification<comma> then Studio will review and bind this image automatically": "完成人脸认证后，Studio 将自动审核并关联这张图片。",
     "Real people require consent and face verification before their images can be used": "真人图片使用前必须获得本人同意并完成人脸认证。",
     "Checking": "检查中...",
     "Check setup": "检查配置",

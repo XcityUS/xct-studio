@@ -121,6 +121,7 @@ import { ApiKeyGate } from '@/features/settings/components/ApiKeyGate';
 import { useXcityKey } from '@/features/settings/hooks/use-xcity-key';
 import { XCITY_SSO_ENABLED } from '@/features/settings/sso';
 import { useAssetIdIntake } from '@/features/studio/hooks/use-asset-id-intake';
+import { usePortraitSetupFlow } from '@/features/studio/hooks/use-portrait-setup-flow';
 import { useStudioTabRouting } from '@/features/studio/hooks/use-studio-tab-routing';
 import { studioVideoSharePath } from '@/features/studio/routing';
 import type { AppLocale } from '@/i18n/routing';
@@ -261,7 +262,6 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
     const [shareCommunityStatus, setShareCommunityStatus] = React.useState<'idle' | 'submitting' | 'submitted'>('idle');
     const [shareCommunityError, setShareCommunityError] = React.useState<string | null>(null);
 
-    // Creation form state
     const [createModel, setCreateModel] = React.useState<VideoModel>(DEFAULT_MODEL);
     const [createPrompt, setCreatePrompt] = React.useState('');
     const [createRatio, setCreateRatio] = React.useState<VideoRatio>(DEFAULT_RATIO);
@@ -467,7 +467,13 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
             );
         });
     }, []);
-
+    const portraitSetupFlow = usePortraitSetupFlow({
+        declarations,
+        navigateToTab,
+        scrollToCreationForm,
+        setDeclaration,
+        setReferenceUrls: setCreateReferenceUrls
+    });
     const applyPreset = React.useCallback(
         (item: GalleryItem) => {
             const p = reconcilePreset(item.params);
@@ -1058,7 +1064,6 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         [resolveKey]
     );
 
-    /** Assets tab → video form: append the image to the reference list. */
     const handleUseAssetAsReference = React.useCallback(
         async (url: string, approvedReferenceUrl?: string, options?: ReferenceUseOptions) => {
             const refCap = maxReferenceImages(createModel);
@@ -1111,7 +1116,6 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         ]
     );
 
-    /** Assets tab -> video form: append the video to the reference video list. */
     const handleUseAssetAsReferenceVideo = React.useCallback(
         (url: string, approvedReferenceUrl?: string) => {
             const switchesModel = !modelSupportsReferenceVideo(createModel);
@@ -1339,11 +1343,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                 let watermarkedArchiveUrl: string | undefined;
                 let brandedBlob: Blob | null = null;
                 let processedBlob = blob;
-                const overlays = await renderTextOverlays(
-                    blob,
-                    historyItem?.createParams,
-                    historyItem?.prompt ?? ''
-                );
+                const overlays = await renderTextOverlays(blob, historyItem?.createParams, historyItem?.prompt ?? '');
                 processedBlob = overlays.film;
                 if (overlays.titleWarning)
                     console.warn(`Could not add opening title to ${job.id}.`, overlays.titleWarning);
@@ -3591,10 +3591,8 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                                 }}
                                 storyboardEditorOpen={isShotBuilderOpen}
                                 onStoryboardEditorOpenChange={setIsShotBuilderOpen}
-                                // Only offer the jump when the Assets tab actually exists —
-                                // it is gated on the media worker / portrait library.
                                 onOpenAssets={
-                                    uploadEnabled || isPortraitEnabled ? () => navigateToTab('assets') : undefined
+                                    uploadEnabled || isPortraitEnabled ? portraitSetupFlow.openAssets : undefined
                                 }
                                 notice={createNotice}
                                 onClearNotice={() => setCreateNotice(null)}
@@ -3803,6 +3801,8 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                                         getPortraitAsset={handleGetPortraitAsset}
                                         getPortraitStatus={handleGetPortraitStatus}
                                         reviewAsset={handleReviewReferenceAsset}
+                                        pendingPortraitSetup={portraitSetupFlow.pendingPortraitSetup}
+                                        onPortraitSetupComplete={portraitSetupFlow.completePortraitSetup}
                                         onUseAsReference={handleUseAssetAsReference}
                                         onUseAsReferenceVideo={handleUseAssetAsReferenceVideo}
                                         onAttachAssetId={handleAttachAssetIdToProject}

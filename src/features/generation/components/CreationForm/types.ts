@@ -1,9 +1,10 @@
 import type { ProviderAssetReviewInput } from '@/features/assets/hooks/use-provider-asset-review';
 import type { PortraitGroup } from '@/features/assets/portrait/api';
+import type { PortraitSetupRequest } from '@/features/assets/portrait/setup-flow';
 import { type ReferenceDeclaration, type ReferenceOrigin } from '@/features/assets/reference/origin';
 import type { VideoCharacter, VideoPortrait } from '@/features/generation/hooks/use-video-history';
-import type { ScriptAnalysisDraft } from '@/features/script/types';
 import type { EditorDraft } from '@/features/script/components/ShotBuilderDialog/draft';
+import type { ScriptAnalysisDraft } from '@/features/script/types';
 import type { TtsVoice } from '@/lib/tts';
 import { type VideoModel, type VideoRatio, type VideoResolution } from '@/shared/config/seedance';
 import type {
@@ -145,7 +146,7 @@ export type CreationFormProps = {
         assetIds?: string[];
     }) => ProductionSnapshot;
     /** Opens the Assets tab for portrait-library setup. */
-    onOpenAssets?: (referenceKey?: string) => void;
+    onOpenAssets?: (request?: PortraitSetupRequest) => void;
     /** Short-drama project controls rendered inside the drama creation panel. */
     projectControls?: ShortDramaProjectControls;
     /** Optional controlled state for the storyboard editor dialog. */
