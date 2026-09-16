@@ -1,0 +1,113 @@
+.root {
+    position: relative;
+    isolation: isolate;
+    display: grid;
+    place-items: center;
+    min-height: calc(100svh - 4.5rem);
+    padding: clamp(2rem, 6vw, 5rem) 1.25rem;
+    overflow: hidden;
+    color: var(--studio-foreground);
+    background:
+        linear-gradient(color-mix(in srgb, var(--studio-foreground) 3%, transparent) 1px, transparent 1px),
+        linear-gradient(90deg, color-mix(in srgb, var(--studio-foreground) 3%, transparent) 1px, transparent 1px),
+        var(--studio-background);
+    background-size: 2rem 2rem;
+}
+
+.card {
+    position: relative;
+    z-index: 1;
+    width: min(100%, 42rem);
+    padding: clamp(1.5rem, 4vw, 2.75rem);
+    border: 1px solid color-mix(in srgb, var(--studio-foreground) 15%, transparent);
+    border-radius: 1.5rem;
+    background: color-mix(in srgb, var(--studio-surface) 88%, transparent);
+    box-shadow:
+        var(--studio-overlay-shadow),
+        inset 0 1px color-mix(in srgb, var(--studio-foreground) 8%, transparent);
+    backdrop-filter: blur(1.5rem);
+}
+
+.hero {
+    display: flex;
+    gap: 1.5rem;
+    align-items: center;
+}
+
+.intro {
+    min-width: 0;
+}
+
+.eyebrow {
+    color: var(--studio-muted);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+}
+
+.intro h1 {
+    margin-top: 0.4rem;
+    font-size: clamp(1.5rem, 4vw, 2.125rem);
+    font-weight: 650;
+    line-height: 1.15;
+    letter-spacing: -0.035em;
+}
+
+.intro p {
+    margin-top: 0.65rem;
+    color: var(--studio-muted);
+    font-size: 0.875rem;
+    line-height: 1.6;
+}
+
+.details {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+    margin-top: 1rem;
+    color: var(--studio-muted);
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.footer {
+    display: flex;
+    gap: 0.55rem;
+    align-items: center;
+    margin-top: 1.75rem;
+    color: var(--studio-muted);
+    font-size: 0.75rem;
+}
+
+.liveDot {
+    width: 0.4rem;
+    height: 0.4rem;
+    border-radius: 50%;
+    background: var(--studio-success);
+    box-shadow: 0 0 0.75rem color-mix(in srgb, var(--studio-success) 70%, transparent);
+}
+
+.longWait {
+    margin-top: 0.75rem;
+    color: var(--studio-muted);
+    font-size: 0.75rem;
+    line-height: 1.5;
+}
+
+@media (max-width: 640px) {
+    .root {
+        min-height: calc(100svh - 4rem);
+        padding: 1rem;
+    }
+
+    .card {
+        border-radius: 1.125rem;
+    }
+
+    .hero {
+        align-items: flex-start;
+        gap: 1rem;
+    }
+
+}

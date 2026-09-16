@@ -37,9 +37,11 @@ records. Later visits skip legacy localStorage validation/import for that owner;
 they still read PostgreSQL, replay the current pending outbox, and check the Worker
 import marker. Invalid or interrupted imports are not marked complete. Original
 legacy keys remain recovery copies, not an ongoing source of new business writes.
-Before identity resolution and on ordinary visits, show compact workspace loading,
-not a migration percentage. The progress panel is reserved for an uncompleted
-local migration. This does not provide offline access or skip authentication.
+Before identity resolution, show compact workspace loading. Once authenticated,
+reserve a stable full workspace area for the branded startup panel so header content
+does not jump as status text changes. Ordinary visits show indeterminate stage
+activity; a numeric percentage is reserved for an uncompleted local migration.
+This does not provide offline access or skip authentication.
 IndexedDB metadata is reconciled in batches; unchanged image metadata is not
 rewritten. Legacy media copy only inserts missing records and retains source files.
 

@@ -12,6 +12,7 @@ import {
 } from '../../store';
 import { useMediaPersistence } from '../../use-media-persistence';
 import styles from './index.module.scss';
+import { WorkspaceStartup } from '../WorkspaceStartup';
 import { ApiKeyDialog } from '@/features/settings/components/ApiKeyDialog';
 import { useLocalApiKeyOption } from '@/features/settings/hooks/use-local-api-key-option';
 import { useXcityKeyState } from '@/features/settings/hooks/use-xcity-key';
@@ -41,6 +42,7 @@ export function BusinessWorkspace({ children }: { children: ReactNode }) {
         : sync.stage === 'media' ? t('Preparing local media cache')
         : t('Reading database records');
     const mediaPending = ready && businessRecords().some((r) => r.table === 'media_assets' && r.data?.archivePending);
+    const showStartup = Boolean(apiKey && !ready && !sync.error);
     const showStatus = !ready || Boolean(sync.error) || sync.pending > 0 || sync.invalid > 0 || mediaPending;
     const autoRetry = ready && sync.pending > 0 && (
         sync.error === 'DATABASE_BUSY' || sync.error === 'DATABASE_TIMEOUT' || sync.error === 'DATABASE_UNAVAILABLE'
@@ -106,7 +108,17 @@ export function BusinessWorkspace({ children }: { children: ReactNode }) {
 
     return (
         <XcityKeyContext.Provider value={auth}>
-            {showStatus && <div className={styles.status} data-state={statusState} data-sync-error={sync.error ?? undefined} data-pending-count={sync.pending} role={statusState === 'error' ? 'alert' : 'status'}>
+            {showStartup ? (
+                <WorkspaceStartup
+                    stage={sync.stage}
+                    stageLabel={stageLabel}
+                    progress={sync.progress}
+                    migrating={sync.migrating}
+                    elapsed={elapsed}
+                    processed={sync.processed}
+                    total={sync.total}
+                />
+            ) : showStatus && <div className={styles.status} data-state={statusState} data-sync-error={sync.error ?? undefined} data-pending-count={sync.pending} role={statusState === 'error' ? 'alert' : 'status'}>
                 <span className={styles.indicator} aria-hidden="true" />
                 {!auth.apiKey ? (
                     <>
@@ -120,33 +132,6 @@ export function BusinessWorkspace({ children }: { children: ReactNode }) {
                     <span>{t('Sync is queued<dot> Retrying automatically<comma> local changes are safe')} ({sync.pending})</span>
                 ) : sync.error ? (
                     <span>{t('Changes are not synced<dot> Your local backup is preserved')}</span>
-                ) : !ready && !sync.migrating ? (
-                    <span>{t('Loading your workspace')}</span>
-                ) : !ready ? (
-                    <div className={styles.loading}>
-                        <div className={styles.progressHeading}>
-                            <span>{stageLabel}</span>
-                            <span>{t('Startup progress')} {Math.floor(sync.progress)}%</span>
-                        </div>
-                        <progress
-                            className={styles.progress}
-                            max={100}
-                            value={sync.progress}
-                            aria-label={t('Startup progress')}
-                        />
-                        <span>
-                            {t('Elapsed <lcur>seconds<rcur> seconds', { seconds: elapsed })}
-                            {sync.stage === 'import' && sync.total > 0 && (
-                                <> · {t('Imported <lcur>completed<rcur> of <lcur>total<rcur> records', {
-                                    completed: sync.processed, total: sync.total
-                                })}</>
-                            )}
-                        </span>
-                        <small>{t('Progress follows startup stages<comma> not remaining time<dot> Local originals are retained')}</small>
-                        {elapsed >= 30 && (
-                            <small>{t('Startup is taking longer<dot> Time depends on record count and network speed')}</small>
-                        )}
-                    </div>
                 ) : sync.pending ? (
                     <span>{t('Saving <lcur>count<rcur> records', { count: sync.pending })}</span>
                 ) : (
@@ -187,8 +172,7 @@ export function BusinessWorkspace({ children }: { children: ReactNode }) {
                         </button>
                     </>
                 )}
-            </div>
-            }
+            </div>}
             {ready && <div key={`${sync.owner}:${generation}`}>{children}</div>}
             {allowManualApiKey && (
                 <ApiKeyDialog isOpen={dialog} onOpenChange={setDialog} onSave={auth.saveManualKey} />

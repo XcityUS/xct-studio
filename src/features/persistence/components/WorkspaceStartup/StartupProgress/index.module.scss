@@ -1,0 +1,102 @@
+.root {
+    margin-top: 2.25rem;
+    padding: 1.125rem;
+    border: 1px solid color-mix(in srgb, var(--studio-foreground) 9%, transparent);
+    border-radius: 1rem;
+    background: color-mix(in srgb, var(--studio-background) 65%, transparent);
+}
+
+.meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.8rem;
+    color: var(--studio-muted);
+    font-size: 0.8125rem;
+}
+
+.meta strong {
+    color: var(--studio-foreground);
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+}
+
+.progress {
+    appearance: none;
+    display: block;
+    width: 100%;
+    height: 0.35rem;
+    overflow: hidden;
+    border: 0;
+    border-radius: 999px;
+    background: var(--studio-surface-strong);
+}
+
+.progress::-webkit-progress-bar {
+    background: var(--studio-surface-strong);
+}
+
+.progress::-webkit-progress-value {
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--studio-muted), var(--studio-foreground));
+    transition: width 400ms ease;
+}
+
+.progress::-moz-progress-bar {
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--studio-muted), var(--studio-foreground));
+}
+
+.scanning {
+    background: linear-gradient(
+        90deg,
+        var(--studio-surface-strong) 20%,
+        var(--studio-foreground) 50%,
+        var(--studio-surface-strong) 80%
+    );
+    background-size: 200% 100%;
+    animation: scan 1.6s ease-in-out infinite;
+}
+
+.scanning::-webkit-progress-bar {
+    background: transparent;
+}
+
+.stageRail {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 0.45rem;
+    margin-top: 0.85rem;
+}
+
+.stageRail span {
+    height: 0.15rem;
+    border-radius: 999px;
+    background: var(--studio-surface-strong);
+    transition: background 300ms ease, box-shadow 300ms ease;
+}
+
+.stageRail span[data-complete],
+.stageRail span[data-current] {
+    background: var(--studio-foreground);
+}
+
+.stageRail span[data-current] {
+    box-shadow: 0 0 0.75rem color-mix(in srgb, var(--studio-foreground) 60%, transparent);
+}
+
+@keyframes scan {
+    to { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .scanning {
+        animation: none;
+    }
+
+    .progress::-webkit-progress-value,
+    .stageRail span {
+        transition: none;
+    }
+}
