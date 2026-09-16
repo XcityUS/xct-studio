@@ -18,14 +18,14 @@ import { Input } from '@/components/ui/Input';
 import { AssetIdIntake } from '@/features/assets/components/AssetIdIntake';
 import { ProviderErrorNotice } from '@/features/assets/components/ProviderErrorNotice';
 import { usePortraitStatusCheck } from '@/features/assets/hooks/use-portrait-status-check';
+import { usePortraitVerificationResult } from '@/features/assets/hooks/use-portrait-verification-result';
 import { useProcessingPortraitRefresh } from '@/features/assets/hooks/use-processing-portrait-refresh';
 import { useProviderAssetList } from '@/features/assets/hooks/use-provider-asset-list';
 import { validateAssetImage } from '@/features/assets/image/validation';
 import type { PortraitGroup, PortraitGroupType } from '@/features/assets/portrait/api';
 import {
-    PORTRAIT_VERIFICATION_RESULT_STORAGE_KEY,
     clearPortraitVerificationResult,
-    readPortraitVerificationResult
+    type PortraitVerificationResult
 } from '@/features/assets/portrait/setup-flow';
 import { createAndTrackPortraitAsset } from '@/features/assets/portrait/track';
 import { assetIdFromReferenceUrl, refKey } from '@/features/assets/reference/origin';
@@ -254,42 +254,22 @@ export function AssetsPanel({
         }
     }, [active, portraitEnabled, refreshPortraitGroups]);
 
-    React.useEffect(() => {
-        if (!active || !portraitEnabled) return;
-        const receiveVerification = () => {
-            const result = readPortraitVerificationResult();
-            if (!result || receivedVerificationRef.current === result.completedAt) return;
-            if (pendingPortraitSetup && result.completedAt < pendingPortraitSetup.requestedAt) return;
-            receivedVerificationRef.current = result.completedAt;
-            setVerifiedSetupGroupId(result.groupId);
-            setPortraitVerificationUrl(null);
-            setPortraitNotice(verificationCompleteNotice);
-            void Promise.all([refreshPortraitGroups(), refreshProviderAssets()]);
-            if (!pendingPortraitSetup) clearPortraitVerificationResult();
-        };
-        const handleStorage = (event: StorageEvent) => {
-            if (event.key === PORTRAIT_VERIFICATION_RESULT_STORAGE_KEY) receiveVerification();
-        };
-        const handleVisibility = () => {
-            if (document.visibilityState === 'visible') receiveVerification();
-        };
-        receiveVerification();
-        window.addEventListener('storage', handleStorage);
-        window.addEventListener('focus', receiveVerification);
-        document.addEventListener('visibilitychange', handleVisibility);
-        return () => {
-            window.removeEventListener('storage', handleStorage);
-            window.removeEventListener('focus', receiveVerification);
-            document.removeEventListener('visibilitychange', handleVisibility);
-        };
+    const receiveVerification = React.useCallback((result: PortraitVerificationResult) => {
+        if (receivedVerificationRef.current === result.completedAt) return;
+        if (pendingPortraitSetup && result.completedAt < pendingPortraitSetup.requestedAt) return;
+        receivedVerificationRef.current = result.completedAt;
+        setVerifiedSetupGroupId(result.groupId);
+        setPortraitVerificationUrl(null);
+        setPortraitNotice(verificationCompleteNotice);
+        void Promise.all([refreshPortraitGroups(), refreshProviderAssets()]);
+        if (!pendingPortraitSetup) clearPortraitVerificationResult();
     }, [
-        active,
         pendingPortraitSetup,
-        portraitEnabled,
         refreshPortraitGroups,
         refreshProviderAssets,
         verificationCompleteNotice
     ]);
+    usePortraitVerificationResult(active && portraitEnabled, receiveVerification);
 
     const deletedIdSet = React.useMemo(() => new Set(deletedIds), [deletedIds]);
     const visibleProviderAssets = React.useMemo(

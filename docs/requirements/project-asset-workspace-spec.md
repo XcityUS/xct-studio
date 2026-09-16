@@ -180,6 +180,7 @@ Project / IP default
 
 - Real-person authorization starts from Studio and opens its verification page directly from the user's click so Chrome and Safari follow the same flow.
 - When the verification callback succeeds, Studio must detect it automatically, refresh the verified-person group, and allow the user to upload that person's photo without a manual page refresh.
+- Callback notification uses same-origin storage and a same-origin browser channel, so restricting storage writes does not by itself leave an open Studio tab waiting for a manual refresh.
 - Uploading a photo from a verified-person group stores the image and submits it for review as one UI action. The user must not have to copy a URL or Asset ID between screens.
 - Manual Asset ID entry is an advanced import path for an already-approved asset. It must not be the default workflow and must not be offered as a way to bypass real-person verification.
 - The asset review dialog asks the user to classify the material and derives its review name from the uploaded file; it does not ask for a provider-facing ID or another name field. The advanced ID import appears after the asset library, not before the normal review actions.

@@ -10,36 +10,63 @@ export type PortraitSetupCompletion = PortraitSetupRequest & {
     groupId: string;
 };
 
-type PortraitVerificationResult = {
+export type PortraitVerificationResult = {
     groupId: string;
     completedAt: number;
 };
 
 export const PORTRAIT_VERIFICATION_RESULT_STORAGE_KEY = 'xctStudioPortraitVerificationResult';
+const PORTRAIT_VERIFICATION_CHANNEL = 'xctStudioPortraitVerification';
+
+function parsePortraitVerificationResult(value: unknown): PortraitVerificationResult | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const result = value as Partial<PortraitVerificationResult>;
+    if (typeof result.groupId !== 'string' || !result.groupId.trim() || typeof result.completedAt !== 'number') {
+        return null;
+    }
+    return { groupId: result.groupId.trim(), completedAt: result.completedAt };
+}
 
 export function readPortraitVerificationResult(): PortraitVerificationResult | null {
     if (typeof window === 'undefined') return null;
     try {
         const parsed = JSON.parse(localStorage.getItem(PORTRAIT_VERIFICATION_RESULT_STORAGE_KEY) ?? 'null') as unknown;
-        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
-        const value = parsed as Partial<PortraitVerificationResult>;
-        if (typeof value.groupId !== 'string' || !value.groupId.trim() || typeof value.completedAt !== 'number') {
-            return null;
-        }
-        return { groupId: value.groupId.trim(), completedAt: value.completedAt };
+        return parsePortraitVerificationResult(parsed);
     } catch {
         return null;
     }
 }
 
 export function writePortraitVerificationResult(groupId: string): void {
+    const result = { groupId: groupId.trim(), completedAt: Date.now() } satisfies PortraitVerificationResult;
     try {
-        localStorage.setItem(
-            PORTRAIT_VERIFICATION_RESULT_STORAGE_KEY,
-            JSON.stringify({ groupId: groupId.trim(), completedAt: Date.now() } satisfies PortraitVerificationResult)
-        );
+        localStorage.setItem(PORTRAIT_VERIFICATION_RESULT_STORAGE_KEY, JSON.stringify(result));
     } catch {
-        // Verification remains valid; the user can return to Assets and refresh manually.
+        // Browser storage may be restricted; the same-origin channel can still notify the open Studio tab.
+    }
+    try {
+        if (typeof BroadcastChannel === 'undefined') return;
+        const channel = new BroadcastChannel(PORTRAIT_VERIFICATION_CHANNEL);
+        channel.postMessage(result);
+        channel.close();
+    } catch {
+        // The storage event and focus listener remain available when the channel is blocked.
+    }
+}
+
+export function subscribePortraitVerificationResult(
+    onResult: (result: PortraitVerificationResult) => void
+): () => void {
+    if (typeof window === 'undefined' || typeof BroadcastChannel === 'undefined') return () => undefined;
+    try {
+        const channel = new BroadcastChannel(PORTRAIT_VERIFICATION_CHANNEL);
+        channel.onmessage = (event: MessageEvent<unknown>) => {
+            const result = parsePortraitVerificationResult(event.data);
+            if (result) onResult(result);
+        };
+        return () => channel.close();
+    } catch {
+        return () => undefined;
     }
 }
 
