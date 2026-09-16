@@ -472,6 +472,7 @@ export function CreationForm({
         const queue = storyboardVideoQueueItems({
             draft: storyboardDraft,
             shots: [{ shot, index }],
+            projectAssets,
             activeSeconds,
             activeModel,
             buildSubmissionData,
@@ -489,6 +490,7 @@ export function CreationForm({
         const items = storyboardVideoQueueItems({
             draft: storyboardDraft,
             shots: queue,
+            projectAssets,
             activeSeconds,
             activeModel,
             buildSubmissionData,

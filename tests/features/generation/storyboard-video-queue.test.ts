@@ -1,6 +1,7 @@
 import { storyboardVideoQueueItems } from '@/features/generation/components/CreationForm/storyboard-video-queue';
 import type { CreationFormData } from '@/features/generation/components/CreationForm/types';
 import type { EditorDraft } from '@/features/script/components/ShotBuilderDialog/draft';
+import type { ProjectAsset } from '@/shared/contracts/production';
 import { describe, expect, it } from 'vitest';
 
 function draft(dialogue: string): EditorDraft {
@@ -34,10 +35,11 @@ function draft(dialogue: string): EditorDraft {
     };
 }
 
-function queue(value: EditorDraft) {
+function queue(value: EditorDraft, projectAssets: ProjectAsset[] = []) {
     return storyboardVideoQueueItems({
         draft: value,
         shots: [{ shot: value.shots[0], index: 0 }],
+        projectAssets,
         activeSeconds: 4,
         activeModel: 'dreamina-seedance-2-0-260128',
         titleForShot: () => 'Shot 1',
@@ -58,5 +60,21 @@ describe('storyboard generation review gate', () => {
         const value = draft('回来吧');
         value.characters[0].assetId = undefined;
         expect(queue(value)).toEqual([]);
+    });
+
+    it('blocks a known revoked binding without discarding an older unlisted binding', () => {
+        const asset: ProjectAsset = {
+            id: 'image-1',
+            projectId: 'project-1',
+            name: '林夏',
+            kind: 'image',
+            status: 'revoked',
+            sourceType: 'upload',
+            providerAssetId: 'asset-character-1',
+            createdAt: 1,
+            updatedAt: 1
+        };
+        expect(queue(draft('回来吧'), [asset])).toEqual([]);
+        expect(queue(draft('回来吧'), [])).toHaveLength(1);
     });
 });

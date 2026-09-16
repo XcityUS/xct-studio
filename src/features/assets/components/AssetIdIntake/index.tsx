@@ -107,7 +107,7 @@ export function AssetIdIntake({ onAttachAssetId }: AssetIdIntakeProps) {
     return (
         <details className={styles.root}>
             <summary className={styles.summary}>
-                <span id='asset-id-intake-title'>{t('Import existing approved asset')}</span>
+                <span id='asset-id-intake-title'>{t('Advanced<colon> import an approved asset')}</span>
                 <ChevronDown aria-hidden='true' />
             </summary>
             <div className={styles.content} aria-labelledby='asset-id-intake-title'>

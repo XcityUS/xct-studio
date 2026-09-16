@@ -704,7 +704,6 @@ export function AssetsPanel({
             <CardContent className='flex-grow overflow-y-auto p-4'>
                 {error && <p className='mb-3 text-sm text-red-400'>{error}</p>}
                 {providerAssetsError && <ProviderErrorNotice error={providerAssetsError} />}
-                <AssetIdIntake onAttachAssetId={onAttachAssetId} />
                 {characters.length > 0 && (
                     <div className='mb-4 space-y-2 border-b border-white/10 pb-4'>
                         <h3 className='text-xs font-medium text-white/50'>{t('Saved character shortcuts')}</h3>
@@ -869,10 +868,9 @@ export function AssetsPanel({
                                                 <div className='flex min-w-0 items-center gap-1.5 text-xs text-white/70'>
                                                     <ShieldCheck className='h-3.5 w-3.5 shrink-0 text-emerald-300' />
                                                     <span className='truncate'>
-                                                        {t('Group <lcur>id<rcur>', { id: shortAssetId(group.id) })}
+                                                        {group.name || t('Verified people')}
                                                     </span>
                                                 </div>
-                                                <span className='text-[10px] text-white/35'>{group.name}</span>
                                             </div>
                                             <div className='grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(8rem,12rem)_auto]'>
                                                 <AssetImageDropdown
@@ -1052,6 +1050,7 @@ export function AssetsPanel({
                     onUseImage={onUseAsReference}
                     onUseVideo={onUseAsReferenceVideo}
                 />
+                <AssetIdIntake onAttachAssetId={onAttachAssetId} />
 
                 {/* Legacy internal authorization UI is intentionally disabled; provider review happens inline. */}
                 {/*

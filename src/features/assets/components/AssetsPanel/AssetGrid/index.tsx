@@ -6,7 +6,6 @@ import type { AssetListItem, AssetReviewState } from '../asset-list';
 import { formatBytes, formatDate } from '../utils';
 import { AssetPreview } from './AssetPreview';
 import { AssetPreviewDialog } from './AssetPreviewDialog';
-import { CopyAssetButton } from './CopyAssetButton';
 import styles from './index.module.scss';
 import type { ReferenceUseOptions } from '@/features/assets/components/AssetsPanel/types';
 import type { ProviderAssetReviewInput } from '@/features/assets/hooks/use-provider-asset-review';
@@ -122,7 +121,7 @@ export function AssetGrid({
                     const deleteLabel =
                         item.source === 'provider' ? t('Remove from this workspace') : t('Delete from cloud storage');
                     return (
-                        <article key={asset.key} className={styles.card} title={asset.key}>
+                        <article key={asset.key} className={styles.card} title={asset.name || undefined}>
                             <div className={styles.preview}>
                                 {isReferenceMedia ? (
                                     <button
@@ -195,11 +194,6 @@ export function AssetGrid({
                                                 </span>
                                             </button>
                                         )}
-                                        <CopyAssetButton
-                                            item={item}
-                                            className={styles.action}
-                                            labelClassName={styles.actionLabel}
-                                        />
                                         {canSubmitForAssetId && (
                                             <button
                                                 type='button'
@@ -253,13 +247,6 @@ export function AssetGrid({
                                             )}
                                         </span>
                                     </button>
-                                )}
-                                {asset.kind !== 'image' && (
-                                    <CopyAssetButton
-                                        item={item}
-                                        className={styles.action}
-                                        labelClassName={styles.actionLabel}
-                                    />
                                 )}
                                 {asset.kind !== 'image' && asset.url && (
                                     <CopyUrlButton

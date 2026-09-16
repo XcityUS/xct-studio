@@ -185,11 +185,11 @@
     gap: 10px;
     min-width: 0;
     min-height: 72px;
-    padding: 8px 40px 8px 8px;
+    padding: 8px;
     border: 1px solid var(--studio-border);
     border-radius: 8px;
     background: var(--studio-surface);
-    box-shadow: 0 1px 0 rgb(255 255 255 / 0.04) inset;
+    box-shadow: 0 1px 0 color-mix(in srgb, var(--studio-foreground) 4%, transparent) inset;
     transition:
         border-color 160ms ease,
         background-color 160ms ease,
@@ -200,51 +200,8 @@
     border-color: var(--studio-border-strong);
     background: var(--studio-hover);
     box-shadow:
-        0 1px 0 rgb(255 255 255 / 0.06) inset,
-        0 8px 24px rgb(0 0 0 / 0.08);
-}
-
-.copyButton {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    border: 1px solid var(--studio-border);
-    border-radius: 6px;
-    background: var(--studio-surface-soft);
-    color: var(--studio-muted);
-    padding: 0;
-    cursor: pointer;
-    transition:
-        border-color 160ms ease,
-        background-color 160ms ease,
-        color 160ms ease,
-        transform 160ms ease;
-}
-
-.copyButton:hover {
-    border-color: var(--studio-border-strong);
-    background: var(--studio-surface);
-    color: var(--studio-foreground);
-    transform: translateY(-1px);
-}
-
-.copyButton:focus-visible {
-    outline: 2px solid var(--studio-border-strong);
-    outline-offset: 2px;
-}
-
-.copyLabel {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
+        0 1px 0 color-mix(in srgb, var(--studio-foreground) 6%, transparent) inset,
+        var(--studio-raised-shadow);
 }
 
 .assetPreview {
@@ -256,16 +213,6 @@
 .assetMeta {
     justify-content: center;
     gap: 5px;
-}
-
-.assetMeta code {
-    overflow: hidden;
-    color: var(--studio-muted);
-    font-family: inherit;
-    font-size: 10px;
-    line-height: 1.2;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 .assetMeta span[data-status='Active'] {

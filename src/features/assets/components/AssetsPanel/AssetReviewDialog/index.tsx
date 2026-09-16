@@ -4,9 +4,8 @@ import styles from './index.module.scss';
 import { Button } from '@/components/ui/Button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/Dialog';
 import { Dropdown } from '@/components/ui/Dropdown';
-import { Input } from '@/components/ui/Input';
-import type { ProviderAssetReviewInput } from '@/features/assets/hooks/use-provider-asset-review';
-import { normalizeProviderAssetName, PROVIDER_ASSET_NAME_MAX_LENGTH } from '@/features/assets/portrait/name';
+import { ReviewImageError, type ProviderAssetReviewInput } from '@/features/assets/hooks/use-provider-asset-review';
+import { normalizeProviderAssetName } from '@/features/assets/portrait/name';
 import type { InlineReviewOrigin } from '@/features/assets/reference/origin';
 import type { UserAsset } from '@/lib/media-archive';
 import { Loader2, ShieldCheck } from 'lucide-react';
@@ -34,8 +33,9 @@ function defaultAssetName(asset: UserAsset): string {
 
 export function AssetReviewDialog({ asset, initialOrigin, onOpenChange, onSubmit }: AssetReviewDialogProps) {
     const t = useTranslations();
-    const [origin, setOrigin] = React.useState<InlineReviewOrigin>(initialOrigin ?? 'no-person');
-    const [name, setName] = React.useState(() => defaultAssetName(asset));
+    const [origin, setOrigin] = React.useState<InlineReviewOrigin | ''>(
+        initialOrigin && REVIEW_ORIGINS.includes(initialOrigin) ? initialOrigin : ''
+    );
     const [error, setError] = React.useState<string | null>(null);
     const [submitting, setSubmitting] = React.useState(false);
 
@@ -52,25 +52,30 @@ export function AssetReviewDialog({ asset, initialOrigin, onOpenChange, onSubmit
             <DialogContent className={styles.content}>
                 <DialogHeader>
                     <DialogTitle>{t('Submit for review')}</DialogTitle>
-                    <DialogDescription>{t('Only an active Asset ID can be used as a reference')}</DialogDescription>
+                    <DialogDescription>
+                        {t('Choose the content type<dot> Studio will handle review and linking')}
+                    </DialogDescription>
                 </DialogHeader>
                 <form
                     className={styles.form}
                     onSubmit={async (event) => {
                         event.preventDefault();
+                        if (!origin) return;
                         setSubmitting(true);
                         setError(null);
                         try {
                             await onSubmit({
                                 url: asset.url,
-                                name: normalizeProviderAssetName(name),
+                                name: defaultAssetName(asset),
                                 origin,
                                 assetType: asset.kind === 'video' ? 'Video' : 'Image'
                             });
                             onOpenChange(false);
                         } catch (submitError) {
                             setError(
-                                submitError instanceof Error ? submitError.message : t('Review submission failed')
+                                submitError instanceof ReviewImageError
+                                    ? submitError.message
+                                    : t('Review submission failed')
                             );
                         } finally {
                             setSubmitting(false);
@@ -82,17 +87,9 @@ export function AssetReviewDialog({ asset, initialOrigin, onOpenChange, onSubmit
                             value={origin}
                             options={originOptions}
                             onValueChange={(value) => setOrigin(value as InlineReviewOrigin)}
+                            placeholder={t('Choose material source')}
                             triggerClassName={styles.select}
                             ariaLabel={t('Material source')}
-                        />
-                    </label>
-                    <label className={styles.field}>
-                        <span className={styles.label}>{t('Asset name')}</span>
-                        <Input
-                            value={name}
-                            maxLength={PROVIDER_ASSET_NAME_MAX_LENGTH}
-                            onChange={(event) => setName(event.target.value)}
-                            required
                         />
                     </label>
                     {(origin === 'public-figure' || origin === 'licensed-ip') && (
@@ -108,7 +105,7 @@ export function AssetReviewDialog({ asset, initialOrigin, onOpenChange, onSubmit
                         <Button type='button' variant='outline' onClick={() => onOpenChange(false)}>
                             {t('Cancel')}
                         </Button>
-                        <Button type='submit' disabled={submitting || !name.trim()}>
+                        <Button type='submit' disabled={submitting || !origin}>
                             {submitting ? <Loader2 size={15} className={styles.spinner} /> : <ShieldCheck size={15} />}
                             {submitting ? t('Waiting for review') : t('Submit for review')}
                         </Button>

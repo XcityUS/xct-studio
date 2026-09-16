@@ -21,6 +21,8 @@ export type ProviderAssetReviewInput = {
     assetType?: PortraitAssetType;
 };
 
+export class ReviewImageError extends Error {}
+
 type ProviderAssetReviewOptions = {
     enabled: boolean;
     declarations: Record<string, ReferenceDeclaration>;
@@ -103,7 +105,7 @@ async function createTarget(
 ): Promise<ReviewTarget> {
     if ((input.assetType ?? 'Image') === 'Image') {
         const validation = await validateAssetImage(input.url);
-        if (validation.status === 'rejected') throw new Error(validation.message);
+        if (validation.status === 'rejected') throw new ReviewImageError(validation.message);
     }
     const groupName = input.groupName?.trim() || (input.origin === 'no-person' ? 'Reviewed materials' : input.name);
     const groupId = existing?.groupId || (await options.createGroup(groupName)).groupId;

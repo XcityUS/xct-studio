@@ -135,7 +135,7 @@ export function buildAssetList(
                     bytes: null,
                     uploaded: provider.createdAt || provider.updatedAt || null,
                     kind: provider.assetType === 'Video' ? 'video' : provider.assetType === 'Audio' ? 'audio' : 'image',
-                    name: provider.name || provider.assetId
+                    name: provider.name || 'Reviewed material'
                 },
                 portrait,
                 providerAsset: provider,

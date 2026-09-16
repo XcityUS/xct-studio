@@ -1,7 +1,6 @@
 'use client';
 
 import { AssetImageDropdown } from '../AssetImageDropdown';
-import { CopyUrlButton } from '../CopyUrlButton';
 import styles from './index.module.scss';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -119,7 +118,7 @@ export function CharacterGroupBrowser({
             {selectedAssets.length > 0 ? (
                 <div className={styles.assetGrid}>
                     {selectedAssets.map((asset) => (
-                        <article className={styles.assetCard} key={asset.assetId} title={asset.assetId}>
+                        <article className={styles.assetCard} key={asset.assetId}>
                             <div className={styles.assetPreview}>
                                 {asset.previewUrl ? (
                                     // eslint-disable-next-line @next/next/no-img-element -- provider preview URL
@@ -129,8 +128,7 @@ export function CharacterGroupBrowser({
                                 )}
                             </div>
                             <div className={styles.assetMeta}>
-                                <strong>{asset.name || asset.assetId}</strong>
-                                <code title={asset.assetId}>{asset.assetId}</code>
+                                <strong>{asset.name || t('Image')}</strong>
                                 <span data-status={asset.status}>
                                     {asset.status === 'Active'
                                         ? t('Reviewed')
@@ -139,12 +137,6 @@ export function CharacterGroupBrowser({
                                           : t('Under review')}
                                 </span>
                             </div>
-                            <CopyUrlButton
-                                url={asset.assetId}
-                                title={t('Copy asset ID')}
-                                className={styles.copyButton}
-                                labelClassName={styles.copyLabel}
-                            />
                         </article>
                     ))}
                 </div>

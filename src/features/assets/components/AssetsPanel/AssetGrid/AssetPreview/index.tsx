@@ -8,7 +8,7 @@ import * as React from 'react';
 
 export function AssetPreview({ item }: { item: AssetListItem }) {
     const t = useTranslations();
-    const { asset, providerAsset } = item;
+    const { asset } = item;
     const [failed, setFailed] = React.useState(false);
 
     if (!asset.url || failed) {
@@ -16,7 +16,6 @@ export function AssetPreview({ item }: { item: AssetListItem }) {
             <div className={styles.unavailable}>
                 <Library aria-hidden='true' />
                 <span>{t('Preview unavailable')}</span>
-                {providerAsset?.assetId && <code>{providerAsset.assetId}</code>}
             </div>
         );
     }

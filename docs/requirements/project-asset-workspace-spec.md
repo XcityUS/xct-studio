@@ -182,7 +182,12 @@ Project / IP default
 - When the verification callback succeeds, Studio must detect it automatically, refresh the verified-person group, and allow the user to upload that person's photo without a manual page refresh.
 - Uploading a photo from a verified-person group stores the image and submits it for review as one UI action. The user must not have to copy a URL or Asset ID between screens.
 - Manual Asset ID entry is an advanced import path for an already-approved asset. It must not be the default workflow and must not be offered as a way to bypass real-person verification.
+- The asset review dialog asks the user to classify the material and derives its review name from the uploaded file; it does not ask for a provider-facing ID or another name field. The advanced ID import appears after the asset library, not before the normal review actions.
+- Storyboard character and scene bindings select active assets from the current Project. A previously bound reference missing from the current project list remains visible but cannot be newly selected from another Project; the ordinary binding path has no pasted-ID text field.
+- A known revoked, failed, archived, or still-reviewing bound asset cannot enter the storyboard generation queue; older bindings absent from the Project inventory are preserved rather than silently discarded. Ordinary asset cards and verified-person groups do not display or copy provider IDs.
 - Provider product names, provider consoles, KYC tiers, and provider catalog instructions are implementation details and are not exposed in the standard asset workflow.
+- The unused official-provider catalog and source-switcher presentation is removed rather than kept as a dormant path back to a provider console. Existing approved references remain usable through the ordinary asset list or the collapsed advanced import.
+- Asset inventory and review-submission errors show product-level retry guidance rather than passing through raw provider error text. Rate limits and local image-format validation retain their specific safe messages.
 - User-facing model labels and compatibility messages use Xcity product names or capability-based wording; upstream model-family and provider names remain internal implementation details.
 - General review guidance stays behind contextual help. The default asset view prioritizes upload, selection, review status, and use in the current Project.
 

@@ -138,19 +138,12 @@
 }
 
 .sectionTitle span,
-.bound,
-.unbound,
 .shotMeta span {
     border: 1px solid var(--studio-border);
     border-radius: 999px;
     padding: 0.18rem 0.5rem;
     color: var(--studio-muted);
     font-size: 0.7rem;
-}
-
-.bound {
-    border-color: color-mix(in srgb, var(--studio-success) 45%, var(--studio-border));
-    color: var(--studio-success);
 }
 
 .stack,
@@ -195,72 +188,6 @@
     -webkit-line-clamp: 1;
 }
 
-.assetControls { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 0.38rem; min-width: 0; }
-
-.assetControls > .bound,
-.assetControls > .unbound { display: inline-flex; align-items: center; justify-content: center; padding: 0.16rem 0.42rem; white-space: nowrap; }
-
-.copyAssetButton {
-    display: inline-flex;
-    align-items: center;
-    justify-content: flex-start;
-    gap: 0.25rem;
-    min-width: 0;
-    max-width: 4.75rem;
-    overflow: hidden;
-    border: 0;
-    background: transparent;
-    padding: 0;
-    color: var(--studio-muted);
-    cursor: copy;
-}
-
-.copyAssetButton code {
-    display: block;
-    overflow: hidden;
-    color: var(--studio-muted);
-    font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    font-size: 0.68rem;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.assetControls input {
-    width: 100%;
-    min-width: 0;
-    border: 1px solid var(--studio-border);
-    border-radius: 0.55rem;
-    background: var(--studio-surface);
-    padding: 0.44rem 0.6rem;
-    color: var(--studio-foreground);
-    font: inherit;
-    font-size: 0.74rem;
-}
-
-.assetControls input::placeholder {
-    color: color-mix(in srgb, var(--studio-muted) 72%, transparent);
-}
-
-.assetControls > button:last-child {
-    border: 1px solid var(--studio-foreground);
-    border-radius: 0.55rem;
-    background: var(--studio-foreground);
-    min-height: 1.92rem;
-    padding: 0 0.52rem;
-    color: var(--studio-background);
-    font: inherit;
-    font-size: 0.7rem;
-    cursor: pointer;
-    white-space: nowrap;
-}
-
-.assetUpdateContent { gap: 1rem; border-color: var(--studio-border); background: var(--studio-background); color: var(--studio-foreground); }
-.assetUpdateForm { display: grid; gap: 0.8rem; }
-.assetUpdateForm label { display: grid; gap: 0.35rem; color: var(--studio-muted); font-size: 0.78rem; }
-.assetUpdateForm input { border: 1px solid var(--studio-border); border-radius: 0.65rem; background: var(--studio-surface); padding: 0.65rem 0.75rem; color: var(--studio-foreground); font: inherit; }
-.assetUpdateActions { display: flex; justify-content: flex-end; gap: 0.5rem; }
-.assetUpdateActions button { min-height: 2.2rem; border: 1px solid var(--studio-border); border-radius: 0.6rem; background: var(--studio-surface); padding: 0 0.9rem; color: var(--studio-foreground); font: inherit; cursor: pointer; }
-.assetUpdateActions button:last-child { border-color: var(--studio-foreground); background: var(--studio-foreground); color: var(--studio-background); }
 .shotMeta {
     flex-wrap: nowrap;
     justify-content: flex-start;
@@ -417,7 +344,6 @@
         grid-template-columns: 1fr;
         align-items: stretch;
     }
-    .assetControls { grid-template-columns: auto minmax(0, 1fr) auto; }
 }
 
 @keyframes storyboard-spin { to { transform: rotate(360deg); } }

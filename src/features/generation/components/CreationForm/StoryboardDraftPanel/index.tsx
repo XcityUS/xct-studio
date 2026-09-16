@@ -1,14 +1,14 @@
 'use client';
 
 import { compileShotPrompt } from '@/features/generation/components/CreationForm/shot-queue';
+import { AssetBindingPicker } from './AssetBindingPicker';
 import type { AssetBindingOptions, SceneAssetBindingProgress, ShotVideoPreview as ShotVideoPreviewItem } from '@/features/generation/components/CreationForm/types';
 import type { EditorDraft } from '@/features/script/components/ShotBuilderDialog/draft';
 import { inferShotCharacterIds } from '@/features/script/character-matching';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/Dialog';
 import { Dropdown } from '@/components/ui/Dropdown';
 import { requestExclusiveVideoPlayback, useExclusiveHtmlVideoPlayback } from '@/shared/media/exclusive-video-playback';
 import type { ProjectAsset } from '@/shared/contracts/production';
-import { Copy, Loader2, Wand2 } from 'lucide-react';
+import { Loader2, Wand2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import * as React from 'react';
 import styles from './index.module.scss';
@@ -35,10 +35,6 @@ type Props = {
     characterAssetBindingError?: string | null;
     characterAssetBindingProgress?: SceneAssetBindingProgress | null;
 };
-
-function shortAssetId(assetId: string) {
-    return assetId.length > 18 ? `${assetId.slice(0, 8)}…${assetId.slice(-6)}` : assetId;
-}
 
 function normalizeBoundAssetId(assetId: string | undefined) {
     const value = assetId?.trim() ?? '';
@@ -155,110 +151,9 @@ function EpisodeVideoPreview({ previews, shotCount }: { previews: ShotVideoPrevi
     );
 }
 
-function AssetIdBindingInput({
-    assetId,
-    ariaLabel,
-    onCommit,
-    onRegenerate,
-    isRegenerating = false
-}: {
-    assetId?: string;
-    ariaLabel: string;
-    onCommit: (assetId?: string) => void;
-    onRegenerate?: () => void | Promise<void>;
-    isRegenerating?: boolean;
-}) {
-    const t = useTranslations();
-    const [value, setValue] = React.useState('');
-    const [editingValue, setEditingValue] = React.useState('');
-    const [editingOpen, setEditingOpen] = React.useState(false);
-    const normalized = normalizeBoundAssetId(value);
-    const normalizedEditingValue = normalizeBoundAssetId(editingValue);
-    const handleCopyAssetId = async () => {
-        if (!assetId) return;
-        await navigator.clipboard.writeText(assetId);
-    };
-    const handleUpdateAssetId = () => {
-        if (!assetId) return;
-        setEditingValue(assetId);
-        setEditingOpen(true);
-    };
-    const handleConfirmUpdate = () => {
-        if (!normalizedEditingValue) return;
-        onCommit(normalizedEditingValue);
-        setEditingOpen(false);
-    };
-    if (assetId) {
-        return (
-            <>
-                <div className={styles.assetControls} data-bound='true' onClick={(event) => event.stopPropagation()}>
-                    <span className={styles.bound}>{t('Bound')}</span>
-                    <button type='button' className={styles.copyAssetButton} title={assetId} aria-label={t('Copy')} onClick={handleCopyAssetId}>
-                        <code>{shortAssetId(assetId)}</code>
-                        <Copy aria-hidden='true' size={13} />
-                    </button>
-                    <button type='button' disabled={isRegenerating} onClick={onRegenerate ?? handleUpdateAssetId}>
-                        {isRegenerating ? t('Regenerating') : t('Update')}
-                    </button>
-                </div>
-                <Dialog open={editingOpen} onOpenChange={setEditingOpen}>
-                    <DialogContent className={styles.assetUpdateContent}>
-                        <DialogHeader>
-                            <DialogTitle>{t('Update')} {t('Asset ID')}</DialogTitle>
-                            <DialogDescription>{t('Paste asset ID from My assets')}</DialogDescription>
-                        </DialogHeader>
-                        <div
-                            className={styles.assetUpdateForm}
-                            onClick={(event) => event.stopPropagation()}>
-                            <label>
-                                <span>{t('Asset ID')}</span>
-                                <input
-                                    autoFocus
-                                    value={editingValue}
-                                    onChange={(event) => setEditingValue(event.currentTarget.value)}
-                                    onKeyDown={(event) => {
-                                        if (event.key !== 'Enter') return;
-                                        event.preventDefault();
-                                        event.stopPropagation();
-                                        handleConfirmUpdate();
-                                    }}
-                                />
-                            </label>
-                            <div className={styles.assetUpdateActions}>
-                                <button type='button' onClick={() => setEditingOpen(false)}>{t('Cancel')}</button>
-                                <button type='button' disabled={!normalizedEditingValue} onClick={handleConfirmUpdate}>{t('Confirm')}</button>
-                            </div>
-                        </div>
-                    </DialogContent>
-                </Dialog>
-            </>
-        );
-    }
-    return (
-        <div className={styles.assetControls} data-bound='false' onClick={(event) => event.stopPropagation()}>
-            <span className={styles.unbound}>{t('Not bound')}</span>
-            <input
-                aria-label={ariaLabel}
-                value={value}
-                placeholder={t('Paste asset ID from My assets')}
-                onChange={(event) => setValue(event.currentTarget.value)}
-                onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        onCommit(normalized);
-                    }
-                }}
-            />
-            <button type='button' onClick={() => onCommit(normalized)}>
-                {t('Bind')}
-            </button>
-        </div>
-    );
-}
-
 export function StoryboardDraftPanel({
     draft,
+    assets,
     onOpenAssets,
     onDraftChange,
     onGenerateShot,
@@ -399,9 +294,10 @@ export function StoryboardDraftPanel({
                                             {character.description || t('No description')}
                                         </p>
                                     </div>
-                                    <AssetIdBindingInput
+                                    <AssetBindingPicker
                                         key={`${character.id}:${character.assetId ?? ''}`}
                                         assetId={character.assetId}
+                                        assets={assets}
                                         ariaLabel={t('Bind character asset')}
                                         onCommit={(assetId) => updateCharacterAsset(character.id, assetId)}
                                         onRegenerate={() => onAutoBindCharacterAssets?.({ targetId: character.id, forceGenerate: true })}
@@ -454,9 +350,10 @@ export function StoryboardDraftPanel({
                                         <strong title={scene.name}>{scene.name}</strong>
                                         <p title={scene.description || t('No description')}>{scene.description || t('No description')}</p>
                                     </div>
-                                    <AssetIdBindingInput
+                                    <AssetBindingPicker
                                         key={`${scene.id}:${scene.assetId ?? ''}`}
                                         assetId={scene.assetId}
+                                        assets={assets}
                                         ariaLabel={t('Bind scene reference')}
                                         onCommit={(assetId) => updateSceneAsset(scene.id, assetId)}
                                         onRegenerate={() => onAutoBindSceneAssets?.({ targetId: scene.id, forceGenerate: true })}
