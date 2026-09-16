@@ -3,6 +3,7 @@
 import type { AssetListItem } from '../../asset-list';
 import styles from './index.module.scss';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/Dialog';
+import { VideoPlayer } from '@/components/ui/VideoPlayer';
 import { AlertCircle } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import * as React from 'react';
@@ -45,20 +46,16 @@ export function AssetPreviewDialog({ item, onOpenChange }: AssetPreviewDialogPro
                         </div>
                     ) : asset.kind === 'image' ? (
                         // eslint-disable-next-line @next/next/no-img-element -- provider/cloud media URL
-                        <img
-                            src={asset.url}
-                            alt={fileName}
-                            className={styles.media}
-                            onError={() => setFailed(true)}
-                        />
+                        <img src={asset.url} alt={fileName} className={styles.media} onError={() => setFailed(true)} />
                     ) : (
-                        <video
+                        <VideoPlayer
                             src={asset.url}
-                            className={styles.media}
-                            controls
+                            instanceKey={asset.key}
+                            className={styles.videoPlayer}
+                            title={fileName}
                             autoPlay
-                            playsInline
-                            onError={() => setFailed(true)}
+                            preload='auto'
+                            onSourceError={() => setFailed(true)}
                         />
                     )}
                 </div>
