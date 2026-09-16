@@ -20,12 +20,15 @@ export function renderScriptCaptions(film: Blob, options: ScriptOptions) {
     return { film, track: createScriptCaptionTrack(options) };
 }
 
-export function createScriptCaptionTrack(options: ScriptOptions): CaptionTrack {
+export function createScriptCaptionTrack(
+    options: ScriptOptions,
+    delivery: CaptionTrack['delivery'] = 'player'
+): CaptionTrack {
     const timing = timeScriptCaptions(options.prompt, options.mode, options.voiceLanguage, options.durationSeconds);
     const warning = timing.cues.length ? undefined : 'No dialogue lines were found in the source script.';
     return {
         mode: options.mode,
-        delivery: 'player',
+        delivery,
         status: warning ? 'failed' : 'completed',
         source: 'script-timed',
         ...timing,
@@ -34,8 +37,7 @@ export function createScriptCaptionTrack(options: ScriptOptions): CaptionTrack {
 }
 
 export async function renderScriptBurnedCaptions(film: Blob, options: ScriptOptions) {
-    const scriptTrack = createScriptCaptionTrack(options);
-    const track: CaptionTrack = { ...scriptTrack, delivery: 'burned' };
+    const track = createScriptCaptionTrack(options, 'burned');
     if (track.status !== 'completed') return { film, track };
 
     try {

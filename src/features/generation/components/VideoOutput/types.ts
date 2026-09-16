@@ -15,6 +15,8 @@ export type VideoOutputProps = {
     onShare?: (item: VideoMetadata) => void;
     shareItem?: VideoMetadata;
     isSharePending?: boolean;
+    onSyncCaptions?: (videoId: string) => void;
+    isCaptionSyncPending?: boolean;
     /** The gateway has no playable link for this completed job (yet). */
     previewUnavailable?: boolean;
     /** A completed job is still being probed for a playable source. */

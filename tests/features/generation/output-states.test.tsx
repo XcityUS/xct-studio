@@ -268,4 +268,38 @@ describe('completed output controls', () => {
         expect(html).toContain('字幕视频');
         expect(html).toContain('data:text/plain;charset=utf-8');
     });
+
+    it('offers cloud timing sync only for legacy script-timed player captions', () => {
+        const legacy = makeShareItem({
+            status: 'completed',
+            storedUrl: '/fixture.mp4',
+            createParams: {
+                model: 'seedance-1-5-pro-251215',
+                ratio: '16:9',
+                resolution: '480p',
+                seconds: 5,
+                prompt: 'Sister: Hello!\n妹妹：你好！',
+                caption_mode: 'auto-bilingual-en-zh',
+                voice_language: 'en-US',
+                generate_audio: true
+            },
+            captionTrack: {
+                mode: 'bilingual-en-zh',
+                delivery: 'player',
+                status: 'completed',
+                source: 'script-timed',
+                cues: [],
+                expectedDialogueCount: 1,
+                matchedDialogueCount: 1,
+                transcriptSegmentCount: 0
+            }
+        });
+        const html = render(
+            { job: makeJob(), videoSrc: '/fixture.mp4', shareItem: legacy, onSyncCaptions: vi.fn() },
+            'zh'
+        );
+
+        expect(html).toContain('>同步字幕<');
+        expect(html).toContain('按生成音频对齐字幕并将时轴保存到云端');
+    });
 });

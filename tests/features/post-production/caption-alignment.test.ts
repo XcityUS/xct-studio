@@ -2,8 +2,6 @@ import {
     alignDialogueCaptions,
     captionCuesToSrt,
     extractDialogueBeats,
-    MAX_CHINESE_CAPTION_CUE_LENGTH,
-    MAX_ENGLISH_CAPTION_CUE_LENGTH,
     timeScriptCaptions
 } from '@/features/post-production/captions/alignment';
 import { describe, expect, it } from 'vitest';
@@ -111,8 +109,6 @@ describe('ordinary-video caption alignment', () => {
         expect(aligned.cues[0].startMs).toBe(1200);
         expect(aligned.cues.at(-1)?.endMs).toBe(9400);
         expect(aligned.cues.every((cue) => cue.english && cue.chinese)).toBe(true);
-        expect(aligned.cues.every((cue) => (cue.english?.length ?? 0) <= MAX_ENGLISH_CAPTION_CUE_LENGTH)).toBe(true);
-        expect(aligned.cues.every((cue) => (cue.chinese?.length ?? 0) <= MAX_CHINESE_CAPTION_CUE_LENGTH)).toBe(true);
 
         const srt = captionCuesToSrt(aligned.cues);
         expect(srt).toContain('00:00:01,200 -->');
@@ -138,6 +134,33 @@ describe('ordinary-video caption alignment', () => {
         expect(aligned.matchedDialogueCount).toBe(1);
         expect(aligned.cues[0].startMs).toBe(19_760);
         expect(aligned.cues.at(-1)?.endMs).toBe(25_620);
+    });
+
+    it('matches long dialogue against word-level timestamps without cutting its beginning', () => {
+        const prompt = `Tina: Excuse me. Do you mind if I ask some things about work for this company?\n蒂娜：打扰一下。您介意我问一些有关这个公司的工作吗？`;
+        const words = [
+            'Excuse',
+            'me',
+            'Do',
+            'you',
+            'mind',
+            'if',
+            'I',
+            'ask',
+            'some',
+            'things',
+            'about',
+            'work',
+            'for',
+            'this',
+            'company'
+        ].map((text, index) => ({ start: 0.6 + index * 0.16, end: 0.74 + index * 0.16, text }));
+
+        const aligned = alignDialogueCaptions(prompt, words, 'bilingual-en-zh', 'en-US');
+
+        expect(aligned.matchedDialogueCount).toBe(1);
+        expect(aligned.cues[0].startMs).toBe(600);
+        expect(aligned.cues.at(-1)?.endMs).toBeCloseTo(2_980, -1);
     });
 
     it('times bilingual player subtitles from the script when transcription is unavailable', () => {
@@ -170,7 +193,7 @@ describe('ordinary-video caption alignment', () => {
         });
     });
 
-    it('splits long bilingual dialogue at matching sentence boundaries', () => {
+    it('keeps a complete long dialogue in one player subtitle cue', () => {
         const timed = timeScriptCaptions(
             `Receptionist: Yes. That's true. We are always busy. The company attaches great importance to high efficiency. Sometimes we have to work overtime, but not always. And we have extra pay for extra work.\n接待员：是的。确实是这样。我们总是很忙。公司非常讲究高效率。有时我们得加班，但并不总是这样。而且加班的时候有加班费。`,
             'bilingual-en-zh',
@@ -178,14 +201,9 @@ describe('ordinary-video caption alignment', () => {
             12
         );
 
-        expect(timed.cues).toHaveLength(2);
-        expect(timed.cues[0].english).toMatch(/high efficiency\.$/);
-        expect(timed.cues[0].chinese).toMatch(/高效率。$/);
-        expect(timed.cues[1].english).toMatch(/^Sometimes/);
-        expect(timed.cues[1].chinese).toMatch(/^有时/);
-        expect(timed.cues[1].endMs - timed.cues[1].startMs).toBeGreaterThan(
-            timed.cues[0].endMs - timed.cues[0].startMs
-        );
+        expect(timed.cues).toHaveLength(1);
+        expect(timed.cues[0].english).toMatch(/^Yes\..*extra work\.$/);
+        expect(timed.cues[0].chinese).toMatch(/^是的。.*加班费。$/);
     });
 
     it('estimates dialogue timing from spoken words and punctuation pauses', () => {

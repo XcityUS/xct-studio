@@ -70,11 +70,20 @@ async function renderCaption(width: number, height: number, sourceLines: string[
     canvas.height = height;
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Could not create caption canvas.');
-    const fontSize = Math.max(18, Math.round(Math.min(width, height) * 0.046));
-    const lineHeight = Math.round(fontSize * 1.28);
-    ctx.font = `600 ${fontSize}px Arial, "PingFang SC", "Microsoft YaHei", sans-serif`;
-    const lines = sourceLines.flatMap((line) => wrapLine(ctx, line, width * 0.84)).slice(0, 4);
-    const firstY = height * 0.84 - (lines.length - 1) * lineHeight;
+    const preferredFontSize = Math.max(18, Math.round(Math.min(width, height) * 0.046));
+    const minimumFontSize = Math.max(11, Math.round(Math.min(width, height) * 0.022));
+    const availableHeight = height * 0.68;
+    let fontSize = preferredFontSize;
+    let lineHeight = Math.round(fontSize * 1.28);
+    let lines: string[] = [];
+    do {
+        ctx.font = `600 ${fontSize}px Arial, "PingFang SC", "Microsoft YaHei", sans-serif`;
+        lineHeight = Math.round(fontSize * 1.28);
+        lines = sourceLines.flatMap((line) => wrapLine(ctx, line, width * 0.84));
+        if (lines.length * lineHeight <= availableHeight || fontSize <= minimumFontSize) break;
+        fontSize = Math.max(minimumFontSize, fontSize - 2);
+    } while (fontSize >= minimumFontSize);
+    const firstY = Math.max(lineHeight / 2, height * 0.88 - (lines.length - 1) * lineHeight);
     const tokens = getComputedStyle(document.documentElement);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';

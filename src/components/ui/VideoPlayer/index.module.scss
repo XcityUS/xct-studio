@@ -5,6 +5,11 @@
 }
 
 .player :global(.art-subtitle) {
+    box-sizing: border-box;
+    max-width: 92%;
+    padding-inline: 12px;
+    white-space: pre-line;
+    overflow-wrap: anywhere;
     color: var(--studio-media-foreground);
     font-size: 18px;
     line-height: 1.35;

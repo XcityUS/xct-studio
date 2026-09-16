@@ -36,6 +36,7 @@ export async function transcribeVideo(
     body.append('model', model);
     body.append('response_format', 'verbose_json');
     body.append('timestamp_granularities[]', 'segment');
+    body.append('timestamp_granularities[]', 'word');
     const response = await fetch(transcriptionUrl(baseURL), {
         method: 'POST',
         headers: { Authorization: `Bearer ${apiKey}` },
@@ -44,6 +45,7 @@ export async function transcribeVideo(
     const payload = (await response.json().catch(() => ({}))) as {
         error?: { message?: unknown };
         segments?: CaptionSegment[];
+        words?: Array<{ start?: unknown; end?: unknown; word?: unknown; text?: unknown }>;
     };
     if (!response.ok) {
         const message = errorMessage(payload);
@@ -53,6 +55,23 @@ export async function transcribeVideo(
         }
         throw new Error(message);
     }
+    const timedWords = Array.isArray(payload.words)
+        ? payload.words.flatMap((value): CaptionSegment[] => {
+              if (!value || typeof value !== 'object') return [];
+              const start = Number(value.start);
+              const end = Number(value.end);
+              const text =
+                  typeof value.word === 'string'
+                      ? value.word.trim()
+                      : typeof value.text === 'string'
+                        ? value.text.trim()
+                        : '';
+              return text && Number.isFinite(start) && Number.isFinite(end) && end >= start
+                  ? [{ start, end, text }]
+                  : [];
+          })
+        : [];
+    if (timedWords.length > 0) return timedWords;
     if (!Array.isArray(payload.segments)) {
         throw new Error('Transcription response did not include segment timestamps.');
     }

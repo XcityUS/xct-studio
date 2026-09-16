@@ -19,6 +19,7 @@ import { autoBindSceneAssets } from './scene-asset-autobind';
 import { captionModeFromLanguages, shareParamsToForm, sharePromptWithinLimit, shareTitleFromItem } from './share';
 import { shotVideoPreviewsForProject } from './shot-video-previews';
 import type { ErrorScope, SocialShareTarget, StudioTab, WatermarkQueueItem } from './types';
+import { useCaptionSync } from './use-caption-sync';
 import {
     fileNameWithoutExtension,
     imageReferenceUrlsFromParams,
@@ -126,7 +127,6 @@ import { usePortraitSetupFlow } from '@/features/studio/hooks/use-portrait-setup
 import { useStudioTabRouting } from '@/features/studio/hooks/use-studio-tab-routing';
 import { studioVideoSharePath } from '@/features/studio/routing';
 import type { AppLocale } from '@/i18n/routing';
-import { transcribeVideo, type CaptionSegment } from '@/lib/captions';
 import {
     generateImages,
     loadImageModels,
@@ -154,7 +154,6 @@ import {
     mediaWorkerUrl,
     publishToCommunity,
     reviewCommunityItem,
-    transcribeModel,
     ttsModel,
     uploadReferenceAudio,
     uploadReferenceImage,
@@ -1191,23 +1190,6 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         [allowManualApiKey, invalidateKey, projectDraft.activeProject.sourceLanguage, resolveKey]
     );
 
-    const handleTranscribeVideo = React.useCallback(
-        async (blob: Blob): Promise<CaptionSegment[]> => {
-            const key = await resolveKey();
-            if (!key) {
-                throw new Error('Sign in at xcity.ai to generate captions.');
-            }
-
-            const model = await transcribeModel();
-            if (!model) {
-                throw new Error('Auto-captioning is not configured on this deployment.');
-            }
-
-            return transcribeVideo(blob, key, model, process.env.NEXT_PUBLIC_OPENAI_API_BASE_URL);
-        },
-        [resolveKey]
-    );
-
     const handleInvalidApiKey = React.useCallback(
         (message = 'Your Xcity session was rejected. Please sign in again.') => {
             invalidateKey();
@@ -1216,6 +1198,17 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         },
         [allowManualApiKey, invalidateKey, setError]
     );
+
+    const captionSync = useCaptionSync({
+        history,
+        getVideoSrc,
+        videoService,
+        resolveKey,
+        updateItem,
+        syncNow,
+        setOutputError: (message) => setError(message, 'output'),
+        onInvalidApiKey: handleInvalidApiKey
+    });
 
     const resolveArchivedPlayback = React.useCallback(
         async (videoId: string): Promise<boolean> => {
@@ -1336,7 +1329,9 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                 let watermarkedArchiveUrl: string | undefined;
                 let brandedBlob: Blob | null = null;
                 let processedBlob = blob;
-                const overlays = await renderTextOverlays(blob, historyItem?.createParams, historyItem?.prompt ?? '');
+                const overlays = await renderTextOverlays(blob, historyItem?.createParams, historyItem?.prompt ?? '', {
+                    transcribe: captionSync.transcribe
+                });
                 processedBlob = overlays.film;
                 if (overlays.titleWarning)
                     console.warn(`Could not add opening title to ${job.id}.`, overlays.titleWarning);
@@ -1475,6 +1470,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
             setRemoteSource,
             updateItem,
             handleInvalidApiKey,
+            captionSync.transcribe,
             markPreviewResolving,
             markPreviewUnresolved,
             resolveArchivedPlayback,
@@ -2431,7 +2427,8 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                 const promptWasShortened = sharePrompt.length !== reusablePrompt.trim().length;
                 const shareParams = {
                     ...buildParamsFromItem(item),
-                    prompt: sharePrompt
+                    prompt: sharePrompt,
+                    ...(item.captionTrack ? { caption_track: item.captionTrack } : {})
                 };
                 const share = await createShare(
                     {
@@ -3612,6 +3609,8 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                         onShare={handleShareItem}
                         shareItem={currentHistoryItem}
                         isSharePending={Boolean(currentHistoryItem && sharingVideoId === currentHistoryItem.id)}
+                        onSyncCaptions={captionSync.syncCaptions}
+                        isCaptionSyncPending={Boolean(currentJobId && captionSync.pendingIds.has(currentJobId))}
                         previewUnavailable={Boolean(currentJobId && unresolvedPreviewIds.has(currentJobId))}
                         isPreviewResolving={Boolean(currentJobId && resolvingPreviewIds.has(currentJobId))}
                         onRetryPreview={handleRetryPreview}
@@ -3649,7 +3648,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                         watermarkPendingIds={watermarkPendingIds}
                         watermarkActiveId={watermarkActiveId}
                         loadAudioAssets={handleLoadAssemblyAudioAssets}
-                        onTranscribeVideo={handleTranscribeVideo}
+                        onTranscribeVideo={captionSync.transcribe}
                     />
                 </div>
             )}

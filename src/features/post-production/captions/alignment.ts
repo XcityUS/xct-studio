@@ -2,9 +2,6 @@ import { cleanPromptForReuse, type VoiceLanguage } from '@/features/script/promp
 import type { CaptionSegment } from '@/lib/captions';
 import type { CaptionCue } from '@/shared/contracts/video';
 
-export const MAX_ENGLISH_CAPTION_CUE_LENGTH = 112;
-export const MAX_CHINESE_CAPTION_CUE_LENGTH = 48;
-
 type DialogueBeat = {
     english?: string;
     chinese?: string;
@@ -119,35 +116,6 @@ function similarity(left: string, right: string) {
     return (2 * overlap) / Math.max(1, leftPairs.size + rightPairs.size);
 }
 
-function sentenceParts(text: string, partCount: number) {
-    if (partCount <= 1) return [text];
-    const sentences = text.match(/[^.!?。！？]+[.!?。！？]+|[^.!?。！？]+$/g)?.map((value) => value.trim()) ?? [];
-    if (sentences.length < partCount) return undefined;
-
-    const parts: string[] = [];
-    let cursor = 0;
-    for (let partIndex = 0; partIndex < partCount; partIndex += 1) {
-        const remainingParts = partCount - partIndex;
-        if (remainingParts === 1) {
-            parts.push(sentences.slice(cursor).join(' '));
-            break;
-        }
-        const availableEnd = sentences.length - remainingParts + 1;
-        const remainingLength = sentences.slice(cursor).join(' ').length;
-        const targetLength = remainingLength / remainingParts;
-        let end = cursor + 1;
-        while (end < availableEnd) {
-            const currentLength = sentences.slice(cursor, end).join(' ').length;
-            const nextLength = sentences.slice(cursor, end + 1).join(' ').length;
-            if (Math.abs(currentLength - targetLength) <= Math.abs(nextLength - targetLength)) break;
-            end += 1;
-        }
-        parts.push(sentences.slice(cursor, end).join(' '));
-        cursor = end;
-    }
-    return parts;
-}
-
 function transcriptPieces(segments: readonly CaptionSegment[]): TimedText[] {
     return segments.flatMap((segment) => {
         const parts = segment.text
@@ -170,37 +138,6 @@ function transcriptPieces(segments: readonly CaptionSegment[]): TimedText[] {
     });
 }
 
-function splitText(text: string, maxLength: number, partCount: number) {
-    const semanticParts = sentenceParts(text, partCount);
-    if (semanticParts) return semanticParts;
-    const words = text.includes(' ') ? text.split(/\s+/) : Array.from(text);
-    const parts: string[] = [];
-    let current = '';
-    for (const word of words) {
-        const separator = text.includes(' ') && current ? ' ' : '';
-        if (current && current.length + separator.length + word.length > maxLength) {
-            parts.push(current);
-            current = word;
-        } else {
-            current += `${separator}${word}`;
-        }
-    }
-    if (current) parts.push(current);
-    while (parts.length < partCount) {
-        const index = parts.reduce(
-            (best, part, currentIndex) => (part.length > parts[best].length ? currentIndex : best),
-            0
-        );
-        const value = parts[index];
-        const splitAt = text.includes(' ')
-            ? value.lastIndexOf(' ', Math.ceil(value.length / 2))
-            : Math.ceil(value.length / 2);
-        if (splitAt <= 0) break;
-        parts.splice(index, 1, value.slice(0, splitAt).trim(), value.slice(splitAt).trim());
-    }
-    return parts;
-}
-
 function displayCues(
     beat: DialogueBeat,
     start: number,
@@ -210,31 +147,16 @@ function displayCues(
 ): CaptionCue[] {
     const english = mode !== 'zh-CN' ? beat.english : undefined;
     const chinese = mode !== 'en-US' ? beat.chinese : undefined;
-    const partCount = Math.max(
-        1,
-        english ? Math.ceil(english.length / MAX_ENGLISH_CAPTION_CUE_LENGTH) : 0,
-        chinese ? Math.ceil(chinese.length / MAX_CHINESE_CAPTION_CUE_LENGTH) : 0
-    );
-    const englishParts = english ? splitText(english, MAX_ENGLISH_CAPTION_CUE_LENGTH, partCount) : [];
-    const chineseParts = chinese ? splitText(chinese, MAX_CHINESE_CAPTION_CUE_LENGTH, partCount) : [];
-    const duration = Math.max(0, end - start);
-    const weights = Array.from({ length: partCount }, (_, index) =>
-        estimatedSpeechWeight(englishParts[index] ?? chineseParts[index] ?? '')
-    );
-    const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
-    let elapsed = start;
-    return Array.from({ length: partCount }, (_, index) => {
-        const cueEnd = index === partCount - 1 ? end : elapsed + duration * (weights[index] / totalWeight);
-        const cue = {
-            id: `${cuePrefix}_${index + 1}`,
-            startMs: Math.round(elapsed * 1000),
-            endMs: Math.round(cueEnd * 1000),
-            ...(englishParts[index] ? { english: englishParts[index] } : {}),
-            ...(chineseParts[index] ? { chinese: chineseParts[index] } : {})
-        };
-        elapsed = cueEnd;
-        return cue;
-    }).filter((cue) => cue.english || cue.chinese);
+    if (!english && !chinese) return [];
+    return [
+        {
+            id: `${cuePrefix}_1`,
+            startMs: Math.round(start * 1000),
+            endMs: Math.round(end * 1000),
+            ...(english ? { english } : {}),
+            ...(chinese ? { chinese } : {})
+        }
+    ];
 }
 
 export function alignDialogueCaptions(
@@ -254,12 +176,11 @@ export function alignDialogueCaptions(
     for (const beat of expected) {
         const target = normalizedSpeech(beat[spokenKey] ?? '');
         let best: { score: number; start: number; end: number } | undefined;
-        for (let start = cursor; start < Math.min(pieces.length, cursor + 4); start += 1) {
-            for (let count = 1; count <= 8 && start + count <= pieces.length; count += 1) {
-                const combined = pieces
-                    .slice(start, start + count)
-                    .map((piece) => piece.normalized)
-                    .join('');
+        for (let start = cursor; start < pieces.length; start += 1) {
+            let combined = '';
+            for (let count = 1; count <= 64 && start + count <= pieces.length; count += 1) {
+                combined += pieces[start + count - 1].normalized;
+                if (combined.length > Math.max(24, target.length * 1.65)) break;
                 const score = similarity(target, combined);
                 if (!best || score > best.score) best = { score, start, end: start + count };
             }

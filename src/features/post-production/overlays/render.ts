@@ -1,17 +1,23 @@
 import { burnTitleOverlayIntoVideo, type TitleOverlayOptions } from '../assembly/client';
-import { renderScriptBurnedCaptions, renderScriptCaptions } from '../captions/process';
+import { renderAlignedCaptions, renderScriptBurnedCaptions, renderScriptCaptions } from '../captions/process';
 import {
     captionDelivery,
     captionLanguage,
     normalizeTitleOverlayText,
     normalizeVoiceLanguage
 } from '@/features/script/prompt/guards';
+import type { CaptionSegment } from '@/lib/captions';
 import type { CaptionTrack, VideoJobCreate } from '@/shared/contracts/video';
+
+type RenderTextOverlayOptions = {
+    transcribe?: (film: Blob) => Promise<CaptionSegment[]>;
+};
 
 export async function renderTextOverlays(
     film: Blob,
     params: VideoJobCreate | undefined,
-    fallbackPrompt: string
+    fallbackPrompt: string,
+    options: RenderTextOverlayOptions = {}
 ) {
     let output = film;
     let titleApplied = false;
@@ -33,19 +39,35 @@ export async function renderTextOverlays(
             titleWarning = error instanceof Error ? error.message : 'Unknown title overlay error.';
         }
     }
-    if (selectedCaptionLanguage && selectedCaptionDelivery === 'player') {
+    const captionOptions = selectedCaptionLanguage
+        ? {
+              mode: selectedCaptionLanguage,
+              prompt: params?.caption_source_prompt ?? params?.prompt ?? fallbackPrompt,
+              voiceLanguage: normalizeVoiceLanguage(params?.voice_language)
+          }
+        : undefined;
+
+    if (captionOptions && selectedCaptionDelivery && options.transcribe) {
+        const aligned = await renderAlignedCaptions(output, {
+            ...captionOptions,
+            delivery: selectedCaptionDelivery,
+            transcribe: options.transcribe
+        });
+        if (aligned.track.status === 'completed') {
+            output = aligned.film;
+            captionTrack = aligned.track;
+        }
+    }
+
+    if (!captionTrack && captionOptions && selectedCaptionDelivery === 'player') {
         const result = renderScriptCaptions(output, {
-            mode: selectedCaptionLanguage,
-            prompt: params?.caption_source_prompt ?? params?.prompt ?? fallbackPrompt,
-            voiceLanguage: normalizeVoiceLanguage(params?.voice_language),
+            ...captionOptions,
             durationSeconds: params?.seconds ?? 5
         });
         captionTrack = result.track;
-    } else if (selectedCaptionLanguage && selectedCaptionDelivery === 'burned') {
+    } else if (!captionTrack && captionOptions && selectedCaptionDelivery === 'burned') {
         const result = await renderScriptBurnedCaptions(output, {
-            mode: selectedCaptionLanguage,
-            prompt: params?.caption_source_prompt ?? params?.prompt ?? fallbackPrompt,
-            voiceLanguage: normalizeVoiceLanguage(params?.voice_language),
+            ...captionOptions,
             durationSeconds: params?.seconds ?? 5
         });
         output = result.film;

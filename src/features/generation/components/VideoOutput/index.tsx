@@ -1,6 +1,7 @@
 'use client';
 
 import { CaptionDownloads } from './CaptionDownloads';
+import { CaptionSyncButton } from './CaptionSyncButton';
 import { ClickablePrompt } from './ClickablePrompt';
 import { CompletedVideoPlayer } from './CompletedVideoPlayer';
 import { Metadata } from './Metadata';
@@ -9,11 +10,10 @@ import { useDisplayProgress } from './hooks';
 import styles from './index.module.scss';
 import { useOutputMessages } from './messages';
 import type { VideoOutputProps } from './types';
+import { captionTrackForOutput } from './utils';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { captionCuesToSrt } from '@/features/post-production/captions/alignment';
-import { createScriptCaptionTrack } from '@/features/post-production/captions/process';
-import { captionDelivery, captionLanguage, normalizeVoiceLanguage } from '@/features/script/prompt/guards';
 import { XCITY_BILLING_URL, shouldShowBillingAction } from '@/features/settings/billing';
 import { sanitizeStudioErrorMessage } from '@/shared/errors';
 import { cn } from '@/shared/utils/classnames';
@@ -45,6 +45,8 @@ export function VideoOutput({
     onShare,
     shareItem,
     isSharePending,
+    onSyncCaptions,
+    isCaptionSyncPending = false,
     previewUnavailable = false,
     isPreviewResolving = false,
     onRetryPreview,
@@ -53,22 +55,7 @@ export function VideoOutput({
     const t = useTranslations();
     const messages = useOutputMessages();
     const displayProgress = useDisplayProgress(job);
-    const storedCaptionTrack = shareItem?.captionTrack;
-    const selectedCaptionLanguage = captionLanguage(shareItem?.createParams?.caption_mode);
-    const canRestorePlayerCaptions =
-        !storedCaptionTrack &&
-        shareItem?.status === 'completed' &&
-        selectedCaptionLanguage &&
-        captionDelivery(shareItem.createParams?.caption_mode) === 'player';
-    const captionTrack = canRestorePlayerCaptions
-        ? createScriptCaptionTrack({
-              mode: selectedCaptionLanguage,
-              prompt:
-                  shareItem.createParams?.caption_source_prompt ?? shareItem.createParams?.prompt ?? shareItem.prompt,
-              voiceLanguage: normalizeVoiceLanguage(shareItem.createParams?.voice_language),
-              durationSeconds: shareItem.seconds
-          })
-        : storedCaptionTrack;
+    const captionTrack = captionTrackForOutput(shareItem);
     const subtitleSrt = captionTrack?.status === 'completed' ? captionCuesToSrt(captionTrack.cues) : '';
 
     const handleDownload = () => {
@@ -368,6 +355,14 @@ export function VideoOutput({
                                     filename={shareItem?.filename}
                                 />
                             )}
+                            {captionTrack?.source === 'script-timed' &&
+                                captionTrack.delivery === 'player' &&
+                                onSyncCaptions && (
+                                    <CaptionSyncButton
+                                        pending={isCaptionSyncPending}
+                                        onClick={() => job && onSyncCaptions(job.id)}
+                                    />
+                                )}
                             {onExtend && (
                                 <Button
                                     onClick={handleExtend}

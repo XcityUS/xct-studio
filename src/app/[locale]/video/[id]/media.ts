@@ -5,6 +5,7 @@ import {
 } from '@/features/post-production/captions/alignment';
 import { captionDelivery, captionLanguage, normalizeVoiceLanguage } from '@/features/script/prompt/guards';
 import type { CaptionSegment } from '@/lib/captions';
+import type { CaptionCue } from '@/shared/contracts/video';
 
 type SharedMediaRecord = {
     id?: string;
@@ -67,6 +68,43 @@ function transcriptSegments(record: SharedMediaRecord) {
     return record.id ? CURATED_SHARED_TRANSCRIPTS[record.id] : undefined;
 }
 
+function storedCaptionCues(record: SharedMediaRecord): CaptionCue[] | undefined {
+    const track = record.params.caption_track;
+    if (!track || typeof track !== 'object' || Array.isArray(track)) return undefined;
+    const candidate = track as Record<string, unknown>;
+    if (candidate.status !== 'completed' || candidate.delivery !== 'player' || !Array.isArray(candidate.cues)) {
+        return undefined;
+    }
+    const cues = candidate.cues.flatMap((cue): CaptionCue[] => {
+        if (!cue || typeof cue !== 'object' || Array.isArray(cue)) return [];
+        const value = cue as Record<string, unknown>;
+        if (
+            typeof value.id !== 'string' ||
+            typeof value.startMs !== 'number' ||
+            !Number.isFinite(value.startMs) ||
+            typeof value.endMs !== 'number' ||
+            !Number.isFinite(value.endMs) ||
+            value.endMs <= value.startMs
+        ) {
+            return [];
+        }
+        const english = typeof value.english === 'string' ? value.english.trim() : undefined;
+        const chinese = typeof value.chinese === 'string' ? value.chinese.trim() : undefined;
+        return english || chinese
+            ? [
+                  {
+                      id: value.id,
+                      startMs: value.startMs,
+                      endMs: value.endMs,
+                      ...(english ? { english } : {}),
+                      ...(chinese ? { chinese } : {})
+                  }
+              ]
+            : [];
+    });
+    return cues.length ? cues : undefined;
+}
+
 export function shareAspectRatio(size: string) {
     const match = size.match(/(\d+)\s*[:xX]\s*(\d+)/);
     if (!match) return '16 / 9';
@@ -91,10 +129,13 @@ export function createSharedSubtitle(record: SharedMediaRecord) {
     const voiceLanguage = normalizeVoiceLanguage(
         typeof record.params.voice_language === 'string' ? record.params.voice_language : undefined
     );
-    const transcript = transcriptSegments(record);
-    const cues = transcript?.length
-        ? alignDialogueCaptions(sourcePrompt, transcript, language, voiceLanguage).cues
-        : timeScriptCaptions(sourcePrompt, language, voiceLanguage, Number.isFinite(seconds) ? seconds : 5).cues;
+    const persistedCues = storedCaptionCues(record);
+    const transcript = persistedCues ? undefined : transcriptSegments(record);
+    const cues =
+        persistedCues ??
+        (transcript?.length
+            ? alignDialogueCaptions(sourcePrompt, transcript, language, voiceLanguage).cues
+            : timeScriptCaptions(sourcePrompt, language, voiceLanguage, Number.isFinite(seconds) ? seconds : 5).cues);
     const srt = captionCuesToSrt(cues);
     return srt
         ? {
