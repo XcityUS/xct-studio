@@ -42,4 +42,4 @@ export const SOCIAL_SHARE_TARGETS: SocialShareTarget[] = [
     }
 ];
 
-export const FINALIZE_UNSUPPORTED_MODEL_MESSAGE = 'Finalize is only available for Seedance 2.5 drafts.';
+export const FINALIZE_UNSUPPORTED_MODEL_MESSAGE = 'Finalize is only available for Xcity Video 2.5 drafts.';

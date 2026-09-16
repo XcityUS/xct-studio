@@ -6,10 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Dropdown } from '@/components/ui/Dropdown';
 import { Input } from '@/components/ui/Input';
 import type { ProviderAssetReviewInput } from '@/features/assets/hooks/use-provider-asset-review';
-import {
-    normalizeProviderAssetName,
-    PROVIDER_ASSET_NAME_MAX_LENGTH
-} from '@/features/assets/portrait/name';
+import { normalizeProviderAssetName, PROVIDER_ASSET_NAME_MAX_LENGTH } from '@/features/assets/portrait/name';
 import type { InlineReviewOrigin } from '@/features/assets/reference/origin';
 import type { UserAsset } from '@/lib/media-archive';
 import { Loader2, ShieldCheck } from 'lucide-react';
@@ -54,7 +51,7 @@ export function AssetReviewDialog({ asset, initialOrigin, onOpenChange, onSubmit
         <Dialog open onOpenChange={onOpenChange}>
             <DialogContent className={styles.content}>
                 <DialogHeader>
-                    <DialogTitle>{t('Submit to Seedance review')}</DialogTitle>
+                    <DialogTitle>{t('Submit for review')}</DialogTitle>
                     <DialogDescription>{t('Only an active Asset ID can be used as a reference')}</DialogDescription>
                 </DialogHeader>
                 <form

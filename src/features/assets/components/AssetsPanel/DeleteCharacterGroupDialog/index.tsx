@@ -35,7 +35,7 @@ export function DeleteCharacterGroupDialog({
                 </div>
                 <div className={styles.groupName}>{groupName}</div>
                 <p className={styles.warning}>
-                    {t('This empty group will be permanently deleted from the provider library')}
+                    {t('This empty group will be permanently deleted from the asset library')}
                 </p>
                 {error && (
                     <p className={styles.error} role='alert'>

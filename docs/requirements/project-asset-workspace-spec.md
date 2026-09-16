@@ -183,6 +183,7 @@ Project / IP default
 - Uploading a photo from a verified-person group stores the image and submits it for review as one UI action. The user must not have to copy a URL or Asset ID between screens.
 - Manual Asset ID entry is an advanced import path for an already-approved asset. It must not be the default workflow and must not be offered as a way to bypass real-person verification.
 - Provider product names, provider consoles, KYC tiers, and provider catalog instructions are implementation details and are not exposed in the standard asset workflow.
+- User-facing model labels and compatibility messages use Xcity product names or capability-based wording; upstream model-family and provider names remain internal implementation details.
 - General review guidance stays behind contextual help. The default asset view prioritizes upload, selection, review status, and use in the current Project.
 
 ## Recommended Workspace Information Architecture

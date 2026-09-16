@@ -330,7 +330,7 @@ export function AssetsPanel({
         const { asset } = item;
         const isProviderOnly = item.source === 'provider';
         const confirmMessage = isProviderOnly
-            ? t('Remove this provider asset from this workspace<q> It can be added again later')
+            ? t('Remove this reviewed asset from this workspace<q> It can be added again later')
             : t('Delete this <lcur>kind<rcur> from cloud storage<q> Its links will stop working', {
                   kind: asset.kind
               });

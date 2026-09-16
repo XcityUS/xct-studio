@@ -34,21 +34,21 @@ export const REFERENCE_ORIGINS: ReferenceOrigin[] = [
 ];
 
 export const ASSET_LIBRARY_MODEL_BLOCK_REASON =
-    'Switch to Seedance 2.0 or 2.5 before using the portrait asset library. Seedance 1.5 Pro cannot attach asset:// references.';
+    'Current model does not support person assets. Switch to a compatible model.';
 
 /** The form has to explain why an origin changes the submission path. */
 export const REFERENCE_ORIGIN_LABELS: Record<ReferenceOrigin, { label: string; hint: string }> = {
     'official-asset': {
         label: 'Official material',
-        hint: 'Use the Asset ID supplied by ModelArk or the approved offline batch.'
+        hint: 'Use an existing approved Asset ID.'
     },
     'no-person': {
         label: 'No person in this image',
         hint: 'Landscapes, products, and styles still need provider review and an active Asset ID.'
     },
     'byteplus-ai': {
-        label: 'AI-generated · Seedream',
-        hint: 'Made by Seedream. Usable directly.'
+        label: 'AI-generated · Studio',
+        hint: 'Created in Studio. Ready to use.'
     },
     'thirdparty-ai': {
         label: 'AI-generated · other model',
@@ -173,10 +173,10 @@ export function declarationBlockReason(
         return 'Verify this person and attach the approved Asset ID before submitting.';
     }
     if (decl.origin === 'public-figure') {
-        return 'Submit this public figure image to the provider asset library before generating.';
+        return 'Submit this public figure image for asset review before generating.';
     }
     if (decl.origin === 'licensed-ip') {
-        return 'Submit this IP image to the provider asset library before generating.';
+        return 'Submit this IP image for asset review before generating.';
     }
     return 'Choose where this image came from.';
 }

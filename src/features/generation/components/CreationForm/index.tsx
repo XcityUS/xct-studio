@@ -759,7 +759,7 @@ export function CreationForm({
                                 />
                                 <p className='text-xs text-white/40'>
                                     {t('<lcur>model<rcur> clips run <lcur>min<rcur><dash><lcur>max<rcur> seconds', {
-                                        model: modelDef?.label ?? 'Seedance',
+                                        model: modelDef?.label ?? 'Xcity Video',
                                         min: minSeconds,
                                         max: maxSeconds
                                     })}

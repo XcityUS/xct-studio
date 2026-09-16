@@ -176,14 +176,14 @@ describe('completed output controls', () => {
                 onExtend: vi.fn(),
                 isExtendPending: true,
                 onFinalize: vi.fn(),
-                finalizeDisabledReason: 'Finalize is only available for Seedance 2.5 drafts.',
+                finalizeDisabledReason: 'Finalize is only available for Xcity Video 2.5 drafts.',
                 onShare: vi.fn(),
                 shareItem: makeShareItem()
             },
             'zh'
         );
         expect(html).toContain('正在准备...');
-        expect(html).toContain('title="仅 Seedance 2.5 草稿支持生成正式版。"');
+        expect(html).toContain('title="仅 Xcity Video 2.5 草稿支持生成正式版。"');
         expect(html).toContain('title="请稍候，先归档到云端"');
         expect(html.match(/<button[^>]*disabled=""/g)).toHaveLength(3);
     });

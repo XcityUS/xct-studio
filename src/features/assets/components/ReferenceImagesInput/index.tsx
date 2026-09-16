@@ -415,7 +415,7 @@ export function ReferenceImagesInput({
                                   )
                                 : reviewOrigin && assetLibraryUnsupported
                                   ? t(
-                                        'Submit the review here<dot> After approval<comma> Studio switches to Seedance 2<dot>5 and uses the Asset ID automatically'
+                                        'Submit the review here<dot> After approval<comma> Studio selects a compatible model and uses the Asset ID automatically'
                                     )
                                   : assetLibraryUnsupported
                                     ? referenceCopy.translateMessage(ASSET_LIBRARY_MODEL_BLOCK_REASON)

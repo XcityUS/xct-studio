@@ -67,7 +67,7 @@ function AssetMetrics({
                 {t('Assets')} <strong>{itemCount}</strong>
             </span>
             <span>
-                {t('Provider Asset IDs')} <strong>{assets.length}</strong>
+                {t('Approved Asset IDs')} <strong>{assets.length}</strong>
             </span>
             <span>
                 {t('Available assets')} <strong>{availableCount}</strong>

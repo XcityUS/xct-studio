@@ -23,7 +23,7 @@ describe('legacy output error localization', () => {
         ['resource download failed', '工作台无法加载参考视频'],
         ['InvalidParameter image_url', '工作台无法使用参考图片'],
         ['BytePlus provider request id internal-debug', '工作台无法完成此请求'],
-        ['Finalize is only available for Seedance 2.5 drafts.', '仅 Seedance 2.5 草稿支持生成正式版。']
+        ['Finalize is only available for Xcity Video 2.5 drafts.', '仅 Xcity Video 2.5 草稿支持生成正式版。']
     ];
 
     it.each(cases)('localizes sanitized error %s', (raw, chinese) => {

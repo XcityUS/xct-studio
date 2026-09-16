@@ -6,7 +6,7 @@ export function useReferenceCopy() {
     const labels: Record<ReferenceOrigin, string> = {
         'no-person': t('No person in this image'),
         'official-asset': t('Official material'),
-        'byteplus-ai': t('AI<dash>generated <mdash> Seedream'),
+        'byteplus-ai': t('AI<dash>generated <mdash> Studio'),
         'thirdparty-ai': t('AI<dash>generated <mdash> other model'),
         'real-person': t('A real person'),
         'public-figure': t('Public figure'),
@@ -14,24 +14,23 @@ export function useReferenceCopy() {
     };
     const hints: Record<ReferenceOrigin, string> = {
         'no-person': t('Review this material and bind its Asset ID before generation'),
-        'official-asset': t('Use the Asset ID supplied by ModelArk or the approved offline batch'),
-        'byteplus-ai': t('Made by Seedream<dot> Usable directly'),
+        'official-asset': t('Use an existing approved Asset ID'),
+        'byteplus-ai': t('Created in Studio<dot> Ready to use'),
         'thirdparty-ai': t('External AI renders must be approved in the virtual asset library'),
         'real-person': t('An ordinary person must complete consent and face verification'),
-        'public-figure': t('Submit the public figure image to BytePlus and wait for an active Asset ID'),
-        'licensed-ip': t('Submit the protected IP image to BytePlus and wait for an active Asset ID')
+        'public-figure': t('Complete the required authorization and submit this public figure for review'),
+        'licensed-ip': t('Complete the required authorization and submit this protected IP for review')
     };
     const messages: Record<string, string> = {
-        'Switch to Seedance 2.0 or 2.5 before using the portrait asset library. Seedance 1.5 Pro cannot attach asset:// references.':
-            t(
-                'Switch to Seedance 2<dot>0 or 2<dot>5 before using the portrait asset library<dot> Seedance 1<dot>5 Pro cannot attach asset<colon><slash><slash> references'
-            ),
+        'Current model does not support person assets. Switch to a compatible model.': t(
+            'The current model does not support person assets<dot> Switch to a compatible model'
+        ),
         'Virtual portrait library is not configured on this deployment. Use AI-generated · Seedream only for Seedream output, or ask an admin to enable Assets.':
             t(
-                'Virtual portrait library is not configured on this deployment<dot> Use AI<dash>generated <mdash> Seedream only for Seedream output<comma> or ask an admin to enable Assets'
+                'Virtual character assets are not available<dot> Use Studio<dash>generated only for images created in Studio<comma> or ask an administrator to enable Assets'
             ),
         'Provider asset review is not configured on this deployment. Ask an admin to enable Assets.': t(
-            'Provider asset review is not configured on this deployment<dot> Ask an admin to enable Assets'
+            'Asset review is not available<dot> Ask an administrator to enable Assets'
         ),
         'Choose where this image came from.': t('Choose where this image came from'),
         'Attach the official Asset ID before submitting.': t('Attach the official Asset ID before submitting'),
@@ -44,11 +43,11 @@ export function useReferenceCopy() {
         'Verify this person and attach the approved Asset ID before submitting.': t(
             'Verify this person and attach the approved Asset ID before submitting'
         ),
-        'Submit this public figure image to the provider asset library before generating.': t(
-            'Submit this public figure image to the provider asset library before generating'
+        'Submit this public figure image for asset review before generating.': t(
+            'Submit this public figure image for asset review before generating'
         ),
-        'Submit this IP image to the provider asset library before generating.': t(
-            'Submit this IP image to the provider asset library before generating'
+        'Submit this IP image for asset review before generating.': t(
+            'Submit this IP image for asset review before generating'
         ),
         'This authorization is not approved yet. Studio approval only unblocks this reference check; final model moderation may still reject the image.':
             t(
@@ -74,7 +73,7 @@ export function useReferenceCopy() {
         imageHint: (maxImages: number, imageCount: number) =>
             maxImages <= 1
                 ? t(
-                      'Image<dash>to<dash>video<colon> the clip starts from this frame<semi> the output ratio follows the image<dot> Switch to Seedance 2<dot>0<slash>2<dot>5 to use multiple reference images'
+                      'Image<dash>to<dash>video<colon> the clip starts from this frame<semi> the output ratio follows the image<dot> Switch to a compatible model to use multiple reference images'
                   )
                 : imageCount >= 2
                   ? t(

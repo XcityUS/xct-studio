@@ -42,7 +42,7 @@ export function AssetPreviewDialog({ item, onOpenChange }: AssetPreviewDialogPro
                     {failed || !asset?.url ? (
                         <div className={styles.unavailable} role='status'>
                             <AlertCircle aria-hidden='true' />
-                            <span>{t('ModelArk preview unavailable')}</span>
+                            <span>{t('Preview unavailable')}</span>
                         </div>
                     ) : asset.kind === 'image' ? (
                         // eslint-disable-next-line @next/next/no-img-element -- provider/cloud media URL

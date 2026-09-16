@@ -66,7 +66,7 @@ export function TotalCostDialog({
                     {summary}
                 </div>
                 <div className='space-y-1 pt-1 text-xs text-neutral-400'>
-                    <p>{t('Seedance billing is token<dash>based and charged only after successful completion')}</p>
+                    <p>{t('Video generation is token<dash>based and charged only after successful completion')}</p>
                     <p>{t('Reference video estimates are lower bounds because provider floors may apply')}</p>
                 </div>
                 <div className='space-y-2 py-4 text-sm text-neutral-300'>

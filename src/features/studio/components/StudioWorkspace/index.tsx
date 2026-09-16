@@ -836,7 +836,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         async (type?: PortraitGroupQueryType) => {
             const key = await resolveKey();
             if (!key) {
-                throw new Error('Sign in at xcity.ai (or set an API key) to view BytePlus assets.');
+                throw new Error('Sign in at xcity.ai (or set an API key) to view reviewed assets.');
             }
             return (await listPortraitAssets(key, type)).assets;
         },
@@ -1135,7 +1135,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                 setError(null, 'create');
                 setCreateNotice(
                     switchesModel
-                        ? 'Added as reference video and switched to Seedance 2.5.'
+                        ? 'Added as reference video and switched to a compatible model.'
                         : 'Added as reference video.'
                 );
             }

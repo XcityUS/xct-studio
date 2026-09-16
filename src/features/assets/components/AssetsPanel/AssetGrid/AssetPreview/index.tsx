@@ -1,7 +1,7 @@
 'use client';
 
-import styles from './index.module.scss';
 import type { AssetListItem } from '../../asset-list';
+import styles from './index.module.scss';
 import { Library, Music } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import * as React from 'react';
@@ -15,7 +15,7 @@ export function AssetPreview({ item }: { item: AssetListItem }) {
         return (
             <div className={styles.unavailable}>
                 <Library aria-hidden='true' />
-                <span>{t('ModelArk preview unavailable')}</span>
+                <span>{t('Preview unavailable')}</span>
                 {providerAsset?.assetId && <code>{providerAsset.assetId}</code>}
             </div>
         );
