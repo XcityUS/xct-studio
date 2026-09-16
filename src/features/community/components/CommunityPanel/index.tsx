@@ -244,12 +244,15 @@ export function CommunityPanel({ loadItems, loadQueue, reviewItem, onRecreate, a
         : 0;
 
     React.useEffect(() => {
-        setVisibleCount(Math.min(COMMUNITY_BATCH_SIZE, approvedItems.length));
-        setIsLoadingNextPage(false);
+        const frame = window.requestAnimationFrame(() => {
+            setVisibleCount(Math.min(COMMUNITY_BATCH_SIZE, approvedItems.length));
+            setIsLoadingNextPage(false);
+        });
         if (loadingTimerRef.current) {
             window.clearTimeout(loadingTimerRef.current);
             loadingTimerRef.current = null;
         }
+        return () => window.cancelAnimationFrame(frame);
     }, [approvedItems.length]);
 
     const loadMoreItems = React.useCallback(() => {

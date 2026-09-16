@@ -7,6 +7,17 @@ export function appendCharacterPromptLine(prompt: string, imageIndex: number, na
     return trimmed ? `${trimmed}\n${line}` : line;
 }
 
+export function nextCharacterReference(referenceUrls: string[], url: string, name: string, cap: number, prompt: string) {
+    const label = name.trim();
+    if (!label || !url || url === 'asset://') return null;
+    const existingIndex = referenceUrls.indexOf(url);
+    if (existingIndex === -1 && referenceUrls.length >= cap) return null;
+    return {
+        urls: existingIndex === -1 ? [...referenceUrls, url] : referenceUrls,
+        prompt: appendCharacterPromptLine(prompt, existingIndex === -1 ? referenceUrls.length + 1 : existingIndex + 1, label)
+    };
+}
+
 export function referenceLabelsFor(
     referenceUrls: string[],
     characters: VideoCharacter[],

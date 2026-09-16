@@ -1,5 +1,6 @@
 'use client';
 
+import { CARD_GAP, useImageGallery } from './use-image-gallery';
 import { persistImages, removeImage } from '@/features/persistence/media';
 
 import { Button } from '@/components/ui/Button';
@@ -22,10 +23,6 @@ import { Clapperboard, Download, Expand, ImageIcon, Loader2, Sparkles, Trash2 } 
 import { useTranslations } from 'next-intl';
 import * as React from 'react';
 
-const SCROLLBAR_GUTTER_WIDTH = 2;
-const CARD_GAP = 16;
-const CARD_FOOTER_HEIGHT = 72;
-
 interface ImageStudioProps {
     /** Runtime-resolved image models. Empty means image generation is disabled. */
     imageModels: ImageModel[];
@@ -39,57 +36,6 @@ interface ImageStudioProps {
      * record has no usable remote URL.
      */
     onAnimate?: (record: ImageRecord) => Promise<void>;
-}
-
-function imageRecordFromAsset(asset: UserAsset): ImageRecord {
-    return {
-        id: `asset:${asset.key}`,
-        prompt: asset.name ?? asset.key,
-        model: 'Cloud asset',
-        size: 'cloud',
-        source_url: asset.url,
-        created_at: asset.uploaded ? Date.parse(asset.uploaded) || 0 : 0
-    };
-}
-
-/** Object URLs for stored blobs, created in an effect and revoked on cleanup. */
-function useImageObjectUrls(records: ImageRecord[] | undefined) {
-    const urlsRef = React.useRef<Map<string, string>>(new Map());
-    const [, setVersion] = React.useState(0);
-
-    React.useEffect(() => {
-        if (!records) return;
-        const urls = urlsRef.current;
-        const liveIds = new Set(records.map((r) => r.id));
-        let changed = false;
-
-        for (const [id, url] of urls) {
-            if (!liveIds.has(id)) {
-                URL.revokeObjectURL(url);
-                urls.delete(id);
-                changed = true;
-            }
-        }
-        for (const rec of records) {
-            if (rec.blob && !urls.has(rec.id)) {
-                urls.set(rec.id, URL.createObjectURL(rec.blob));
-                changed = true;
-            }
-        }
-        if (changed) setVersion((v) => v + 1);
-    }, [records]);
-
-    React.useEffect(() => {
-        const urls = urlsRef.current;
-        return () => {
-            for (const [, url] of urls) URL.revokeObjectURL(url);
-            urls.clear();
-        };
-    }, []);
-
-    return React.useCallback((rec: ImageRecord): string | undefined => {
-        return urlsRef.current.get(rec.id) ?? rec.source_url;
-    }, []);
 }
 
 export function ImageStudio({ imageModels, onGenerate, cloudImageAssets = [], onAnimate }: ImageStudioProps) {
@@ -107,91 +53,13 @@ export function ImageStudio({ imageModels, onGenerate, cloudImageAssets = [], on
         null
     );
 
-    const listContainerRef = React.useRef<HTMLDivElement>(null);
-    const [listWidth, setListWidth] = React.useState(0);
-    const [containerHeight, setContainerHeight] = React.useState(0);
-    const [scrollTop, setScrollTop] = React.useState(0);
-    const [columns, setColumns] = React.useState(2);
-
     const records = useLiveQuery<ImageRecord[] | undefined>(
         () => db.images.orderBy('created_at').reverse().toArray(),
         []
     );
-    const getSrc = useImageObjectUrls(records);
-    const visibleRecords = React.useMemo(() => {
-        const localRecords = records ?? [];
-        const localUrls = new Set(localRecords.map((rec) => rec.source_url).filter(Boolean));
-        const cloudRecords = cloudImageAssets
-            .filter((asset) => asset.kind === 'image' && asset.url && !localUrls.has(asset.url))
-            .map(imageRecordFromAsset);
-        return [...localRecords, ...cloudRecords];
-    }, [cloudImageAssets, records]);
-
-    const allItems = React.useMemo(() => {
-        const pendingItems = Array.from({ length: pendingGenerationCount }).map((_, index) => ({
-            kind: 'pending' as const,
-            id: `pending-image-${index}`,
-            prompt: t('Generating')
-        }));
-        const recordsItems = visibleRecords.map((record) => ({ kind: 'record' as const, record }));
-        return [...pendingItems, ...recordsItems];
-    }, [pendingGenerationCount, visibleRecords, t]);
-
-    const itemWidth = React.useMemo(() => {
-        if (!listWidth || columns <= 0) return 0;
-        return (listWidth - CARD_GAP * (columns - 1)) / columns;
-    }, [columns, listWidth]);
-    const rowHeight = React.useMemo(() => {
-        if (!itemWidth) return 0;
-        return itemWidth + CARD_FOOTER_HEIGHT + CARD_GAP;
-    }, [itemWidth]);
-
-    React.useEffect(() => {
-        const root = listContainerRef.current;
-        if (!root) return;
-
-        const onScroll = () => setScrollTop(root.scrollTop);
-
-        const measure = () => {
-            const width = root.clientWidth - SCROLLBAR_GUTTER_WIDTH;
-            const nextColumns =
-                width >= 1024 ? 4 : width >= 768 ? 3 : width >= 640 ? 3 : 2;
-            setColumns(nextColumns);
-            setListWidth(width);
-            setContainerHeight(root.clientHeight);
-        };
-
-        const resizeObserver = new ResizeObserver(() => {
-            measure();
-        });
-
-        resizeObserver.observe(root);
-        root.addEventListener('scroll', onScroll);
-        measure();
-
-        return () => {
-            root.removeEventListener('scroll', onScroll);
-            resizeObserver.disconnect();
-        };
-    }, []);
-
-    const totalRows = React.useMemo(() => {
-        if (!allItems.length || columns <= 0) return 0;
-        return Math.ceil(allItems.length / columns);
-    }, [allItems.length, columns]);
-
-    const visibleRange = React.useMemo(() => {
-        if (rowHeight === 0 || allItems.length === 0) {
-            return { start: 0, end: 0 };
-        }
-        const startRow = Math.max(0, Math.floor(scrollTop / rowHeight));
-        const visibleRows = containerHeight > 0 ? Math.ceil(containerHeight / rowHeight) : 8;
-        const start = Math.max(0, startRow - 2) * columns;
-        const end = Math.min(allItems.length, (startRow + visibleRows + 2) * columns);
-        return { start, end };
-    }, [allItems.length, columns, containerHeight, rowHeight, scrollTop]);
-
-    const totalHeight = totalRows * rowHeight;
+    const generatingLabel = t('Generating');
+    const { listContainerRef, columns, getSrc, allItems, itemWidth, rowHeight, visibleRange, totalHeight } =
+        useImageGallery(records, cloudImageAssets, pendingGenerationCount, generatingLabel);
 
     React.useEffect(() => {
         if (model || imageModels.length === 0) return;
@@ -409,14 +277,14 @@ export function ImageStudio({ imageModels, onGenerate, cloudImageAssets = [], on
                         }
                         .studio-image-list::-webkit-scrollbar-thumb {
                             border-radius: 9999px;
-                            background-color: rgba(255, 255, 255, 0.25);
+                            background-color: var(--studio-image-scrollbar-thumb);
                         }
                         .studio-image-list::-webkit-scrollbar-thumb:hover {
-                            background-color: rgba(255, 255, 255, 0.45);
+                            background-color: var(--studio-image-scrollbar-thumb-hover);
                         }
                         .studio-image-list {
                             scrollbar-width: thin;
-                            scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+                            scrollbar-color: var(--studio-image-scrollbar-thumb) transparent;
                         }
                     `}</style>
                     <div

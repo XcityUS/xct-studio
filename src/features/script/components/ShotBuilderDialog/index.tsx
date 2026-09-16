@@ -86,8 +86,11 @@ export function ShotBuilderDialog({
         });
     React.useEffect(() => {
         if (isOpen) return;
-        setError(null);
-        setConfirm(null);
+        const frame = window.requestAnimationFrame(() => {
+            setError(null);
+            setConfirm(null);
+        });
+        return () => window.cancelAnimationFrame(frame);
     }, [isOpen]);
     const clearDraft = () => {
         const next = emptyDraft();

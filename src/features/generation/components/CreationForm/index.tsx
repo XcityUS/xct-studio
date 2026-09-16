@@ -2,23 +2,16 @@
 
 import { CharacterSelectors } from './CharacterSelectors';
 import { DramaLaunchPanel } from './DramaLaunchPanel';
+import { mergeAssetBindings as mergeDraftAssetBindings } from './draft-bindings';
 import { InlineError } from './InlineError';
 import { CAMERA_TEMPLATES, nativeCheckboxClass, nativeRangeClass } from './constants';
 import { useCreationOptions } from './options';
-import { executeShotQueue } from './queue-execution';
-import {
-    readShotQueue,
-    storyboardQueueSignature,
-    type ShotQueueItem,
-    type ShotQueueScope,
-    writeShotQueue
-} from './shot-queue';
-import { SHOT_GENERATION_BATCH_LIMIT, storyboardVideoQueueItems } from './storyboard-video-queue';
 import { createSubmissionBuilder } from './submission';
 import type { CreationFormProps, GenerationMode } from './types';
 import { useProjectConfig } from './use-project-config';
 import { useSceneAssetAutobind } from './use-scene-asset-autobind';
-import { appendCharacterPromptLine, referenceLabelsFor, referenceVideoPreviewsFor } from './utils';
+import { useShotGeneration } from './use-shot-generation';
+import { nextCharacterReference, referenceLabelsFor, referenceVideoPreviewsFor } from './utils';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Dropdown } from '@/components/ui/Dropdown';
@@ -210,18 +203,11 @@ export function CreationForm({
     const [isOptimizing, setIsOptimizing] = React.useState(false);
     const [isAdvancedOpen, setIsAdvancedOpen] = React.useState(false);
     const [optimizeError, setOptimizeError] = React.useState<string | null>(null);
-    const [isGeneratingShotBatch, setIsGeneratingShotBatch] = React.useState(false);
-    const [shotQueue, setShotQueue] = React.useState<ShotQueueItem[]>([]);
-    const pendingShotCount = shotQueue.length;
     const shotDraftKey = projectConfig?.id ?? buildProductionSnapshot?.().project.id ?? 'normal';
     const [storyboardDraft, setStoryboardDraft] = React.useState<EditorDraft | undefined>(() =>
         recalledDraft(shotDraftKey)
     );
     const storyboardDraftRef = React.useRef(storyboardDraft);
-    const shotQueueScope = React.useMemo<ShotQueueScope>(
-        () => ({ projectKey: shotDraftKey, draftSignature: storyboardQueueSignature(storyboardDraft) }),
-        [shotDraftKey, storyboardDraft]
-    );
     const supportsCameraFixed = activeModel.includes('seedance-1-5');
     const [promptBeforeOptimize, setPromptBeforeOptimize] = React.useState<string | null>(null);
     const [referenceVideoSecondsByUrl, setReferenceVideoSecondsByUrl] = React.useState<Record<string, number>>({});
@@ -253,10 +239,6 @@ export function CreationForm({
     }, [activeModel, model, setModel]);
 
     React.useEffect(() => {
-        const frame = window.requestAnimationFrame(() => setShotQueue(readShotQueue(shotQueueScope)));
-        return () => window.cancelAnimationFrame(frame);
-    }, [shotQueueScope]);
-    React.useEffect(() => {
         const frame = window.requestAnimationFrame(() => {
             const recalled = recalledDraft(shotDraftKey);
             storyboardDraftRef.current = recalled;
@@ -275,37 +257,10 @@ export function CreationForm({
         },
         [onStoryboardDraftChange, shotDraftKey]
     );
-    const mergeAssetBindings = React.useCallback(
-        (draft: EditorDraft, baseDraft?: EditorDraft) => {
-            const current = storyboardDraftRef.current;
-            if (!current) {
-                handleStoryboardDraftChange(draft);
-                return;
-            }
-            const baseCharacterAssets = new Map(baseDraft?.characters.map((item) => [item.id, item.assetId]));
-            const baseSceneAssets = new Map(baseDraft?.scenes.map((item) => [item.id, item.assetId]));
-            const characterAssets = new Map(
-                draft.characters
-                    .filter((item) => item.assetId !== baseCharacterAssets.get(item.id))
-                    .map((item) => [item.id, item.assetId])
-            );
-            const sceneAssets = new Map(
-                draft.scenes
-                    .filter((item) => item.assetId !== baseSceneAssets.get(item.id))
-                    .map((item) => [item.id, item.assetId])
-            );
-            handleStoryboardDraftChange({
-                ...current,
-                characters: current.characters.map((item) =>
-                    characterAssets.has(item.id) ? { ...item, assetId: characterAssets.get(item.id) } : item
-                ),
-                scenes: current.scenes.map((item) =>
-                    sceneAssets.has(item.id) ? { ...item, assetId: sceneAssets.get(item.id) } : item
-                )
-            });
-        },
-        [handleStoryboardDraftChange]
-    );
+    const mergeAssetBindings = React.useCallback((draft: EditorDraft, baseDraft?: EditorDraft) => {
+        const current = storyboardDraftRef.current;
+        handleStoryboardDraftChange(current ? mergeDraftAssetBindings(current, draft, baseDraft) : draft);
+    }, [handleStoryboardDraftChange]);
 
     React.useEffect(() => {
         if (!supportsDraftMode) {
@@ -380,40 +335,17 @@ export function CreationForm({
         }
     };
 
-    const handleAttachCharacter = React.useCallback(
-        (character: VideoCharacter) => {
-            const name = character.name.trim();
-            if (!name) return;
-            const existingIndex = referenceUrls.indexOf(character.url);
-            if (existingIndex === -1 && referenceUrls.length >= refCap) return;
-
-            const imageIndex = existingIndex === -1 ? referenceUrls.length + 1 : existingIndex + 1;
-            if (existingIndex === -1) {
-                setReferenceUrls([...referenceUrls, character.url]);
-            }
-            setPrompt((current) => appendCharacterPromptLine(current, imageIndex, name));
-            setPromptBeforeOptimize(null);
-        },
-        [refCap, referenceUrls, setPrompt, setReferenceUrls]
-    );
-
-    const handleAttachPortrait = React.useCallback(
-        (portrait: VideoPortrait) => {
-            const name = portrait.name.trim();
-            const referenceUrl = portraitReferenceUrl(portrait.assetId.trim());
-            if (!name || referenceUrl === 'asset://') return;
-            const existingIndex = referenceUrls.indexOf(referenceUrl);
-            if (existingIndex === -1 && referenceUrls.length >= refCap) return;
-
-            const imageIndex = existingIndex === -1 ? referenceUrls.length + 1 : existingIndex + 1;
-            if (existingIndex === -1) {
-                setReferenceUrls([...referenceUrls, referenceUrl]);
-            }
-            setPrompt((current) => appendCharacterPromptLine(current, imageIndex, name));
-            setPromptBeforeOptimize(null);
-        },
-        [refCap, referenceUrls, setPrompt, setReferenceUrls]
-    );
+    const attachCharacterReference = React.useCallback((url: string, name: string) => {
+        const next = nextCharacterReference(referenceUrls, url, name, refCap, '');
+        if (!next) return;
+        if (next.urls !== referenceUrls) setReferenceUrls(next.urls);
+        setPrompt((current) => nextCharacterReference(referenceUrls, url, name, refCap, current)?.prompt ?? current);
+        setPromptBeforeOptimize(null);
+    }, [refCap, referenceUrls, setPrompt, setReferenceUrls]);
+    const handleAttachCharacter = React.useCallback((character: VideoCharacter) =>
+        attachCharacterReference(character.url, character.name), [attachCharacterReference]);
+    const handleAttachPortrait = React.useCallback((portrait: VideoPortrait) =>
+        attachCharacterReference(portraitReferenceUrl(portrait.assetId.trim()), portrait.name), [attachCharacterReference]);
 
     const buildSubmissionData = createSubmissionBuilder({
         prompt,
@@ -450,56 +382,13 @@ export function CreationForm({
         if (blockedReferences.length > 0) return;
         void onSubmit(buildSubmissionData());
     };
-    const updateShotQueue = (nextQueue: ShotQueueItem[]) => {
-        setShotQueue(nextQueue);
-        writeShotQueue(nextQueue, shotQueueScope);
-    };
-    const processShotQueue = async (initialQueue = shotQueue) => {
-        if (blockedReferences.length > 0 || isGeneratingShotBatch) return;
-        await executeShotQueue({
-            items: initialQueue,
-            limit: SHOT_GENERATION_BATCH_LIMIT,
-            previews: shotVideoPreviews,
-            onSubmit,
-            onUpdate: updateShotQueue,
-            onBusy: setIsGeneratingShotBatch
-        });
-    };
-
-    const handleGenerateShot = async (shot: EditorDraft['shots'][number], index: number) => {
-        if (!storyboardDraft || blockedReferences.length > 0 || isGeneratingShotBatch || !shot.description.trim())
-            return;
-        const queue = storyboardVideoQueueItems({
-            draft: storyboardDraft,
-            shots: [{ shot, index }],
-            projectAssets,
-            activeSeconds,
-            activeModel,
-            buildSubmissionData,
-            titleForShot: (itemIndex) => t('Shot <lcur>number<rcur>', { number: itemIndex + 1 })
-        });
-        updateShotQueue(queue);
-        await processShotQueue(queue);
-    };
-
-    const handleGenerateAllShots = async () => {
-        if (!storyboardDraft || blockedReferences.length > 0 || isGeneratingShotBatch) return;
-        const queue = storyboardDraft.shots
-            .map((shot, index) => ({ shot, index }))
-            .filter(({ shot }) => shot.description.trim());
-        const items = storyboardVideoQueueItems({
-            draft: storyboardDraft,
-            shots: queue,
-            projectAssets,
-            activeSeconds,
-            activeModel,
-            buildSubmissionData,
+    const { isGeneratingShotBatch, pendingShotCount, processShotQueue, handleGenerateShot, handleGenerateAllShots } =
+        useShotGeneration({
+            draft: storyboardDraft, draftKey: shotDraftKey, blocked: blockedReferences.length > 0,
+            previews: shotVideoPreviews, projectAssets, activeSeconds, activeModel,
+            buildSubmissionData, onSubmit,
             titleForShot: (index) => t('Shot <lcur>number<rcur>', { number: index + 1 })
         });
-        if (items.length === 0) return;
-        updateShotQueue(items);
-        await processShotQueue(items);
-    };
     const sceneAssetAutobind = useSceneAssetAutobind({
         draft: storyboardDraft,
         onAutoBind: onAutoBindSceneAssets,

@@ -7,7 +7,8 @@ import { WatermarkDialog } from './WatermarkDialog';
 import { MAX_CONCURRENT_WATERMARKS, MAX_WATERMARK_TEXT_LENGTH, STATUS_FILTERS } from './constants';
 import styles from './index.module.scss';
 import type { StatusFilter, VideoHistoryPanelProps } from './types';
-import { formatTokens, formatVideoMegabytes, getHistoryItemState, hasTokenCostDetails, newestHistoryFirst } from './utils';
+import { useWatermarkDialog } from './use-watermark-dialog';
+import { formatTokens, formatVideoMegabytes, getHistoryItemState, hasTokenCostDetails, newestHistoryFirst, summarizeHistoryCost } from './utils';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import {
@@ -88,34 +89,13 @@ export function VideoHistoryPanel({
     const [assembleError, setAssembleError] = React.useState<string | null>(null);
     const [isAssemblyEditorOpen, setIsAssemblyEditorOpen] = React.useState(false);
     const [hoverPreviewId, setHoverPreviewId] = React.useState<string | null>(null);
-    const [watermarkDialogItem, setWatermarkDialogItem] = React.useState<VideoMetadata | null>(null);
-    const [useCustomWatermark, setUseCustomWatermark] = React.useState(false);
-    const [customWatermarkText, setCustomWatermarkText] = React.useState('');
+    const { watermarkDialogItem, useCustomWatermark, setUseCustomWatermark, customWatermarkText,
+        setCustomWatermarkText, openWatermarkDialog, handleWatermarkDialogOpenChange,
+        handleConfirmAddWatermark } = useWatermarkDialog(onAddWatermark);
     const [visibleCount, setVisibleCount] = React.useState(VIDEO_PAGE_SIZE);
     const [isLoadingNextPage, setIsLoadingNextPage] = React.useState(false);
     const contentRef = React.useRef<HTMLDivElement>(null);
     const loadingTimerRef = React.useRef<number | null>(null);
-
-    const openWatermarkDialog = React.useCallback((item: VideoMetadata) => {
-        setWatermarkDialogItem(item);
-        setUseCustomWatermark(false);
-        setCustomWatermarkText('');
-    }, []);
-
-    const handleWatermarkDialogOpenChange = React.useCallback((open: boolean) => {
-        if (!open) {
-            setWatermarkDialogItem(null);
-            setUseCustomWatermark(false);
-            setCustomWatermarkText('');
-        }
-    }, []);
-
-    const handleConfirmAddWatermark = React.useCallback(() => {
-        if (!watermarkDialogItem) return;
-        const text = useCustomWatermark ? customWatermarkText.trim().slice(0, MAX_WATERMARK_TEXT_LENGTH) : undefined;
-        void onAddWatermark?.(watermarkDialogItem, text || undefined);
-        handleWatermarkDialogOpenChange(false);
-    }, [customWatermarkText, handleWatermarkDialogOpenChange, onAddWatermark, useCustomWatermark, watermarkDialogItem]);
 
     const getMediaState = React.useCallback(
         (item: VideoMetadata) => resolveMediaState(item, { hasBlob: hasLocalCopy(item.id) }, Date.now()),
@@ -203,35 +183,9 @@ export function VideoHistoryPanel({
         : t('<lcur>count<rcur> clips selected', { count: selectedItems.length });
     const canOpenAssemblyEditor = selectedItems.length >= 2 && !hasMixedSelectedSizes;
 
-    const { totalCost, totalVideos, successfulVideos, failedVideos, billedVideos } = React.useMemo(() => {
-        let cost = 0;
-        let videos = 0;
-        let successful = 0;
-        let failed = 0;
-        let billed = 0;
-        history.forEach((item) => {
-            const state = getHistoryItemState(item, activeJobs?.get(item.id));
-            if (item.costDetails && state.isCompleted) {
-                cost += item.costDetails.totalCost;
-                billed += 1;
-            }
-            if (state.isCompleted) {
-                successful += 1;
-            }
-            if (state.isFailed) {
-                failed += 1;
-            }
-            videos += 1;
-        });
-
-        return {
-            totalCost: Math.round(cost * 100) / 100,
-            totalVideos: videos,
-            successfulVideos: successful,
-            failedVideos: failed,
-            billedVideos: billed
-        };
-    }, [history, activeJobs]);
+    const { totalCost, totalVideos, successfulVideos, failedVideos, billedVideos } = React.useMemo(
+        () => summarizeHistoryCost(history, activeJobs), [history, activeJobs]
+    );
 
     const resetAssembleState = React.useCallback(() => {
         setSelectedClipIds([]);

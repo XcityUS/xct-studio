@@ -34,3 +34,20 @@ export function hasTokenCostDetails(costDetails: VideoMetadata['costDetails']): 
 export function formatTokens(tokens: number): string {
     return Math.round(tokens).toLocaleString();
 }
+
+export function summarizeHistoryCost(history: VideoMetadata[], activeJobs?: Map<string, VideoJob>) {
+    let cost = 0;
+    let successfulVideos = 0;
+    let failedVideos = 0;
+    let billedVideos = 0;
+    history.forEach((item) => {
+        const state = getHistoryItemState(item, activeJobs?.get(item.id));
+        if (item.costDetails && state.isCompleted) {
+            cost += item.costDetails.totalCost;
+            billedVideos += 1;
+        }
+        if (state.isCompleted) successfulVideos += 1;
+        if (state.isFailed) failedVideos += 1;
+    });
+    return { totalCost: Math.round(cost * 100) / 100, totalVideos: history.length, successfulVideos, failedVideos, billedVideos };
+}

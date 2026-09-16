@@ -20,6 +20,8 @@ import { captionModeFromLanguages, shareParamsToForm, sharePromptWithinLimit, sh
 import { shotVideoPreviewsForProject } from './shot-video-previews';
 import type { ErrorScope, SocialShareTarget, StudioTab, WatermarkQueueItem } from './types';
 import { useCaptionSync } from './use-caption-sync';
+import { useMediaActions } from './use-media-actions';
+import { usePortraitActions } from './use-portrait-actions';
 import {
     fileNameWithoutExtension,
     imageReferenceUrlsFromParams,
@@ -27,7 +29,6 @@ import {
     normalizeWatermarkText,
     providerReferenceUrl,
     realPersonReferenceErrorMessage,
-    voiceoverAssetName,
     watermarkedVideoId,
     withPortraitDeclarations
 } from './utils';
@@ -52,18 +53,6 @@ import { useVideoSources } from '@/features/assets/hooks/use-video-sources';
 import { validateAssetImage } from '@/features/assets/image/validation';
 import { providerLinkLikelyDead } from '@/features/assets/media/state';
 import { captureVideoLastFrame, captureVideoPoster } from '@/features/assets/media/thumbnail';
-import {
-    createPortraitAsset,
-    createPortraitGroup,
-    createPortraitSession,
-    deletePortraitGroup,
-    fetchPortraitStatus,
-    getPortraitAsset,
-    listPortraitAssets,
-    listPortraitGroups,
-    type PortraitGroup,
-    type PortraitGroupQueryType
-} from '@/features/assets/portrait/api';
 import { refreshProjectAssetStatus } from '@/features/assets/portrait/refresh-project-asset';
 import {
     ASSET_LIBRARY_MODEL_BLOCK_REASON,
@@ -128,13 +117,7 @@ import { usePortraitSetupFlow } from '@/features/studio/hooks/use-portrait-setup
 import { useStudioTabRouting } from '@/features/studio/hooks/use-studio-tab-routing';
 import { studioVideoSharePath } from '@/features/studio/routing';
 import type { AppLocale } from '@/i18n/routing';
-import {
-    generateImages,
-    loadImageModels,
-    type GeneratedImage,
-    type ImageModel,
-    type ImageSizeId
-} from '@/lib/image-service';
+import { loadImageModels, type ImageModel } from '@/lib/image-service';
 import {
     ArchiveSourceFetchError,
     archiveLocalVideo,
@@ -155,16 +138,12 @@ import {
     mediaWorkerUrl,
     publishToCommunity,
     reviewCommunityItem,
-    ttsModel,
-    uploadReferenceAudio,
     uploadReferenceImage,
-    uploadReferenceVideo,
     type CommunityReviewAction,
     type UserAsset
 } from '@/lib/media-archive';
 import { optimizePrompt } from '@/lib/prompt-optimizer';
 import { breakdownScript } from '@/lib/script-breakdown';
-import { synthesizeSpeech, type TtsVoice } from '@/lib/tts';
 import { VideoService } from '@/lib/video-service';
 import {
     DEFAULT_MODEL,
@@ -286,8 +265,6 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
     const [finalizeDialogItem, setFinalizeDialogItem] = React.useState<VideoMetadata | null>(null);
     const [isFinalizeSubmitting, setIsFinalizeSubmitting] = React.useState(false);
     const [finalizeSubmitLabel, setFinalizeSubmitLabel] = React.useState('');
-    const [imageAssets, setImageAssets] = React.useState<UserAsset[]>([]);
-    const [isLoadingImageAssets, setIsLoadingImageAssets] = React.useState(false);
 
     const { apiKey, keyRef, ssoStatus, ssoError, attemptSso, resolveKey, saveManualKey, invalidateKey } = useXcityKey();
     const allowManualApiKey = useLocalApiKeyOption();
@@ -589,8 +566,6 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
     // (checked at runtime via /api/config).
     const [uploadEnabled, setUploadEnabled] = React.useState(false);
     const [isPortraitEnabled, setIsPortraitEnabled] = React.useState(false);
-    const [isVirtualPortraitEnabled, setIsVirtualPortraitEnabled] = React.useState(false);
-    const [virtualCharacterGroups, setVirtualCharacterGroups] = React.useState<PortraitGroup[]>([]);
     const [imageModels, setImageModels] = React.useState<ImageModel[]>([]);
     React.useEffect(() => {
         void mediaArchiveEnabled().then(setUploadEnabled);
@@ -600,96 +575,11 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
     const imageGenerationEnabled = imageModels.length > 0;
     const imageTabEnabled = imageGenerationEnabled || uploadEnabled;
 
-    React.useEffect(() => {
-        if (!isPortraitEnabled || !apiKey) {
-            setIsVirtualPortraitEnabled(false);
-            return;
-        }
+    const { imageAssets, isLoadingImageAssets, handleUploadImage, handleUploadAudio, handleSynthesizeSpeech,
+        handleUploadVideo, handleGenerateImages, handleLoadAssets, refreshImageAssets } = useMediaActions({
+            resolveKey, uploadEnabled, activeTab, finalizeDialogItem
+        });
 
-        let cancelled = false;
-        void fetchPortraitStatus(apiKey)
-            .then((status) => {
-                if (!cancelled) setIsVirtualPortraitEnabled(Boolean(status.aigcOk));
-            })
-            .catch((err) => {
-                console.warn('Could not check virtual portrait library:', err);
-                if (!cancelled) setIsVirtualPortraitEnabled(false);
-            });
-
-        return () => {
-            cancelled = true;
-        };
-    }, [apiKey, isPortraitEnabled]);
-
-    const handleUploadImage = React.useCallback(
-        async (file: File): Promise<string> => {
-            const validation = await validateAssetImage(file);
-            if (validation.status === 'rejected') {
-                throw new Error(validation.message);
-            }
-            const key = await resolveKey();
-            if (!key) {
-                throw new Error('Sign in at xcity.ai before uploading images.');
-            }
-            return uploadReferenceImage(file, key, fileNameWithoutExtension(file.name));
-        },
-        [resolveKey]
-    );
-
-    const handleUploadAudio = React.useCallback(
-        async (file: File): Promise<string> => {
-            const key = await resolveKey();
-            if (!key) {
-                throw new Error('Sign in at xcity.ai before uploading audio.');
-            }
-            return uploadReferenceAudio(file, key, fileNameWithoutExtension(file.name));
-        },
-        [resolveKey]
-    );
-
-    const handleSynthesizeSpeech = React.useCallback(
-        async (text: string, voice: TtsVoice): Promise<string> => {
-            const key = await resolveKey();
-            if (!key) {
-                throw new Error('Sign in at xcity.ai to generate voiceover.');
-            }
-
-            const model = await ttsModel();
-            if (!model) {
-                throw new Error('Voiceover generation is not configured on this deployment.');
-            }
-
-            const speech = await synthesizeSpeech(text, key, model, process.env.NEXT_PUBLIC_OPENAI_API_BASE_URL, voice);
-            const assetName = voiceoverAssetName(text);
-            const file = new File([speech], `${assetName}.mp3`, { type: 'audio/mpeg' });
-            return uploadReferenceAudio(file, key, assetName);
-        },
-        [resolveKey]
-    );
-
-    const handleUploadVideo = React.useCallback(
-        async (file: File): Promise<string> => {
-            const key = await resolveKey();
-            if (!key) {
-                throw new Error('Sign in at xcity.ai before uploading video.');
-            }
-            return uploadReferenceVideo(file, key, fileNameWithoutExtension(file.name));
-        },
-        [resolveKey]
-    );
-
-    const handleGenerateImages = React.useCallback(
-        async (params: { prompt: string; model: string; size: ImageSizeId; n: number }): Promise<GeneratedImage[]> => {
-            const key = await resolveKey();
-            if (!key) {
-                throw new Error('Sign in at xcity.ai to generate images.');
-            }
-            return generateImages(params, key, process.env.NEXT_PUBLIC_OPENAI_API_BASE_URL);
-        },
-        [resolveKey]
-    );
-
-    /** 发送到图生视频 — resolve a public URL for the image and load it into the video form. */
     const handleAnimateImage = React.useCallback(
         async (record: ImageRecord) => {
             let url: string | null = null;
@@ -731,166 +621,12 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         [declareGeneratedReference, navigateToTab, resolveKey]
     );
 
-    const handleLoadAssets = React.useCallback(async () => {
-        if (!uploadEnabled) return [];
-        const key = await resolveKey();
-        if (!key) {
-            throw new Error('Sign in at xcity.ai to view your assets.');
-        }
-        return listUserAssets(key);
-    }, [resolveKey, uploadEnabled]);
-
-    const refreshImageAssets = React.useCallback(async () => {
-        if (!uploadEnabled) {
-            setImageAssets([]);
-            return;
-        }
-        setIsLoadingImageAssets(true);
-        try {
-            const assets = await handleLoadAssets();
-            setImageAssets(assets.filter((asset) => asset.kind === 'image'));
-        } catch (err) {
-            console.warn('Could not load image assets:', err);
-            setImageAssets([]);
-        } finally {
-            setIsLoadingImageAssets(false);
-        }
-    }, [handleLoadAssets, uploadEnabled]);
-
-    React.useEffect(() => {
-        if (!finalizeDialogItem) return;
-        void refreshImageAssets();
-    }, [finalizeDialogItem, refreshImageAssets]);
-
-    React.useEffect(() => {
-        if (activeTab !== 'image') return;
-        const refreshTimer = window.setTimeout(() => void refreshImageAssets(), 0);
-        return () => window.clearTimeout(refreshTimer);
-    }, [activeTab, refreshImageAssets]);
-
-    const handleStartPortraitSession = React.useCallback(
-        async (origin: string) => {
-            const key = await resolveKey();
-            if (!key) {
-                throw new Error('Sign in at xcity.ai before verifying a person.');
-            }
-            return createPortraitSession(origin, key);
-        },
-        [resolveKey]
-    );
-
-    const handleLoadPortraitGroups = React.useCallback(
-        async (type?: PortraitGroupQueryType) => {
-            const key = await resolveKey();
-            if (!key) {
-                throw new Error('Sign in at xcity.ai to view portrait groups.');
-            }
-            return (await listPortraitGroups(key, type)).groups;
-        },
-        [resolveKey]
-    );
-
-    React.useEffect(() => {
-        if (activeTab !== 'video' || !isPortraitEnabled) return;
-
-        let cancelled = false;
-        void (async () => {
-            const key = await resolveKey();
-            if (!key) {
-                if (!cancelled) setVirtualCharacterGroups([]);
-                return;
-            }
-
-            const groups = (await listPortraitGroups(key, 'aigc')).groups;
-            if (!cancelled) setVirtualCharacterGroups(groups);
-        })().catch((err) => {
-            if (err instanceof Error && err.message.toLowerCase().includes('authentication failed')) {
-                if (!cancelled) setVirtualCharacterGroups([]);
-                return;
-            }
-            console.warn('Could not load virtual character groups:', err);
-            if (!cancelled) setVirtualCharacterGroups([]);
+    const { virtualCharacterGroups, handleStartPortraitSession,
+        handleLoadPortraitGroups, handleLoadPortraitAssets, handleCreatePortraitGroup,
+        handleDeletePortraitGroup, handleCreatePortraitAsset, handleGetPortraitAsset,
+        handleGetPortraitStatus } = usePortraitActions({
+            resolveKey, apiKey, activeTab, isPortraitEnabled, projectDraft
         });
-
-        return () => {
-            cancelled = true;
-        };
-    }, [activeTab, isPortraitEnabled, resolveKey]);
-
-    const handleLoadPortraitAssets = React.useCallback(
-        async (type?: PortraitGroupQueryType) => {
-            const key = await resolveKey();
-            if (!key) {
-                throw new Error('Sign in at xcity.ai to view reviewed assets.');
-            }
-            return (await listPortraitAssets(key, type)).assets;
-        },
-        [resolveKey]
-    );
-
-    const handleCreatePortraitGroup = React.useCallback(
-        async (name: string) => {
-            const key = await resolveKey();
-            if (!key) {
-                throw new Error('Sign in at xcity.ai before creating a virtual character.');
-            }
-            const result = await createPortraitGroup(name, key);
-            projectDraft.createCharacterReferencePack(name, [], result.groupId);
-            return result;
-        },
-        [projectDraft, resolveKey]
-    );
-
-    const handleDeletePortraitGroup = React.useCallback(
-        async (groupId: string) => {
-            const key = await resolveKey();
-            if (!key) {
-                throw new Error('Sign in at xcity.ai before deleting a character group.');
-            }
-            await deletePortraitGroup(groupId, key);
-        },
-        [resolveKey]
-    );
-
-    const handleCreatePortraitAsset = React.useCallback(
-        async (input: { groupId: string; url: string; name: string; assetType?: 'Image' | 'Video' | 'Audio' }) => {
-            const key = await resolveKey();
-            if (!key) {
-                throw new Error('Sign in at xcity.ai before adding a portrait image.');
-            }
-            const result = await createPortraitAsset(input, key);
-            projectDraft.registerProjectAsset({
-                name: input.name,
-                kind: 'character',
-                sourceType: 'provider',
-                status: 'reviewing',
-                sourceUrl: input.url,
-                providerReferenceUrl: `asset://${result.assetId}`,
-                providerAssetId: result.assetId
-            });
-            return result;
-        },
-        [projectDraft, resolveKey]
-    );
-
-    const handleGetPortraitAsset = React.useCallback(
-        async (assetId: string) => {
-            const key = await resolveKey();
-            if (!key) {
-                throw new Error('Sign in at xcity.ai to check portrait image status.');
-            }
-            return getPortraitAsset(assetId, key);
-        },
-        [resolveKey]
-    );
-
-    const handleGetPortraitStatus = React.useCallback(async () => {
-        const key = await resolveKey();
-        if (!key) {
-            throw new Error('Sign in at xcity.ai to check the setup.');
-        }
-        return fetchPortraitStatus(key);
-    }, [resolveKey]);
 
     const handleReviewReferenceAsset = useProviderAssetReview({
         enabled: isPortraitEnabled,
