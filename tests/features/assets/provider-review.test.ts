@@ -1,14 +1,92 @@
-import { normalizeProviderAssetName, PROVIDER_ASSET_NAME_MAX_LENGTH } from '@/features/assets/portrait/name';
 import { portraitGroupLabel } from '@/features/assets/components/AssetsPanel/utils';
+import { reviewProviderAsset } from '@/features/assets/hooks/use-provider-asset-review';
+import { normalizeProviderAssetName, PROVIDER_ASSET_NAME_MAX_LENGTH } from '@/features/assets/portrait/name';
 import { portraitReferenceUrl } from '@/features/assets/portrait/reference';
 import { refKey, type ReferenceDeclaration } from '@/features/assets/reference/origin';
 import { parsePortraits } from '@/features/generation/history/portraits';
 import { providerReferenceUrl, withPortraitDeclarations } from '@/features/studio/components/StudioWorkspace/utils';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 const sourceUrl = 'https://media.xcity.ai/media/u/user/refs/material.png';
 
 describe('provider asset review state', () => {
+    it('reuses an existing approved source image without submitting a duplicate asset', async () => {
+        const existing = {
+            assetId: 'asset-1',
+            groupId: 'group-1',
+            groupType: 'AIGC' as const,
+            name: 'Material',
+            thumbUrl: sourceUrl,
+            status: 'Active' as const,
+            assetType: 'Image' as const,
+            updatedAt: 10
+        };
+        const createGroup = vi.fn(async () => ({ groupId: 'new-group' }));
+        const createAsset = vi.fn(async () => ({ assetId: 'new-asset', status: 'Processing' as const }));
+        const setDeclaration = vi.fn();
+        const result = await reviewProviderAsset(
+            {
+                enabled: true,
+                declarations: {},
+                syncCloudNow: async () => {},
+                syncNow: async () => {},
+                findAssetByUrl: () => existing,
+                saveAsset: () => {},
+                setDeclaration,
+                createGroup,
+                createAsset,
+                getAsset: async () => ({
+                    assetId: 'asset-1',
+                    groupId: 'group-1',
+                    status: 'Active',
+                    previewUrl: sourceUrl,
+                    failureReason: ''
+                })
+            },
+            { url: sourceUrl, name: 'Material', origin: 'uploaded' }
+        );
+
+        expect(result).toBe('asset://asset-1');
+        expect(createGroup).not.toHaveBeenCalled();
+        expect(createAsset).not.toHaveBeenCalled();
+        expect(setDeclaration).toHaveBeenCalledWith(
+            refKey(sourceUrl),
+            expect.objectContaining({ assetId: 'asset-1', origin: 'uploaded' })
+        );
+    });
+
+    it('tracks a new submission as processing before marking it active', async () => {
+        const saveAsset = vi.fn();
+        const setDeclaration = vi.fn();
+        const createGroup = vi.fn(async () => ({ groupId: 'group-1' }));
+        const result = await reviewProviderAsset(
+            {
+                enabled: true,
+                declarations: {},
+                syncCloudNow: async () => {},
+                syncNow: async () => {},
+                findAssetByUrl: () => undefined,
+                saveAsset,
+                setDeclaration,
+                createGroup,
+                createAsset: async () => ({ assetId: 'asset-1', status: 'Processing' }),
+                getAsset: async () => ({
+                    assetId: 'asset-1',
+                    groupId: 'group-1',
+                    status: 'Active',
+                    previewUrl: sourceUrl,
+                    failureReason: ''
+                })
+            },
+            { url: sourceUrl, name: 'Material', origin: 'uploaded', assetType: 'Video' }
+        );
+
+        expect(result).toBe('asset://asset-1');
+        expect(createGroup).toHaveBeenCalledWith('Reviewed materials');
+        expect(saveAsset.mock.calls.map(([asset]) => asset.status)).toEqual(['Processing', 'Active']);
+        expect(setDeclaration).toHaveBeenCalledWith(refKey(sourceUrl), expect.objectContaining({ assetId: 'asset-1' }));
+    });
+
     it('uses the project title instead of the provider slug for a generated asset directory', () => {
         expect(
             portraitGroupLabel(

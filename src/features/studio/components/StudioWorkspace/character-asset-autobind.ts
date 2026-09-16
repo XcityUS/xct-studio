@@ -134,14 +134,15 @@ export async function autoBindCharacterAssets(input: AutoBindCharacterAssetsInpu
     const latestAssets = [...input.imageAssets, ...(await input.loadImageAssets())];
     const usedUrls = new Set<string>();
     let nextDraft = structuredClone(input.draft);
-    const charactersToBind = input.draft.characters.filter(
-        (character) =>
-            (input.options?.targetId
-                ? character.id === input.options.targetId
-                : input.options?.forceGenerate || !character.assetId) &&
+    const charactersToBind = input.draft.characters.filter((character) => {
+        if (input.options?.targetId) return character.id === input.options.targetId;
+        return (input.options?.forceGenerate || !character.assetId) &&
             character.presence === 'on_screen' &&
-            input.draft.shots.some((shot) => shotUsesCharacter(shot, character))
-    );
+            input.draft.shots.some((shot) => shotUsesCharacter(shot, character));
+    });
+    if (input.options?.targetId && charactersToBind.length === 0) {
+        throw new Error('Character was not found in this draft.');
+    }
     let completed = 0;
 
     for (const character of charactersToBind) {

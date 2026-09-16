@@ -164,10 +164,9 @@
 }
 
 .assetRow {
-    grid-template-columns: minmax(4.25rem, 7rem) minmax(0, 1fr);
-    align-items: center;
-    gap: 0.65rem;
-    padding: 0.65rem;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
+    padding: 0.85rem;
 }
 
 .assetRow strong,
@@ -178,6 +177,9 @@
 .assetRow > div:first-child { min-width: 0; }
 
 .assetRow strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.assetHeading { display: flex; align-items: center; gap: 0.4rem; min-width: 0; }
+.assetHeading strong { min-width: 0; }
+.boundTag { flex: 0 0 auto; border: 1px solid var(--studio-success-border); border-radius: 999px; background: var(--studio-success-soft); padding: 0.08rem 0.4rem; color: var(--studio-success); font-size: 0.67rem; line-height: 1.25; white-space: nowrap; }
 
 .assetRow p,
 .shotRow p {
@@ -186,6 +188,16 @@
     overflow: hidden;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 1;
+}
+
+.bindingError {
+    margin: 0;
+    border: 1px solid var(--studio-danger);
+    border-radius: 0.55rem;
+    padding: 0.5rem 0.65rem;
+    color: var(--studio-danger);
+    font-size: 0.75rem;
+    overflow-wrap: anywhere;
 }
 
 .shotMeta {
@@ -338,12 +350,5 @@
 .textButton { justify-self: start; background: var(--studio-surface); color: var(--studio-foreground); }
 .textButton:disabled { cursor: not-allowed; opacity: 0.55; }
 .shotMeta button:disabled { cursor: not-allowed; opacity: 0.45; }
-
-@media (width <= 900px) {
-    .assetRow {
-        grid-template-columns: 1fr;
-        align-items: stretch;
-    }
-}
 
 @keyframes storyboard-spin { to { transform: rotate(360deg); } }

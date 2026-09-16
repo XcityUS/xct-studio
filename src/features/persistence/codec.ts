@@ -20,6 +20,7 @@ export const LEGACY_KEYS = [
     'soraVideoPortraits',
     'soraReferenceDeclarations',
     'xctStudioAssetNameAliases',
+    'xctStudioVerifiedPeople',
     ...SIMPLE_KEYS
 ];
 
@@ -141,12 +142,18 @@ export function encodeDocument(key: string, raw: string): BusinessChange[] {
         const assets = rows('provider_assets', 'library', value);
         return assets;
     }
-    if (key === 'soraReferenceDeclarations' || key === 'xctStudioAssetNameAliases') {
+    if (
+        key === 'soraReferenceDeclarations' ||
+        key === 'xctStudioAssetNameAliases' ||
+        key === 'xctStudioVerifiedPeople'
+    ) {
         if (!isObject(value)) throw new Error('INVALID_MAP');
         return Object.entries(value).map(([id, data]) =>
             key === 'soraReferenceDeclarations'
                 ? row('reference_declarations', 'library', id, data)
-                : row('user_preferences', 'asset-aliases', id, { value: data })
+                : row('user_preferences', key === 'xctStudioVerifiedPeople' ? 'verified-people' : 'asset-aliases', id, {
+                      value: data
+                  })
         );
     }
     return [row('user_preferences', 'preferences', key, { value })];
@@ -200,9 +207,18 @@ export function decodeDocument(key: string, records: BusinessRecord[]): string |
     if (key === QUEUE_KEY) return JSON.stringify(list('generation_jobs', 'queue'));
     if (key === 'soraVideoCharacters') return JSON.stringify(list('characters', 'library'));
     if (key === 'soraVideoPortraits') return JSON.stringify(list('provider_assets', 'library'));
-    if (key === 'soraReferenceDeclarations' || key === 'xctStudioAssetNameAliases') {
+    if (
+        key === 'soraReferenceDeclarations' ||
+        key === 'xctStudioAssetNameAliases' ||
+        key === 'xctStudioVerifiedPeople'
+    ) {
         const table = key === 'soraReferenceDeclarations' ? 'reference_declarations' : 'user_preferences';
-        const scope = key === 'soraReferenceDeclarations' ? 'library' : 'asset-aliases';
+        const scope =
+            key === 'soraReferenceDeclarations'
+                ? 'library'
+                : key === 'xctStudioVerifiedPeople'
+                  ? 'verified-people'
+                  : 'asset-aliases';
         return JSON.stringify(
             Object.fromEntries(
                 records

@@ -21,6 +21,19 @@ describe('PostgreSQL compatibility records', () => {
         expect(JSON.parse(decodeDocument(PROJECT_KEY, rows)!)).toEqual(state);
     });
 
+    it('persists verified-person names and covers separately per provider group', () => {
+        const profiles = {
+            'group-1': { name: 'Alex', coverUrl: 'https://example.com/cover.png', photoHashes: { abc: 'asset-1' } },
+            'group-2': { name: 'Sam' }
+        };
+        const rows = encodeDocument('xctStudioVerifiedPeople', JSON.stringify(profiles)).map((change) => ({
+            ...change,
+            revision: 1
+        }));
+        expect(rows.map((row) => row.scope)).toEqual(['verified-people', 'verified-people']);
+        expect(JSON.parse(decodeDocument('xctStudioVerifiedPeople', rows)!)).toEqual(profiles);
+    });
+
     it('preserves stable shot ids, order and character bindings', () => {
         const draft = {
             script: 'Story',

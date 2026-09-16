@@ -1,15 +1,41 @@
 .completedActions {
-    display: grid;
-    grid-auto-columns: minmax(0, 1fr);
-    grid-auto-flow: column;
+    display: flex;
     flex: 0 0 auto;
     gap: 12px;
     overflow-x: auto;
 
     :global([data-slot='button']) {
-        width: 100%;
-        min-width: 0;
-        overflow: hidden;
+        flex: 1 1 0;
+        min-width: max-content;
         padding-inline: 12px;
+        gap: 8px;
+        border-radius: 10px;
+        font-size: 0.875rem;
+        font-weight: 400;
+        letter-spacing: 0.01em;
+        box-shadow: none;
+
+        svg {
+            width: 17px;
+            height: 17px;
+            margin-right: 0;
+            stroke-width: 1.6;
+        }
+    }
+}
+
+:global(html[lang='en']) .completedActions {
+    gap: 6px;
+
+    :global([data-slot='button']) {
+        gap: 5px;
+        padding-inline: 8px;
+        font-size: 0.8125rem;
+        letter-spacing: 0;
+
+        svg {
+            width: 15px;
+            height: 15px;
+        }
     }
 }

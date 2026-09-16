@@ -1,4 +1,5 @@
 export type ReferenceOrigin =
+    | 'uploaded'
     | 'no-person'
     | 'official-asset'
     | 'byteplus-ai'
@@ -9,7 +10,7 @@ export type ReferenceOrigin =
 
 export type InlineReviewOrigin = Extract<
     ReferenceOrigin,
-    'no-person' | 'thirdparty-ai' | 'public-figure' | 'licensed-ip'
+    'uploaded' | 'no-person' | 'thirdparty-ai' | 'public-figure' | 'licensed-ip'
 >;
 
 export type ReferenceDeclaration = {
@@ -24,6 +25,7 @@ export type ReferenceDeclaration = {
 
 /** Display order mirrors the compliance path from immediately usable to blocked. */
 export const REFERENCE_ORIGINS: ReferenceOrigin[] = [
+    'uploaded',
     'byteplus-ai',
     'official-asset',
     'no-person',
@@ -38,6 +40,10 @@ export const ASSET_LIBRARY_MODEL_BLOCK_REASON =
 
 /** The form has to explain why an origin changes the submission path. */
 export const REFERENCE_ORIGIN_LABELS: Record<ReferenceOrigin, { label: string; hint: string }> = {
+    uploaded: {
+        label: 'Uploaded material',
+        hint: 'Studio submits this material for review automatically.'
+    },
     'official-asset': {
         label: 'Official material',
         hint: 'Use an existing approved Asset ID.'
@@ -129,8 +135,19 @@ export function originRequiresAuthorization(origin: ReferenceOrigin): boolean {
 
 export function originSupportsInlineReview(origin: ReferenceOrigin): origin is InlineReviewOrigin {
     return (
-        origin === 'no-person' || origin === 'thirdparty-ai' || origin === 'public-figure' || origin === 'licensed-ip'
+        origin === 'uploaded' ||
+        origin === 'no-person' ||
+        origin === 'thirdparty-ai' ||
+        origin === 'public-figure' ||
+        origin === 'licensed-ip'
     );
+}
+
+export function automaticReviewOrigin(declaration: ReferenceDeclaration | undefined): InlineReviewOrigin | null {
+    if (!declaration || (declaration.origin === 'byteplus-ai' && !isSeedreamExempt(declaration))) {
+        return 'uploaded';
+    }
+    return originSupportsInlineReview(declaration.origin) ? declaration.origin : null;
 }
 
 /**
@@ -155,7 +172,7 @@ export function declarationBlockReason(
     approvedAuthorizationIds?: ReadonlySet<string>
 ): string | null {
     void approvedAuthorizationIds;
-    if (!decl) return 'Choose where this image came from.';
+    if (!decl) return 'Review this material and attach its Asset ID before submitting.';
     if (decl.assetId) return null;
 
     if (decl.origin === 'byteplus-ai') {
@@ -166,6 +183,7 @@ export function declarationBlockReason(
     if (decl.origin === 'byteplus-ai') return 'Review this material and attach its Asset ID before submitting.';
     if (decl.origin === 'official-asset') return 'Attach the official Asset ID before submitting.';
     if (decl.origin === 'no-person') return 'Review this material and attach its Asset ID before submitting.';
+    if (decl.origin === 'uploaded') return 'Review this material and attach its Asset ID before submitting.';
     if (decl.origin === 'thirdparty-ai') {
         return 'Add this AI-generated material to the virtual asset library before submitting.';
     }

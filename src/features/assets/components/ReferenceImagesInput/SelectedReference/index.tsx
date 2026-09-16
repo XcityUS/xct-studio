@@ -4,7 +4,7 @@ import { ReferenceStatusBadge } from '../ReferenceStatusBadge';
 import { assetReferenceLabel } from '../utils';
 import styles from './index.module.scss';
 import { isAssetReferenceUrl, type ReferenceDeclaration } from '@/features/assets/reference/origin';
-import type { VideoPortrait } from '@/features/generation/history/merge';
+import type { VideoPortrait, VideoPortraitStatus } from '@/features/generation/history/merge';
 import { ImageOff, ShieldCheck, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import * as React from 'react';
@@ -13,11 +13,11 @@ type SelectedReferenceProps = {
     url: string;
     index: number;
     portrait?: VideoPortrait;
+    reviewStatus?: VideoPortraitStatus;
     declaration?: ReferenceDeclaration;
     approvedAuthorizationIds: ReadonlySet<string>;
     disabled?: boolean;
     onRemove: () => void;
-    onEdit: () => void;
 };
 
 function PreviewImage({ src, alt, fallback }: { src: string; alt: string; fallback: React.ReactNode }) {
@@ -38,11 +38,11 @@ export function SelectedReference({
     url,
     index,
     portrait,
+    reviewStatus,
     declaration,
     approvedAuthorizationIds,
     disabled,
-    onRemove,
-    onEdit
+    onRemove
 }: SelectedReferenceProps) {
     const t = useTranslations();
     const isAsset = isAssetReferenceUrl(url);
@@ -83,7 +83,7 @@ export function SelectedReference({
                 <ReferenceStatusBadge
                     declaration={declaration}
                     approvedAuthorizationIds={approvedAuthorizationIds}
-                    onEdit={disabled || isOfficialAsset ? undefined : onEdit}
+                    reviewStatus={reviewStatus}
                 />
             </div>
             <div className={styles.name}>{label}</div>
@@ -93,11 +93,6 @@ export function SelectedReference({
                 </div>
             ) : (
                 isAsset && <div className={styles.assetId}>{assetReferenceLabel(url)}</div>
-            )}
-            {declaration && !disabled && !isOfficialAsset && (
-                <button type='button' onClick={onEdit} className={styles.edit}>
-                    {t('Change reference origin')}
-                </button>
             )}
         </div>
     );

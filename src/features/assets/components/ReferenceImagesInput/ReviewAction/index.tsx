@@ -1,8 +1,7 @@
 'use client';
 
 import styles from './index.module.scss';
-import type { ProviderAssetReviewInput } from '@/features/assets/hooks/use-provider-asset-review';
-import { portraitReferenceUrl } from '@/features/assets/portrait/reference';
+import { ReviewImageError, type ProviderAssetReviewInput } from '@/features/assets/hooks/use-provider-asset-review';
 import type { InlineReviewOrigin } from '@/features/assets/reference/origin';
 import type { VideoPortrait } from '@/features/generation/history/merge';
 import { CheckCircle2, Loader2, RotateCcw, ShieldCheck } from 'lucide-react';
@@ -12,30 +11,31 @@ import * as React from 'react';
 type ReviewActionProps = {
     url: string;
     label: string;
+    name?: string;
     origin: InlineReviewOrigin;
     asset?: VideoPortrait;
+    autoSubmit?: boolean;
     disabled?: boolean;
     onReview: (input: ProviderAssetReviewInput) => Promise<string>;
     onApproved: (assetUrl: string) => void;
 };
-
-function shortAssetId(value: string): string {
-    return value.length > 12 ? `${value.slice(0, 5)}...${value.slice(-5)}` : value;
-}
 
 function ReviewStatus({ asset }: { asset: VideoPortrait }) {
     const t = useTranslations();
     return (
         <div className={styles.status} data-status={asset.status.toLowerCase()}>
             <span>
-                {asset.status === 'Active' ? t('Approved') : asset.status === 'Failed' ? t('Failed') : t('Under review')}
+                {asset.status === 'Active'
+                    ? t('Approved')
+                    : asset.status === 'Failed'
+                      ? t('Failed')
+                      : t('Under review')}
             </span>
-            <code>{shortAssetId(asset.assetId)}</code>
         </div>
     );
 }
 
-function useReviewSubmission(props: ReviewActionProps, name: string) {
+function useReviewSubmission(props: ReviewActionProps) {
     const t = useTranslations();
     const [isReviewing, setIsReviewing] = React.useState(false);
     const [error, setError] = React.useState('');
@@ -43,13 +43,14 @@ function useReviewSubmission(props: ReviewActionProps, name: string) {
         setIsReviewing(true);
         setError('');
         try {
-            const assetUrl =
-                props.asset?.status === 'Active'
-                    ? portraitReferenceUrl(props.asset.assetId)
-                    : await props.onReview({ url: props.url, origin: props.origin, name: name.trim() || props.label });
+            const assetUrl = await props.onReview({
+                url: props.url,
+                origin: props.origin,
+                name: props.name?.trim() || props.label
+            });
             props.onApproved(assetUrl);
         } catch (reviewError) {
-            setError(reviewError instanceof Error ? reviewError.message : t('Asset review failed'));
+            setError(reviewError instanceof ReviewImageError ? reviewError.message : t('Asset review failed'));
         } finally {
             setIsReviewing(false);
         }
@@ -58,11 +59,16 @@ function useReviewSubmission(props: ReviewActionProps, name: string) {
 }
 
 export function ReviewAction(props: ReviewActionProps) {
-    const { asset, disabled, origin } = props;
+    const { asset, disabled } = props;
     const t = useTranslations();
-    const [name, setName] = React.useState('');
-    const submission = useReviewSubmission(props, name);
+    const submission = useReviewSubmission(props);
+    const attempted = React.useRef(false);
     const status = asset?.status;
+    React.useEffect(() => {
+        if (!props.autoSubmit || disabled || status === 'Failed' || attempted.current) return;
+        attempted.current = true;
+        void submission.submit();
+    }, [disabled, props.autoSubmit, status, submission]);
     const actionLabel =
         status === 'Active'
             ? t('Use approved asset')
@@ -75,30 +81,23 @@ export function ReviewAction(props: ReviewActionProps) {
 
     return (
         <div className={styles.root}>
-            {origin !== 'no-person' && (
-                <input
-                    className={styles.input}
-                    value={name}
-                    onChange={(event) => setName(event.target.value)}
-                    placeholder={t('Asset name')}
-                    disabled={disabled || submission.isReviewing}
-                />
+            {(submission.isReviewing || !props.autoSubmit || status === 'Failed' || submission.error) && (
+                <button
+                    className={styles.button}
+                    type='button'
+                    onClick={() => void submission.submit()}
+                    disabled={disabled || submission.isReviewing}>
+                    {submission.isReviewing ? (
+                        <Loader2 className={styles.spinner} aria-hidden='true' />
+                    ) : (
+                        <ActionIcon aria-hidden='true' />
+                    )}
+                    {submission.isReviewing ? t('Review in progress') : actionLabel}
+                </button>
             )}
-            <button
-                className={styles.button}
-                type='button'
-                onClick={() => void submission.submit()}
-                disabled={disabled || submission.isReviewing}>
-                {submission.isReviewing ? (
-                    <Loader2 className={styles.spinner} aria-hidden='true' />
-                ) : (
-                    <ActionIcon aria-hidden='true' />
-                )}
-                {submission.isReviewing ? t('Review in progress') : actionLabel}
-            </button>
             {asset && <ReviewStatus asset={asset} />}
-            {(submission.error || asset?.failureReason) && (
-                <p className={styles.error}>{submission.error || asset?.failureReason}</p>
+            {(submission.error || asset?.status === 'Failed') && (
+                <p className={styles.error}>{submission.error || t('Asset review failed')}</p>
             )}
         </div>
     );

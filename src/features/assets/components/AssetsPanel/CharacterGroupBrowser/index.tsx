@@ -6,15 +6,36 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import type { PortraitGroup, ProviderLibraryAsset } from '@/features/assets/portrait/api';
 import type { UserAsset } from '@/lib/media-archive';
-import { ArrowLeft, ImageIcon, ImagePlus, Loader2, Sparkles, Trash2 } from 'lucide-react';
+import { ArrowLeft, Check, Copy, ImageIcon, ImagePlus, Loader2, Sparkles, Trash2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import * as React from 'react';
 
 type Draft = { assetKey: string; name: string };
+export type GroupedVerifiedPhoto = { assetId: string; groupId: string; name: string; previewUrl: string };
+
+function CopyAssetButton({ assetId }: { assetId: string }) {
+    const t = useTranslations();
+    const [state, setState] = React.useState<'idle' | 'copied' | 'failed'>('idle');
+    const label = state === 'copied' ? t('Copied') : state === 'failed' ? t('Copy failed') : t('Copy Asset ID');
+    const copy = async () => {
+        try {
+            await navigator.clipboard.writeText(`asset://${assetId}`);
+            setState('copied');
+        } catch {
+            setState('failed');
+        }
+    };
+    return (
+        <button type='button' className={styles.copyButton} aria-label={label} title={label} onClick={() => void copy()}>
+            {state === 'copied' ? <Check aria-hidden='true' /> : <Copy aria-hidden='true' />}
+        </button>
+    );
+}
 
 type CharacterGroupBrowserProps = {
     groups: PortraitGroup[];
     assets: ProviderLibraryAsset[];
+    verifiedPhotos: GroupedVerifiedPhoto[];
     sourceAssets: UserAsset[];
     drafts: Record<string, Draft>;
     addingGroupId: string | null;
@@ -30,6 +51,7 @@ type CharacterGroupBrowserProps = {
 export function CharacterGroupBrowser({
     groups,
     assets,
+    verifiedPhotos,
     sourceAssets,
     drafts,
     addingGroupId,
@@ -50,13 +72,16 @@ export function CharacterGroupBrowser({
             <div className={styles.groupGrid} aria-label={t('All character groups')}>
                 {groups.map((group) => {
                     const groupAssets = assets.filter((asset) => asset.groupId === group.id);
-                    const cover = groupAssets.find((asset) => asset.previewUrl)?.previewUrl;
+                    const groupPhotos = verifiedPhotos.filter((photo) => photo.groupId === group.id);
+                    const cover =
+                        groupAssets.find((asset) => asset.previewUrl)?.previewUrl ||
+                        groupPhotos.find((photo) => photo.previewUrl)?.previewUrl;
                     const label = groupLabel(group);
                     const isDeleting = deletingGroupId === group.id;
-                    const deleteBlocked = !assetInventoryReady || groupAssets.length > 0;
+                    const deleteBlocked = !assetInventoryReady || groupAssets.length > 0 || groupPhotos.length > 0;
                     const deleteReason = !assetInventoryReady
                         ? t('Asset inventory unavailable<semi> refresh before deleting this group')
-                        : groupAssets.length > 0
+                        : groupAssets.length > 0 || groupPhotos.length > 0
                           ? t('Only empty character groups can be deleted')
                           : t('Delete empty character group');
                     return (
@@ -77,7 +102,7 @@ export function CharacterGroupBrowser({
                                 <span className={styles.groupSummary}>
                                     <strong>{label}</strong>
                                     <span>
-                                        {t('Assets')} {groupAssets.length}
+                                        {t('Assets')} {groupAssets.length + groupPhotos.length}
                                     </span>
                                 </span>
                             </button>
@@ -98,6 +123,7 @@ export function CharacterGroupBrowser({
     }
 
     const selectedAssets = assets.filter((asset) => asset.groupId === selectedGroup.id);
+    const selectedPhotos = verifiedPhotos.filter((photo) => photo.groupId === selectedGroup.id);
     const draft = drafts[selectedGroup.id] ?? { assetKey: '', name: '' };
     const isAdding = addingGroupId === selectedGroup.id;
     return (
@@ -110,13 +136,26 @@ export function CharacterGroupBrowser({
                 <div className={styles.detailTitle}>
                     <strong>{groupLabel(selectedGroup)}</strong>
                     <span>
-                        {t('Assets')} {selectedAssets.length}
+                        {t('Assets')} {selectedAssets.length + selectedPhotos.length}
                     </span>
                 </div>
             </header>
 
-            {selectedAssets.length > 0 ? (
+            {selectedAssets.length + selectedPhotos.length > 0 ? (
                 <div className={styles.assetGrid}>
+                    {selectedPhotos.map((photo) => (
+                        <article className={styles.assetCard} key={`verified-${photo.assetId}`}>
+                            <div className={styles.assetPreview}>
+                                {/* eslint-disable-next-line @next/next/no-img-element -- reviewed private portrait URL */}
+                                <img src={photo.previewUrl} alt={photo.name} loading='lazy' />
+                            </div>
+                            <div className={styles.assetMeta}>
+                                <strong>{photo.name}</strong>
+                                <span>{t('Verified person photo')}</span>
+                            </div>
+                            <CopyAssetButton assetId={photo.assetId} />
+                        </article>
+                    ))}
                     {selectedAssets.map((asset) => (
                         <article className={styles.assetCard} key={asset.assetId}>
                             <div className={styles.assetPreview}>
@@ -137,6 +176,7 @@ export function CharacterGroupBrowser({
                                           : t('Under review')}
                                 </span>
                             </div>
+                            {asset.status === 'Active' && <CopyAssetButton assetId={asset.assetId} />}
                         </article>
                     ))}
                 </div>
@@ -176,9 +216,7 @@ export function CharacterGroupBrowser({
                     {t('Add character image')}
                 </Button>
             </div>
-            {sourceAssets.length === 0 && (
-                <p className={styles.hint}>{t('Upload or save an image asset first')}</p>
-            )}
+            {sourceAssets.length === 0 && <p className={styles.hint}>{t('Upload or save an image asset first')}</p>}
         </section>
     );
 }

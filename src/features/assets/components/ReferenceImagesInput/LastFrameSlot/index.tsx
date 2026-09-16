@@ -6,6 +6,7 @@ import { isHttpImageUrl } from '../utils';
 import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
 import { type ReferenceDeclaration } from '@/features/assets/reference/origin';
+import type { VideoPortraitStatus } from '@/features/generation/history/merge';
 import { cn } from '@/shared/utils/classnames';
 import { ImagePlus, Link2, Loader2, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -16,8 +17,8 @@ export type LastFrameSlotProps = {
     onChange: (url: string) => void;
     onUpload?: (file: File) => Promise<string>;
     declaration?: ReferenceDeclaration;
+    reviewStatus?: VideoPortraitStatus;
     approvedAuthorizationIds: ReadonlySet<string>;
-    onEditDeclaration?: () => void;
     disabled?: boolean;
 };
 
@@ -26,8 +27,8 @@ export function LastFrameSlot({
     onChange,
     onUpload,
     declaration,
+    reviewStatus,
     approvedAuthorizationIds,
-    onEditDeclaration,
     disabled
 }: LastFrameSlotProps) {
     const t = useTranslations();
@@ -98,7 +99,7 @@ export function LastFrameSlot({
                     <ReferenceStatusBadge
                         declaration={declaration}
                         approvedAuthorizationIds={approvedAuthorizationIds}
-                        onEdit={disabled ? undefined : onEditDeclaration}
+                        reviewStatus={reviewStatus}
                     />
                 </div>
             ) : (

@@ -1,6 +1,5 @@
 'use client';
 
-import { AssetReviewDialog } from '../AssetReviewDialog';
 import { CopyUrlButton } from '../CopyUrlButton';
 import type { AssetListItem, AssetReviewState } from '../asset-list';
 import { formatBytes, formatDate } from '../utils';
@@ -9,7 +8,7 @@ import { AssetPreviewDialog } from './AssetPreviewDialog';
 import styles from './index.module.scss';
 import type { ReferenceUseOptions } from '@/features/assets/components/AssetsPanel/types';
 import type { ProviderAssetReviewInput } from '@/features/assets/hooks/use-provider-asset-review';
-import { assetIdFromReferenceUrl, type InlineReviewOrigin } from '@/features/assets/reference/origin';
+import { originSupportsInlineReview } from '@/features/assets/reference/origin';
 import { cn } from '@/shared/utils/classnames';
 import {
     AlertCircle,
@@ -61,8 +60,6 @@ function ReviewActionShortLabel({ state }: { state: AssetReviewState }) {
     return t('Review');
 }
 
-const assetIdForItem = (item: AssetListItem): string | undefined =>
-    item.providerAsset?.assetId ?? item.portrait?.assetId ?? assetIdFromReferenceUrl(item.referenceUrl ?? '');
 export function AssetGrid({
     items,
     onDelete,
@@ -75,16 +72,37 @@ export function AssetGrid({
 }: AssetGridProps) {
     const t = useTranslations();
     const locale = useLocale();
-    const [reviewItem, setReviewItem] = React.useState<AssetListItem | null>(null);
+    const [reviewingKey, setReviewingKey] = React.useState<string | null>(null);
+    const [reviewError, setReviewError] = React.useState<{ key: string; message: string } | null>(null);
     const [previewItem, setPreviewItem] = React.useState<AssetListItem | null>(null);
 
-    const handleReference = (item: AssetListItem) => {
+    const handleReference = async (item: AssetListItem) => {
         if (item.reviewState === 'processing' && item.portrait) {
-            void onCheckReviewStatus(item.portrait);
+            await onCheckReviewStatus(item.portrait);
             return;
         }
         if (!item.referenceUrl) {
-            setReviewItem(item);
+            if (item.portrait?.groupType === 'LivenessFace') {
+                await onCheckReviewStatus(item.portrait);
+                return;
+            }
+            setReviewingKey(item.asset.key);
+            setReviewError(null);
+            try {
+                const previousOrigin = item.portrait?.referenceOrigin;
+                const referenceUrl = await onReview({
+                    url: item.asset.url,
+                    name: item.asset.name || item.asset.key.split('/').pop() || t('Image'),
+                    origin: previousOrigin && originSupportsInlineReview(previousOrigin) ? previousOrigin : 'uploaded',
+                    assetType: item.asset.kind === 'video' ? 'Video' : 'Image'
+                });
+                if (item.asset.kind === 'video') onUseVideo(item.asset.url, referenceUrl);
+                else onUseImage(item.asset.url, referenceUrl);
+            } catch {
+                setReviewError({ key: item.asset.key, message: t('Review submission failed') });
+            } finally {
+                setReviewingKey(null);
+            }
             return;
         }
         if (item.asset.kind === 'video') onUseVideo(item.asset.url, item.referenceUrl);
@@ -93,30 +111,14 @@ export function AssetGrid({
 
     return (
         <>
-            {reviewItem && (
-                <AssetReviewDialog
-                    key={reviewItem.asset.key}
-                    asset={reviewItem.asset}
-                    initialOrigin={reviewItem.portrait?.referenceOrigin as InlineReviewOrigin | undefined}
-                    onOpenChange={(open) => !open && setReviewItem(null)}
-                    onSubmit={async (input) => {
-                        if (!onReview) return;
-                        const referenceUrl = await onReview(input);
-                        if (reviewItem.asset.kind === 'video') onUseVideo(reviewItem.asset.url, referenceUrl);
-                        else onUseImage(reviewItem.asset.url, referenceUrl);
-                    }}
-                />
-            )}
             <AssetPreviewDialog item={previewItem} onOpenChange={(open) => !open && setPreviewItem(null)} />
             <div className={styles.grid}>
                 {items.map((item) => {
                     const { asset } = item;
                     const referenceUrl = item.referenceUrl;
                     const canUse = Boolean(referenceUrl);
-                    const hasAssetId = Boolean(assetIdForItem(item));
-                    const canSubmitForAssetId = Boolean(onReview) && asset.kind === 'image' && canUse && !hasAssetId;
                     const isReferenceMedia = asset.kind === 'image' || asset.kind === 'video';
-                    const isChecking = item.portrait?.assetId === checkingAssetId;
+                    const isChecking = item.portrait?.assetId === checkingAssetId || reviewingKey === asset.key;
                     const canDelete = item.source === 'cloud' || item.source === 'provider';
                     const deleteLabel =
                         item.source === 'provider' ? t('Remove from this workspace') : t('Delete from cloud storage');
@@ -179,7 +181,7 @@ export function AssetGrid({
                                                 type='button'
                                                 className={styles.action}
                                                 disabled={isChecking}
-                                                onClick={() => handleReference(item)}>
+                                                onClick={() => void handleReference(item)}>
                                                 {isChecking ? (
                                                     <Loader2 className={styles.spinner} />
                                                 ) : canUse ? (
@@ -192,15 +194,6 @@ export function AssetGrid({
                                                 <span className={styles.actionLabel}>
                                                     <ReviewActionShortLabel state={item.reviewState} />
                                                 </span>
-                                            </button>
-                                        )}
-                                        {canSubmitForAssetId && (
-                                            <button
-                                                type='button'
-                                                className={styles.action}
-                                                onClick={() => setReviewItem(item)}>
-                                                <ReviewIcon state='missing' />
-                                                <span className={styles.actionLabel}>{t('Review')}</span>
                                             </button>
                                         )}
                                         {asset.url && (
@@ -229,7 +222,7 @@ export function AssetGrid({
                                         type='button'
                                         className={styles.action}
                                         disabled={isChecking}
-                                        onClick={() => handleReference(item)}>
+                                        onClick={() => void handleReference(item)}>
                                         {isChecking ? (
                                             <Loader2 className={styles.spinner} />
                                         ) : canUse ? (
@@ -258,6 +251,7 @@ export function AssetGrid({
                                     />
                                 )}
                             </div>
+                            {reviewError?.key === asset.key && <p className={styles.error}>{reviewError.message}</p>}
                         </article>
                     );
                 })}

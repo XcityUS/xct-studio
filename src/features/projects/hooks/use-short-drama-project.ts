@@ -53,7 +53,11 @@ function shotIncludesAsset(shotAssetIds: string[] | undefined, asset: ProjectAss
     if (!shotAssetIds) return true;
     if (shotAssetIds.length === 0) return false;
     const providerAssetUrl = asset.providerAssetId ? `asset://${asset.providerAssetId}` : undefined;
-    return shotAssetIds.includes(asset.id) || Boolean(asset.providerAssetId && shotAssetIds.includes(asset.providerAssetId)) || Boolean(providerAssetUrl && shotAssetIds.includes(providerAssetUrl));
+    return (
+        shotAssetIds.includes(asset.id) ||
+        Boolean(asset.providerAssetId && shotAssetIds.includes(asset.providerAssetId)) ||
+        Boolean(providerAssetUrl && shotAssetIds.includes(providerAssetUrl))
+    );
 }
 
 export function useShortDramaProject() {
@@ -207,18 +211,54 @@ export function useShortDramaProject() {
         }));
     }, []);
 
-    const syncProjectAssetStatuses = React.useCallback((statusesByProviderAssetId: Record<string, ProjectAssetStatus>) => {
-        setState((current) => {
-            let changed = false;
-            const assets = current.assets.map((asset) => {
-                const nextStatus = asset.providerAssetId ? statusesByProviderAssetId[asset.providerAssetId] : undefined;
-                if (!nextStatus || asset.status === nextStatus) return asset;
-                changed = true;
-                return { ...asset, status: nextStatus, updatedAt: Date.now() };
-            });
-            return changed ? { ...current, assets } : current;
-        });
+    const archiveProviderAssets = React.useCallback((assetIds: string[]) => {
+        const deleted = new Set(assetIds);
+        setState((current) => ({
+            ...current,
+            assets: current.assets.map((asset) =>
+                asset.providerAssetId && deleted.has(asset.providerAssetId)
+                    ? { ...asset, status: 'archived', updatedAt: Date.now() }
+                    : asset
+            ),
+            characterVersions: current.characterVersions.map((version) => ({
+                ...version,
+                referenceAssetIds: version.referenceAssetIds.filter((id) => !deleted.has(id.replace(/^asset:\/\//, '')))
+            }))
+        }));
     }, []);
+
+    const addVerifiedPhoto = React.useCallback(
+        (input: { assetId: string; name: string; sourceUrl: string }) =>
+            registerProjectAsset({
+                name: input.name,
+                kind: 'character',
+                sourceType: 'real_person',
+                status: 'active',
+                sourceUrl: input.sourceUrl,
+                providerReferenceUrl: `asset://${input.assetId}`,
+                providerAssetId: input.assetId,
+                origin: 'real-person'
+            }),
+        [registerProjectAsset]
+    );
+
+    const syncProjectAssetStatuses = React.useCallback(
+        (statusesByProviderAssetId: Record<string, ProjectAssetStatus>) => {
+            setState((current) => {
+                let changed = false;
+                const assets = current.assets.map((asset) => {
+                    const nextStatus = asset.providerAssetId
+                        ? statusesByProviderAssetId[asset.providerAssetId]
+                        : undefined;
+                    if (!nextStatus || asset.status === nextStatus) return asset;
+                    changed = true;
+                    return { ...asset, status: nextStatus, updatedAt: Date.now() };
+                });
+                return changed ? { ...current, assets } : current;
+            });
+        },
+        []
+    );
 
     const createCharacterReferencePack = React.useCallback(
         (name: string, assetIds: string[], providerGroupId?: string) => {
@@ -231,9 +271,9 @@ export function useShortDramaProject() {
             setState((current) => {
                 const alreadyRegistered = Boolean(
                     providerGroupId &&
-                    current.characterVersions.some(
-                        (item) => item.projectId === activeProject.id && item.providerGroupId === providerGroupId
-                    )
+                        current.characterVersions.some(
+                            (item) => item.projectId === activeProject.id && item.providerGroupId === providerGroupId
+                        )
                 );
                 return alreadyRegistered
                     ? current
@@ -277,6 +317,8 @@ export function useShortDramaProject() {
         registerProjectAsset,
         updateProjectAssetKind,
         archiveProjectAsset,
+        archiveProviderAssets,
+        addVerifiedPhoto,
         syncProjectAssetStatuses,
         createCharacterReferencePack,
         buildProductionSnapshot

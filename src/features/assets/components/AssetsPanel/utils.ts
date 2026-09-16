@@ -1,6 +1,7 @@
 import type { AuthorizationTargetOption } from './types';
 import type { AuthorizationItem } from '@/features/assets/authorization/api';
-import { type PortraitGroup } from '@/features/assets/portrait/api';
+import { type PortraitGroup, type ProviderLibraryAsset } from '@/features/assets/portrait/api';
+import { uniqueVerifiedGroups } from '@/features/assets/portrait/people';
 import { refKey } from '@/features/assets/reference/origin';
 import type { ReferenceDeclaration } from '@/features/assets/reference/origin';
 import type { VideoPortrait } from '@/features/generation/history/merge';
@@ -16,13 +17,44 @@ export function portraitCollections(
         portrait.referenceOrigin ?? declarations[refKey(portrait.thumbUrl)]?.origin;
     return {
         imageAssets: (assets ?? []).filter((asset) => asset.kind === 'image'),
-        livenessGroups: (groups ?? []).filter((group) => group.groupType === 'LivenessFace'),
+        livenessGroups: uniqueVerifiedGroups((groups ?? []).filter((group) => group.groupType === 'LivenessFace')),
         virtualGroups: (groups ?? []).filter(isCharacterAssetGroup),
         verifiedPortraits: portraits.filter((portrait) => portrait.groupType === 'LivenessFace'),
         virtualPortraits: portraits.filter(
             (portrait) => portrait.groupType === 'AIGC' && originFor(portrait) === 'thirdparty-ai'
         )
     };
+}
+
+export function verifiedPhotosFor(portraits: VideoPortrait[], providerAssets: ProviderLibraryAsset[]): VideoPortrait[] {
+    const byId = new Map(
+        portraits.filter((item) => item.groupType === 'LivenessFace').map((item) => [item.assetId, item])
+    );
+    for (const asset of providerAssets) {
+        if (asset.groupType !== 'LivenessFace' || byId.has(asset.assetId)) continue;
+        byId.set(asset.assetId, {
+            assetId: asset.assetId,
+            groupId: asset.groupId,
+            groupType: 'LivenessFace',
+            name: asset.name,
+            thumbUrl: asset.previewUrl,
+            status: asset.status === 'Active' || asset.status === 'Failed' ? asset.status : 'Processing',
+            referenceOrigin: 'real-person',
+            updatedAt: Date.parse(asset.updatedAt) || 0
+        });
+    }
+    return [...byId.values()];
+}
+
+export function existingVerifiedPhoto(
+    photos: VideoPortrait[],
+    groupId: string,
+    sourceUrl: string
+): VideoPortrait | undefined {
+    const key = refKey(sourceUrl);
+    return photos.find(
+        (photo) => photo.groupId === groupId && refKey(photo.thumbUrl) === key && photo.status !== 'Failed'
+    );
 }
 
 export function isCharacterAssetGroup(group: PortraitGroup): boolean {

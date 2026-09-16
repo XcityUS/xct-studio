@@ -2,6 +2,8 @@
 
 import { compileShotPrompt } from '@/features/generation/components/CreationForm/shot-queue';
 import { AssetBindingPicker } from './AssetBindingPicker';
+import { isUsableAssetBinding } from './AssetBindingPicker/choices';
+import { useAssetReviewPolling } from './use-asset-review-polling';
 import type { AssetBindingOptions, SceneAssetBindingProgress, ShotVideoPreview as ShotVideoPreviewItem } from '@/features/generation/components/CreationForm/types';
 import type { EditorDraft } from '@/features/script/components/ShotBuilderDialog/draft';
 import { inferShotCharacterIds } from '@/features/script/character-matching';
@@ -31,6 +33,7 @@ type Props = {
     sceneAssetBindingError?: string | null;
     sceneAssetBindingProgress?: SceneAssetBindingProgress | null;
     onAutoBindCharacterAssets?: (options?: AssetBindingOptions) => void | Promise<void>;
+    onRefreshAssetStatus?: (assetId: string) => Promise<ProjectAsset['status']>;
     isAutoBindingCharacterAssets?: boolean;
     characterAssetBindingError?: string | null;
     characterAssetBindingProgress?: SceneAssetBindingProgress | null;
@@ -167,6 +170,7 @@ export function StoryboardDraftPanel({
     sceneAssetBindingError,
     sceneAssetBindingProgress,
     onAutoBindCharacterAssets,
+    onRefreshAssetStatus,
     isAutoBindingCharacterAssets = false,
     characterAssetBindingError,
     characterAssetBindingProgress
@@ -174,11 +178,18 @@ export function StoryboardDraftPanel({
     const t = useTranslations();
     const [tab, setTab] = React.useState<Tab>('shots');
     const [editingShotId, setEditingShotId] = React.useState<string | undefined>();
+    const reviewAttempts = useAssetReviewPolling(
+        draft?.shots.length ? [...draft.characters.map((character) => character.assetId), ...draft.scenes.map((scene) => scene.assetId)] : [],
+        assets,
+        onRefreshAssetStatus
+    );
     if (!draft || draft.shots.length === 0) return null;
 
     const totalDuration = draft.shots.reduce((sum, shot) => sum + (shot.durationSeconds ?? 0), 0);
     const sceneBindingPercent = sceneAssetBindingProgress?.total ? Math.round((sceneAssetBindingProgress.done / sceneAssetBindingProgress.total) * 100) : 0;
     const characterBindingPercent = characterAssetBindingProgress?.total ? Math.round((characterAssetBindingProgress.done / characterAssetBindingProgress.total) * 100) : 0;
+    const sceneAssetBindingTargetId = sceneAssetBindingProgress?.targetId;
+    const characterAssetBindingTargetId = characterAssetBindingProgress?.targetId;
     const sceneNames = new Map(draft.scenes.map((scene) => [scene.id, scene.name]));
     const sceneOptions = [{ value: 'unbound', label: t('No scene') }, ...draft.scenes.map((scene) => ({ value: scene.id, label: scene.name }))];
     const updateShot = (id: string, patch: Partial<EditorDraft['shots'][number]>) =>
@@ -263,25 +274,25 @@ export function StoryboardDraftPanel({
                             )}
                             {onAutoBindCharacterAssets && draft.characters.length > 0 && (
                                 <button type='button' className={styles.textButton} disabled={isAutoBindingCharacterAssets} onClick={() => onAutoBindCharacterAssets({ forceGenerate: true })}>
-                                    {isAutoBindingCharacterAssets ? <Loader2 className={styles.spinner} size={13} /> : <Wand2 size={13} />}
-                                    {isAutoBindingCharacterAssets ? t('Batch updating') : t('Batch update')}
+                                    {isAutoBindingCharacterAssets && !characterAssetBindingTargetId ? <Loader2 className={styles.spinner} size={13} /> : <Wand2 size={13} />}
+                                    {isAutoBindingCharacterAssets && !characterAssetBindingTargetId ? t('Batch updating') : t('Batch update')}
                                 </button>
                             )}
                             {onAutoBindCharacterAssets && draft.characters.some((character) => !character.assetId) && (
                                 <button type='button' className={styles.textButton} disabled={isAutoBindingCharacterAssets} onClick={() => onAutoBindCharacterAssets()}>
-                                    {isAutoBindingCharacterAssets ? <Loader2 className={styles.spinner} size={13} /> : <Wand2 size={13} />}
-                                    {isAutoBindingCharacterAssets ? t('Binding character assets') : t('Auto bind character assets')}
+                                    {isAutoBindingCharacterAssets && !characterAssetBindingTargetId ? <Loader2 className={styles.spinner} size={13} /> : <Wand2 size={13} />}
+                                    {isAutoBindingCharacterAssets && !characterAssetBindingTargetId ? t('Binding character assets') : t('Auto bind character assets')}
                                 </button>
                             )}
                         </div>
                     </div>
-                    {characterAssetBindingProgress && characterAssetBindingProgress.total > 0 && (
+                    {isAutoBindingCharacterAssets && !characterAssetBindingTargetId && characterAssetBindingProgress && characterAssetBindingProgress.total > 0 && (
                         <div className={styles.progress} aria-label={t('Progress')}>
                             <span style={{ width: `${characterBindingPercent}%` }} />
                             <em>{characterAssetBindingProgress.done}/{characterAssetBindingProgress.total}</em>
                         </div>
                     )}
-                    {characterAssetBindingError && <p className={styles.empty}>{characterAssetBindingError}</p>}
+                    {characterAssetBindingError && !characterAssetBindingTargetId && <p className={styles.bindingError} role='alert'>{characterAssetBindingError}</p>}
                     <div className={styles.stack}>
                         {draft.characters.length === 0 ? (
                             <p className={styles.empty}>{t('No characters extracted yet')}</p>
@@ -289,7 +300,10 @@ export function StoryboardDraftPanel({
                             draft.characters.map((character) => (
                                 <article className={styles.assetRow} key={character.id}>
                                     <div>
-                                        <strong title={character.name}>{character.name}</strong>
+                                        <div className={styles.assetHeading}>
+                                            <strong title={character.name}>{character.name}</strong>
+                                            {isUsableAssetBinding(character.assetId, assets) && <span className={styles.boundTag}>{t('Bound')}</span>}
+                                        </div>
                                         <p title={character.description || t('No description')}>
                                             {character.description || t('No description')}
                                         </p>
@@ -301,7 +315,12 @@ export function StoryboardDraftPanel({
                                         ariaLabel={t('Bind character asset')}
                                         onCommit={(assetId) => updateCharacterAsset(character.id, assetId)}
                                         onRegenerate={() => onAutoBindCharacterAssets?.({ targetId: character.id, forceGenerate: true })}
-                                        isRegenerating={isAutoBindingCharacterAssets}
+                                        onRefreshAssetStatus={onRefreshAssetStatus}
+                                        pollAttempt={onRefreshAssetStatus ? reviewAttempts[character.assetId ?? ''] ?? 0 : undefined}
+                                        generationLabel={t('Generate character image')}
+                                        generationError={characterAssetBindingTargetId === character.id ? characterAssetBindingError : null}
+                                        disabled={isAutoBindingCharacterAssets}
+                                        isRegenerating={isAutoBindingCharacterAssets && characterAssetBindingTargetId === character.id}
                                     />
                                 </article>
                             ))
@@ -321,25 +340,25 @@ export function StoryboardDraftPanel({
                             )}
                             {onAutoBindSceneAssets && draft.scenes.length > 0 && (
                                 <button type='button' className={styles.textButton} disabled={isAutoBindingSceneAssets} onClick={() => onAutoBindSceneAssets({ forceGenerate: true })}>
-                                    {isAutoBindingSceneAssets ? <Loader2 className={styles.spinner} size={13} /> : <Wand2 size={13} />}
-                                    {isAutoBindingSceneAssets ? t('Batch updating') : t('Batch update')}
+                                    {isAutoBindingSceneAssets && !sceneAssetBindingTargetId ? <Loader2 className={styles.spinner} size={13} /> : <Wand2 size={13} />}
+                                    {isAutoBindingSceneAssets && !sceneAssetBindingTargetId ? t('Batch updating') : t('Batch update')}
                                 </button>
                             )}
                             {onAutoBindSceneAssets && draft.scenes.some((scene) => !scene.assetId) && (
                                 <button type='button' className={styles.textButton} disabled={isAutoBindingSceneAssets} onClick={() => onAutoBindSceneAssets()}>
-                                    {isAutoBindingSceneAssets ? <Loader2 className={styles.spinner} size={13} /> : <Wand2 size={13} />}
-                                    {isAutoBindingSceneAssets ? t('Binding scene assets') : t('Auto bind scene assets')}
+                                    {isAutoBindingSceneAssets && !sceneAssetBindingTargetId ? <Loader2 className={styles.spinner} size={13} /> : <Wand2 size={13} />}
+                                    {isAutoBindingSceneAssets && !sceneAssetBindingTargetId ? t('Binding scene assets') : t('Auto bind scene assets')}
                                 </button>
                             )}
                         </div>
                     </div>
-                    {sceneAssetBindingProgress && sceneAssetBindingProgress.total > 0 && (
+                    {isAutoBindingSceneAssets && !sceneAssetBindingTargetId && sceneAssetBindingProgress && sceneAssetBindingProgress.total > 0 && (
                         <div className={styles.progress} aria-label={t('Progress')}>
                             <span style={{ width: `${sceneBindingPercent}%` }} />
                             <em>{sceneAssetBindingProgress.done}/{sceneAssetBindingProgress.total}</em>
                         </div>
                     )}
-                    {sceneAssetBindingError && <p className={styles.empty}>{sceneAssetBindingError}</p>}
+                    {sceneAssetBindingError && !sceneAssetBindingTargetId && <p className={styles.bindingError} role='alert'>{sceneAssetBindingError}</p>}
                     <div className={styles.stack}>
                         {draft.scenes.length === 0 ? (
                             <p className={styles.empty}>{t('No scenes extracted yet')}</p>
@@ -347,7 +366,10 @@ export function StoryboardDraftPanel({
                             draft.scenes.map((scene) => (
                                 <article className={styles.assetRow} key={scene.id}>
                                     <div>
-                                        <strong title={scene.name}>{scene.name}</strong>
+                                        <div className={styles.assetHeading}>
+                                            <strong title={scene.name}>{scene.name}</strong>
+                                            {isUsableAssetBinding(scene.assetId, assets) && <span className={styles.boundTag}>{t('Bound')}</span>}
+                                        </div>
                                         <p title={scene.description || t('No description')}>{scene.description || t('No description')}</p>
                                     </div>
                                     <AssetBindingPicker
@@ -357,7 +379,12 @@ export function StoryboardDraftPanel({
                                         ariaLabel={t('Bind scene reference')}
                                         onCommit={(assetId) => updateSceneAsset(scene.id, assetId)}
                                         onRegenerate={() => onAutoBindSceneAssets?.({ targetId: scene.id, forceGenerate: true })}
-                                        isRegenerating={isAutoBindingSceneAssets}
+                                        onRefreshAssetStatus={onRefreshAssetStatus}
+                                        pollAttempt={onRefreshAssetStatus ? reviewAttempts[scene.assetId ?? ''] ?? 0 : undefined}
+                                        generationLabel={t('Generate scene image')}
+                                        generationError={sceneAssetBindingTargetId === scene.id ? sceneAssetBindingError : null}
+                                        disabled={isAutoBindingSceneAssets}
+                                        isRegenerating={isAutoBindingSceneAssets && sceneAssetBindingTargetId === scene.id}
                                     />
                                 </article>
                             ))

@@ -95,7 +95,6 @@ export function CreationForm({
     referenceUrls,
     setReferenceUrls,
     declarations,
-    onDeclareReference,
     approvedAuthorizationIds,
     characters,
     portraits,
@@ -135,6 +134,7 @@ export function CreationForm({
     onBreakdownScript,
     onAutoBindSceneAssets,
     onAutoBindCharacterAssets,
+    onRefreshAssetStatus,
     projectAssets = [],
     projectConfig,
     buildProductionSnapshot,
@@ -575,6 +575,7 @@ export function CreationForm({
                             sceneAssetBindingError={sceneAssetAutobind.error}
                             sceneAssetBindingProgress={sceneAssetAutobind.progress}
                             onAutoBindCharacterAssets={characterAssetAutobind.run}
+                            onRefreshAssetStatus={onRefreshAssetStatus}
                             isAutoBindingCharacterAssets={characterAssetAutobind.busy}
                             characterAssetBindingError={characterAssetAutobind.error}
                             characterAssetBindingProgress={characterAssetAutobind.progress}
@@ -1081,7 +1082,6 @@ export function CreationForm({
                                 onLastFrameChange={setLastFrameUrl}
                                 onUpload={onUploadImage}
                                 declarations={declarations}
-                                onDeclare={onDeclareReference}
                                 approvedAuthorizationIds={approvedAuthorizationIds}
                                 onOpenAssets={onOpenAssets}
                                 portraits={portraits}

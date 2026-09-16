@@ -11,7 +11,7 @@ import * as React from 'react';
 
 type CallbackState =
     | { status: 'loading' }
-    | { status: 'verified'; groupId: string }
+    | { status: 'verified' }
     | {
           status: 'failed';
           reason: 'incomplete' | 'missingToken' | 'signInRequired' | 'confirmFailed';
@@ -56,7 +56,7 @@ export function PortraitCallback() {
                 const result = await resolvePortraitResult(bytedToken, key);
                 if (!cancelled) {
                     writePortraitVerificationResult(result.groupId);
-                    setState({ status: 'verified', groupId: result.groupId });
+                    setState({ status: 'verified' });
                     window.setTimeout(() => window.close(), 900);
                 }
             } catch (err) {
@@ -96,8 +96,7 @@ export function PortraitCallback() {
                             <ShieldCheck size={20} className={styles.success} aria-hidden='true' />
                             {t('Verified')}
                         </h1>
-                        <p>{t('Return to the studio and add photos of this person')}</p>
-                        <p className={styles.identifier}>{state.groupId}</p>
+                        <p>{t('Return to Studio to name this person and add photos')}</p>
                         <Link href='/assets' className={styles.returnLink}>
                             {t('Return to studio')}
                         </Link>

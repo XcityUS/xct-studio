@@ -4,26 +4,23 @@ import { LastFrameSlot } from './LastFrameSlot';
 import { ReferencePreview } from './ReferencePreview';
 import { ReviewAction } from './ReviewAction';
 import { SelectedReference } from './SelectedReference';
-import styles from './index.module.scss';
 import type { ReferenceImagesInputProps } from './types';
 import { declarationForUrl, isReferenceImagePortrait, isReferenceImageUrl } from './utils';
-import { Dropdown } from '@/components/ui/Dropdown';
 import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
 import { portraitReferenceUrl } from '@/features/assets/portrait/reference';
 import {
     ASSET_LIBRARY_MODEL_BLOCK_REASON,
+    automaticReviewOrigin,
     assetIdFromReferenceUrl,
     declarationSatisfied,
     originRequiresAssetLibrary,
-    originSupportsInlineReview,
-    refKey,
-    type ReferenceOrigin
+    refKey
 } from '@/features/assets/reference/origin';
 import { useReferenceCopy } from '@/features/assets/reference/use-copy';
 import { characterPreviewUrl } from '@/features/generation/history/characters';
 import { cn } from '@/shared/utils/classnames';
-import { ImagePlus, Link2, Loader2, UserRound, X } from 'lucide-react';
+import { ImagePlus, Link2, Loader2, UserRound } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import * as React from 'react';
 
@@ -42,7 +39,6 @@ export function ReferenceImagesInput({
     onLastFrameChange,
     onUpload,
     declarations,
-    onDeclare,
     approvedAuthorizationIds,
     onOpenAssets,
     characters = [],
@@ -68,7 +64,7 @@ export function ReferenceImagesInput({
     const [showUrlInput, setShowUrlInput] = React.useState(false);
     const [showStoredImages, setShowStoredImages] = React.useState(false);
     const [urlDraft, setUrlDraft] = React.useState('');
-    const [editingDeclarationKeys, setEditingDeclarationKeys] = React.useState<Set<string>>(() => new Set());
+    const [uploadedNames, setUploadedNames] = React.useState<Record<string, string>>({});
 
     const remaining = maxImages - urls.length;
     const canUpload = Boolean(onUpload);
@@ -85,52 +81,34 @@ export function ReferenceImagesInput({
         () => new Map(portraits.map((portrait) => [portrait.assetId, portrait])),
         [portraits]
     );
+    const portraitsBySource = React.useMemo(() => {
+        const bySource = new Map<string, (typeof portraits)[number]>();
+        for (const portrait of portraits) {
+            const key = refKey(portrait.thumbUrl);
+            const existing = bySource.get(key);
+            if (!existing || existing.updatedAt < portrait.updatedAt) bySource.set(key, portrait);
+        }
+        return bySource;
+    }, [portraits]);
     const unresolvedDeclarations = React.useMemo(() => {
         const items = urls.map((url, i) => ({ url, label: `Image ${i + 1}` }));
         if (lastFrameUrl.trim()) {
             items.push({ url: lastFrameUrl, label: 'Last frame' });
         }
         return items.filter(
-            (item) =>
-                editingDeclarationKeys.has(refKey(item.url)) ||
-                !declarationSatisfied(declarationForUrl(declarations, item.url), approvedAuthorizationIds)
+            (item) => !declarationSatisfied(declarationForUrl(declarations, item.url), approvedAuthorizationIds)
         );
-    }, [approvedAuthorizationIds, declarations, editingDeclarationKeys, lastFrameUrl, urls]);
+    }, [approvedAuthorizationIds, declarations, lastFrameUrl, urls]);
 
-    const editDeclarationForUrl = React.useCallback((url: string) => {
-        const key = refKey(url);
-        if (!key) return;
-        setEditingDeclarationKeys((current) => {
-            const next = new Set(current);
-            next.add(key);
-            return next;
-        });
-    }, []);
-
-    const closeDeclarationEditor = React.useCallback((url: string) => {
-        const key = refKey(url);
-        if (!key) return;
-        setEditingDeclarationKeys((current) => {
-            if (!current.has(key)) return current;
-            const next = new Set(current);
-            next.delete(key);
-            return next;
-        });
-    }, []);
-
-    const declareReference = React.useCallback(
-        (url: string, origin: ReferenceOrigin) => {
-            onDeclare(url, origin);
+    const uploadReference = React.useCallback(
+        async (file: File) => {
+            if (!onUpload) throw new Error(uploadFailedMessage);
+            const url = await onUpload(file);
             const key = refKey(url);
-            if (!key) return;
-            setEditingDeclarationKeys((current) => {
-                if (!current.has(key)) return current;
-                const next = new Set(current);
-                next.delete(key);
-                return next;
-            });
+            setUploadedNames((current) => ({ ...current, [key]: file.name.replace(/\.[^.]+$/, '').trim() }));
+            return url;
         },
-        [onDeclare]
+        [onUpload, uploadFailedMessage]
     );
 
     const addUrls = React.useCallback(
@@ -165,19 +143,19 @@ export function ReferenceImagesInput({
             if (!batch.length) return;
             setIsUploading(true);
             setUploadError(null);
+            const uploaded: string[] = [];
             try {
-                const uploaded: string[] = [];
                 for (const file of batch) {
-                    uploaded.push(await onUpload(file));
+                    uploaded.push(await uploadReference(file));
                 }
-                addUrls(uploaded);
             } catch (err) {
                 setUploadError(err instanceof Error ? err.message : uploadFailedMessage);
             } finally {
+                if (uploaded.length) addUrls(uploaded);
                 setIsUploading(false);
             }
         },
-        [addUrls, disabled, onUpload, remaining, uploadFailedMessage]
+        [addUrls, disabled, onUpload, remaining, uploadFailedMessage, uploadReference]
     );
 
     const removeAt = (index: number) => {
@@ -211,12 +189,14 @@ export function ReferenceImagesInput({
                                 key={`${url}-${i}`}
                                 url={url}
                                 index={i}
-                                portrait={assetId ? portraitsByAssetId.get(assetId) : undefined}
+                                portrait={
+                                    assetId ? portraitsByAssetId.get(assetId) : portraitsBySource.get(refKey(url))
+                                }
+                                reviewStatus={portraitsBySource.get(refKey(url))?.status}
                                 declaration={declaration}
                                 approvedAuthorizationIds={approvedAuthorizationIds}
                                 disabled={disabled}
                                 onRemove={() => removeAt(i)}
-                                onEdit={() => editDeclarationForUrl(url)}
                             />
                         );
                     })}
@@ -358,27 +338,24 @@ export function ReferenceImagesInput({
                 <LastFrameSlot
                     url={lastFrameUrl}
                     onChange={onLastFrameChange}
-                    onUpload={onUpload}
+                    onUpload={onUpload ? uploadReference : undefined}
                     declaration={declarationForUrl(declarations, lastFrameUrl)}
+                    reviewStatus={portraitsBySource.get(refKey(lastFrameUrl))?.status}
                     approvedAuthorizationIds={approvedAuthorizationIds}
-                    onEditDeclaration={() => editDeclarationForUrl(lastFrameUrl)}
                     disabled={disabled}
                 />
             )}
 
             {unresolvedDeclarations.length > 0 && (
                 <div className='space-y-2 rounded-md border border-amber-300/20 bg-amber-300/[0.06] p-3'>
-                    <p className='text-sm text-white'>{t('Where did these come from<q>')}</p>
+                    <p className='text-sm text-white'>{t('Needs review')}</p>
                     <div className='space-y-2'>
                         {unresolvedDeclarations.map((item) => {
                             const declaration = declarationForUrl(declarations, item.url);
                             const actionLabel = declaration?.origin
                                 ? referenceCopy.actionLabel(declaration.origin)
                                 : null;
-                            const reviewOrigin =
-                                declaration && originSupportsInlineReview(declaration.origin)
-                                    ? declaration.origin
-                                    : null;
+                            const reviewOrigin = automaticReviewOrigin(declaration);
                             const mappingGroup =
                                 declaration?.origin === 'thirdparty-ai'
                                     ? 'AIGC'
@@ -390,21 +367,18 @@ export function ReferenceImagesInput({
                                 : [];
                             const assetLibraryUnsupported =
                                 maxImages <= 1 &&
-                                Boolean(declaration && originRequiresAssetLibrary(declaration.origin));
+                                Boolean(
+                                    reviewOrigin || (declaration && originRequiresAssetLibrary(declaration.origin))
+                                );
                             const canSwitchToAssetModel = assetLibraryUnsupported && Boolean(onSwitchToAssetModel);
                             const canOpenAssets =
                                 Boolean(onOpenAssets) &&
                                 Boolean(declaration && originRequiresAssetLibrary(declaration.origin)) &&
                                 (!assetLibraryUnsupported || canSwitchToAssetModel);
                             const referenceKey = refKey(item.url);
-                            const isEditingDeclaration = editingDeclarationKeys.has(referenceKey);
                             const canReviewInline = Boolean(onReviewReferenceAsset) && Boolean(reviewOrigin);
                             const reviewUnavailable = Boolean(reviewOrigin) && !onReviewReferenceAsset;
-                            const reviewAsset = portraits
-                                .filter((portrait) => refKey(portrait.thumbUrl) === referenceKey)
-                                .reduce<
-                                    (typeof portraits)[number] | undefined
-                                >((latest, portrait) => (!latest || portrait.updatedAt > latest.updatedAt ? portrait : latest), undefined);
+                            const reviewAsset = portraitsBySource.get(referenceKey);
                             const referencedAssetId = assetIdFromReferenceUrl(item.url);
                             const referencePreviewUrl =
                                 (referencedAssetId ? portraitsByAssetId.get(referencedAssetId)?.thumbUrl : undefined) ??
@@ -421,7 +395,9 @@ export function ReferenceImagesInput({
                                     ? referenceCopy.translateMessage(ASSET_LIBRARY_MODEL_BLOCK_REASON)
                                     : declaration?.origin
                                       ? referenceCopy.originHint(declaration.origin)
-                                      : '';
+                                      : reviewOrigin
+                                        ? referenceCopy.originHint(reviewOrigin)
+                                        : '';
                             const displayLabel =
                                 item.label === 'Last frame'
                                     ? t('Last frame')
@@ -430,40 +406,16 @@ export function ReferenceImagesInput({
                                 <div
                                     key={`${item.label}-${item.url}`}
                                     className='space-y-3 rounded-md border border-white/10 bg-black/40 p-3'>
-                                    <div className='grid gap-3 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center'>
-                                        <div className='flex min-w-0 items-center gap-2'>
-                                            <ReferencePreview
-                                                url={item.url}
-                                                previewUrl={referencePreviewUrl}
-                                                alt={t('<lcur>label<rcur> declaration', { label: displayLabel })}
-                                                className='h-8 w-8'
-                                            />
-                                            <span className='min-w-0 text-xs text-white/50'>{displayLabel}</span>
-                                        </div>
-                                        <div className={styles.editorControls}>
-                                            <Dropdown
-                                                value={declaration?.origin ?? ''}
-                                                onValueChange={(value) =>
-                                                    declareReference(item.url, value as ReferenceOrigin)
-                                                }
-                                                disabled={disabled}
-                                                placeholder={t('Select origin')}
-                                                options={referenceCopy.originOptions}
-                                            />
-                                            {isEditingDeclaration && (
-                                                <button
-                                                    type='button'
-                                                    className={styles.closeEditor}
-                                                    onClick={() => closeDeclarationEditor(item.url)}
-                                                    disabled={disabled}
-                                                    title={t('Close')}
-                                                    aria-label={t('Close')}>
-                                                    <X aria-hidden='true' />
-                                                </button>
-                                            )}
-                                        </div>
+                                    <div className='flex min-w-0 items-center gap-2'>
+                                        <ReferencePreview
+                                            url={item.url}
+                                            previewUrl={referencePreviewUrl}
+                                            alt={t('<lcur>label<rcur> declaration', { label: displayLabel })}
+                                            className='h-8 w-8'
+                                        />
+                                        <span className='min-w-0 text-xs text-white/50'>{displayLabel}</span>
                                     </div>
-                                    {declaration?.origin && (
+                                    {(declaration?.origin || reviewOrigin) && (
                                         <div className='space-y-3 text-xs text-amber-100/80'>
                                             <div className='flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between'>
                                                 <span className='min-w-0 leading-5'>{originHint}</span>
@@ -538,15 +490,20 @@ export function ReferenceImagesInput({
                                                 <ReviewAction
                                                     url={item.url}
                                                     label={displayLabel}
+                                                    name={uploadedNames[referenceKey] || reviewAsset?.name}
                                                     origin={reviewOrigin}
                                                     asset={reviewAsset}
+                                                    autoSubmit={
+                                                        reviewOrigin === 'uploaded' ||
+                                                        reviewOrigin === 'no-person' ||
+                                                        reviewOrigin === 'thirdparty-ai'
+                                                    }
                                                     disabled={disabled}
                                                     onReview={onReviewReferenceAsset}
-                                                    onApproved={(assetUrl) => {
+                                                    onApproved={() => {
                                                         if (assetLibraryUnsupported) {
                                                             onSwitchToAssetModel?.();
                                                         }
-                                                        replaceUrl(item.url, assetUrl);
                                                     }}
                                                 />
                                             )}

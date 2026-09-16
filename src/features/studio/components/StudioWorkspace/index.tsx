@@ -64,6 +64,7 @@ import {
     type PortraitGroup,
     type PortraitGroupQueryType
 } from '@/features/assets/portrait/api';
+import { refreshProjectAssetStatus } from '@/features/assets/portrait/refresh-project-asset';
 import {
     ASSET_LIBRARY_MODEL_BLOCK_REASON,
     assetIdFromReferenceUrl,
@@ -193,7 +194,7 @@ type StudioWorkspaceProps = { locale: AppLocale };
 export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
     const t = useTranslations();
     const { activeTab, navigateToTab } = useStudioTabRouting(locale);
-    const [videoMode] = useVideoMode();
+    const [videoMode, setVideoMode] = useVideoMode();
     const [errorState, setErrorState] = React.useState<{ message: string; scope: ErrorScope } | null>(null);
     const setError = React.useCallback((message: string | null, scope: ErrorScope = 'create') => {
         setErrorState(message ? { message, scope } : null);
@@ -383,23 +384,6 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         setCreateWatermark(false);
         setCreateWatermarkText(BRANDING_WATERMARK_TEXT);
     }, [setError, videoMode]);
-
-    const handleDeclareReference = React.useCallback(
-        (url: string, origin: ReferenceOrigin) => {
-            const key = refKey(url);
-            if (!key) return;
-            const existing = declarations[key];
-            const assetId = assetIdFromReferenceUrl(url);
-            if (existing?.origin === origin && existing.assetId === assetId) return;
-            setDeclaration(key, {
-                ...(existing ?? {}),
-                origin,
-                declaredAt: Date.now(),
-                ...(assetId ? { assetId } : {})
-            });
-        },
-        [declarations, setDeclaration]
-    );
 
     const handleAttachAssetId = useAssetIdIntake({
         createModel,
@@ -3479,7 +3463,6 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                 imageAssets={imageAssets}
                 isLoadingImageAssets={isLoadingImageAssets}
                 onRefreshImageAssets={() => void refreshImageAssets()}
-                onDeclareReference={handleDeclareReference}
                 onReviewReferenceAsset={isPortraitEnabled ? handleReviewReferenceAsset : undefined}
                 onUploadImage={uploadEnabled ? handleUploadImage : undefined}
                 onOpenAssets={uploadEnabled || isPortraitEnabled ? () => navigateToTab('assets') : undefined}
@@ -3540,7 +3523,6 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                                 referenceUrls={createReferenceUrls}
                                 setReferenceUrls={setCreateReferenceUrls}
                                 declarations={effectiveDeclarations}
-                                onDeclareReference={handleDeclareReference}
                                 approvedAuthorizationIds={approvedAuthorizationIds}
                                 characters={characters}
                                 portraits={portraits}
@@ -3566,6 +3548,14 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                                 onBreakdownScript={handleBreakdownScript}
                                 onAutoBindSceneAssets={handleAutoBindSceneAssets}
                                 onAutoBindCharacterAssets={handleAutoBindCharacterAssets}
+                                onRefreshAssetStatus={(assetId) => refreshProjectAssetStatus({
+                                    assetId,
+                                    getAsset: handleGetPortraitAsset,
+                                    portraits,
+                                    savePortrait: addPortrait,
+                                    syncPortraitState: syncNow,
+                                    syncProjectStatuses: projectDraft.syncProjectAssetStatuses
+                                })}
                                 shotVideoPreviews={shotVideoPreviews}
                                 projectAssets={projectDraft.projectAssets}
                                 projectConfig={projectDraft.activeProject}
@@ -3806,9 +3796,16 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                                         onUseAsReferenceVideo={handleUseAssetAsReferenceVideo}
                                         onAttachAssetId={handleAttachAssetIdToProject}
                                         projectAssets={projectDraft.projectAssets}
+                                        currentProjectName={projectDraft.activeProject.title}
+                                        onOpenVideo={() => {
+                                            setVideoMode('drama');
+                                            navigateToTab('video');
+                                        }}
                                         onChangeProjectAssetKind={projectDraft.updateProjectAssetKind}
                                         onRemoveProjectAsset={projectDraft.archiveProjectAsset}
                                         onSyncProjectAssetStatuses={projectDraft.syncProjectAssetStatuses}
+                                        onArchiveVerifiedAssets={projectDraft.archiveProviderAssets}
+                                        onAddVerifiedToProject={projectDraft.addVerifiedPhoto}
                                         active={activeTab === 'assets'}
                                     />
                                 </div>

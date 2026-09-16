@@ -1,5 +1,6 @@
 import {
     assetIdFromReferenceUrl,
+    automaticReviewOrigin,
     declarationSatisfied,
     normalizeAssetId,
     originForGeneratedImage,
@@ -30,6 +31,15 @@ describe('reference asset admission', () => {
         expect(originForGeneratedImage('byteplus/seedance-2.5')).toBe('thirdparty-ai');
     });
 
+    it('routes unreviewed uploads to provider review without reclassifying approved or verified sources', () => {
+        expect(automaticReviewOrigin(undefined)).toBe('uploaded');
+        expect(automaticReviewOrigin(declaration('uploaded'))).toBe('uploaded');
+        expect(automaticReviewOrigin(declaration('byteplus-ai', { model: 'seedance-2.5' }))).toBe('uploaded');
+        expect(automaticReviewOrigin(declaration('byteplus-ai', { model: 'seedream-4.0' }))).toBeNull();
+        expect(automaticReviewOrigin(declaration('real-person'))).toBeNull();
+        expect(automaticReviewOrigin(declaration('official-asset', { assetId: 'asset-1' }))).toBeNull();
+    });
+
     it.each(['no-person', 'official-asset', 'thirdparty-ai', 'real-person', 'public-figure', 'licensed-ip'] as const)(
         'accepts admitted %s material with an Asset ID',
         (origin) => {
@@ -44,6 +54,7 @@ describe('reference asset admission', () => {
         expect(originRequiresAuthorization('public-figure')).toBe(false);
         expect(originRequiresAuthorization('licensed-ip')).toBe(false);
         expect(originSupportsInlineReview('no-person')).toBe(true);
+        expect(originSupportsInlineReview('uploaded')).toBe(true);
         expect(originSupportsInlineReview('thirdparty-ai')).toBe(true);
         expect(originSupportsInlineReview('real-person')).toBe(false);
         expect(originSupportsInlineReview('public-figure')).toBe(true);

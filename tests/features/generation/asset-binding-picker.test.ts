@@ -1,4 +1,4 @@
-import { reviewedAssetChoices } from '@/features/generation/components/CreationForm/StoryboardDraftPanel/AssetBindingPicker/choices';
+import { assetBindingStatus, isUsableAssetBinding, reviewedAssetChoices } from '@/features/generation/components/CreationForm/StoryboardDraftPanel/AssetBindingPicker/choices';
 import type { ProjectAsset } from '@/shared/contracts/production';
 import { describe, expect, it } from 'vitest';
 
@@ -28,5 +28,14 @@ describe('storyboard asset choices', () => {
                 asset('revoked', 'revoked', 'asset-4')
             ])
         ).toEqual([{ value: 'asset-3', name: 'ready' }]);
+    });
+
+    it('marks only usable bindings, while retaining the exact reason for a known blocked ID', () => {
+        const assets = [asset('pending', 'reviewing', 'asset-1'), asset('ready', 'active', 'asset-2')];
+        expect(assetBindingStatus('asset-1', assets)).toBe('reviewing');
+        expect(isUsableAssetBinding('asset-1', assets)).toBe(false);
+        expect(isUsableAssetBinding('asset-2', assets)).toBe(true);
+        expect(isUsableAssetBinding('historical-id', assets)).toBe(true);
+        expect(isUsableAssetBinding(undefined, assets)).toBe(false);
     });
 });

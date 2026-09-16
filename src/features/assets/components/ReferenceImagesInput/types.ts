@@ -1,6 +1,6 @@
 import type { ProviderAssetReviewInput } from '@/features/assets/hooks/use-provider-asset-review';
 import type { PortraitSetupRequest } from '@/features/assets/portrait/setup-flow';
-import { type ReferenceDeclaration, type ReferenceOrigin } from '@/features/assets/reference/origin';
+import type { ReferenceDeclaration } from '@/features/assets/reference/origin';
 import type { VideoCharacter, VideoPortrait } from '@/features/generation/history/merge';
 import type { UserAsset } from '@/lib/media-archive';
 
@@ -16,7 +16,6 @@ export interface ReferenceImagesInputProps {
     /** Uploads a local file and resolves to its public URL. Absent = URL-only mode. */
     onUpload?: (file: File) => Promise<string>;
     declarations: Record<string, ReferenceDeclaration>;
-    onDeclare: (url: string, origin: ReferenceOrigin) => void;
     approvedAuthorizationIds: ReadonlySet<string>;
     onOpenAssets?: (request?: PortraitSetupRequest) => void;
     characters?: VideoCharacter[];

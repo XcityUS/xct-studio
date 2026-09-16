@@ -180,7 +180,7 @@
 .assetCard {
     position: relative;
     display: grid;
-    grid-template-columns: 56px minmax(0, 1fr);
+    grid-template-columns: 56px minmax(0, 1fr) 32px;
     align-items: stretch;
     gap: 10px;
     min-width: 0;
@@ -222,6 +222,28 @@
 .assetMeta span[data-status='Failed'] {
     color: var(--studio-danger);
 }
+
+.copyButton {
+    display: grid;
+    width: 32px;
+    height: 32px;
+    align-self: center;
+    place-items: center;
+    border: 1px solid var(--studio-border);
+    border-radius: 7px;
+    color: var(--studio-muted);
+    background: var(--studio-surface);
+    cursor: pointer;
+}
+
+.copyButton:hover,
+.copyButton:focus-visible {
+    border-color: var(--studio-border-strong);
+    color: var(--studio-foreground);
+    background: var(--studio-hover);
+}
+
+.copyButton svg { width: 15px; height: 15px; }
 
 .empty,
 .hint {

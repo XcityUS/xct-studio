@@ -132,23 +132,3 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-
-.edit {
-    width: 100%;
-    margin-top: 5px;
-    overflow: hidden;
-    padding: 3px 6px;
-    border: 1px solid var(--studio-border);
-    border-radius: 4px;
-    background: var(--studio-surface-soft);
-    color: var(--studio-muted);
-    font-size: 10px;
-    line-height: 16px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.edit:hover {
-    border-color: var(--studio-border-strong);
-    color: var(--studio-foreground);
-}

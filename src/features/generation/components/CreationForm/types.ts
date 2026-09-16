@@ -1,7 +1,7 @@
 import type { ProviderAssetReviewInput } from '@/features/assets/hooks/use-provider-asset-review';
 import type { PortraitGroup } from '@/features/assets/portrait/api';
 import type { PortraitSetupRequest } from '@/features/assets/portrait/setup-flow';
-import { type ReferenceDeclaration, type ReferenceOrigin } from '@/features/assets/reference/origin';
+import type { ReferenceDeclaration } from '@/features/assets/reference/origin';
 import type { VideoCharacter, VideoPortrait } from '@/features/generation/hooks/use-video-history';
 import type { EditorDraft } from '@/features/script/components/ShotBuilderDialog/draft';
 import type { ScriptAnalysisDraft } from '@/features/script/types';
@@ -39,6 +39,7 @@ export type ShortDramaProjectControls = {
 export type SceneAssetBindingProgress = {
     done: number;
     total: number;
+    targetId?: string;
 };
 
 export type AssetBindingOptions = {
@@ -78,7 +79,6 @@ export type CreationFormProps = {
     referenceUrls: string[];
     setReferenceUrls: React.Dispatch<React.SetStateAction<string[]>>;
     declarations: Record<string, ReferenceDeclaration>;
-    onDeclareReference: (url: string, origin: ReferenceOrigin) => void;
     approvedAuthorizationIds: ReadonlySet<string>;
     characters: VideoCharacter[];
     portraits: VideoPortrait[];
@@ -135,6 +135,8 @@ export type CreationFormProps = {
         onProgress?: (draft: EditorDraft, progress: SceneAssetBindingProgress) => void,
         options?: AssetBindingOptions
     ) => Promise<EditorDraft>;
+    /** Queries the current provider status for a bound Project Asset and persists the result. */
+    onRefreshAssetStatus?: (assetId: string) => Promise<ProjectAsset['status']>;
     projectAssets?: ProjectAsset[];
     projectConfig?: ShortDramaProject;
     /** Captures the current Project and bound production assets before a generation request is persisted. */

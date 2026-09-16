@@ -22,6 +22,7 @@ export type ProjectAssetSourceType =
     | 'manual';
 
 export type ProductionReferenceOrigin =
+    | 'uploaded'
     | 'no-person'
     | 'official-asset'
     | 'byteplus-ai'

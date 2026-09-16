@@ -30,6 +30,7 @@ type Props = {
     sceneAssetBindingError?: string | null;
     sceneAssetBindingProgress?: SceneAssetBindingProgress | null;
     onAutoBindCharacterAssets?: (options?: AssetBindingOptions) => void | Promise<void>;
+    onRefreshAssetStatus?: (assetId: string) => Promise<ProjectAsset['status']>;
     isAutoBindingCharacterAssets?: boolean;
     characterAssetBindingError?: string | null;
     characterAssetBindingProgress?: SceneAssetBindingProgress | null;
@@ -70,6 +71,7 @@ export function DramaLaunchPanel({
     sceneAssetBindingError,
     sceneAssetBindingProgress,
     onAutoBindCharacterAssets,
+    onRefreshAssetStatus,
     isAutoBindingCharacterAssets,
     characterAssetBindingError,
     characterAssetBindingProgress
@@ -127,6 +129,7 @@ export function DramaLaunchPanel({
                         sceneAssetBindingError={sceneAssetBindingError}
                         sceneAssetBindingProgress={sceneAssetBindingProgress}
                         onAutoBindCharacterAssets={onAutoBindCharacterAssets}
+                        onRefreshAssetStatus={onRefreshAssetStatus}
                         isAutoBindingCharacterAssets={isAutoBindingCharacterAssets}
                         characterAssetBindingError={characterAssetBindingError}
                         characterAssetBindingProgress={characterAssetBindingProgress}

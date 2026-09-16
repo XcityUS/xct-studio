@@ -1,18 +1,10 @@
-import { REFERENCE_ORIGINS, type ReferenceOrigin } from './origin';
+import type { ReferenceOrigin } from './origin';
 import { useTranslations } from 'next-intl';
 
 export function useReferenceCopy() {
     const t = useTranslations();
-    const labels: Record<ReferenceOrigin, string> = {
-        'no-person': t('No person in this image'),
-        'official-asset': t('Official material'),
-        'byteplus-ai': t('AI<dash>generated <mdash> Studio'),
-        'thirdparty-ai': t('AI<dash>generated <mdash> other model'),
-        'real-person': t('A real person'),
-        'public-figure': t('Public figure'),
-        'licensed-ip': t('Celebrity or licensed character')
-    };
     const hints: Record<ReferenceOrigin, string> = {
+        uploaded: t('Review this material and bind its Asset ID before generation'),
         'no-person': t('Review this material and bind its Asset ID before generation'),
         'official-asset': t('Use an existing approved Asset ID'),
         'byteplus-ai': t('Created in Studio<dot> Ready to use'),
@@ -60,12 +52,14 @@ export function useReferenceCopy() {
     };
 
     return {
-        originOptions: REFERENCE_ORIGINS.map((origin) => ({ value: origin, label: labels[origin] })),
         originHint: (origin: ReferenceOrigin) => hints[origin],
         actionLabel: (origin: ReferenceOrigin) =>
             origin === 'byteplus-ai'
                 ? null
-                : origin === 'thirdparty-ai' || origin === 'public-figure' || origin === 'licensed-ip'
+                : origin === 'uploaded' ||
+                    origin === 'thirdparty-ai' ||
+                    origin === 'public-figure' ||
+                    origin === 'licensed-ip'
                   ? null
                   : origin === 'real-person' || origin === 'official-asset' || origin === 'no-person'
                     ? t('Set this up in Assets')

@@ -1,28 +1,38 @@
 'use client';
 
-import { AssetImageDropdown } from './AssetImageDropdown';
 import { AssetLibrary } from './AssetLibrary';
 import { AssetReviewHelp } from './AssetReviewHelp';
-import { AssetStrip } from './AssetStrip';
 import { CharacterDialog } from './CharacterDialog';
 import { CharacterGroupBrowser } from './CharacterGroupBrowser';
 import { DeleteCharacterGroupDialog } from './DeleteCharacterGroupDialog';
-import { PortraitPhotoUpload } from './PortraitPhotoUpload';
+import { VerifiedPersonCard } from './VerifiedPersonCard';
 import { buildAssetList, selectablePortraitSourceAssets } from './asset-list';
+import { applyAssetNameAlias, assetNameAliasKey, readAssetNameAliases, writeAssetNameAliases } from './asset-name-aliases';
 import styles from './index.module.scss';
 import type { AssetsPanelProps } from './types';
-import { defaultCharacterName, portraitCollections, portraitGroupLabel, shortAssetId } from './utils';
+import {
+    defaultCharacterName,
+    existingVerifiedPhoto,
+    portraitCollections,
+    portraitGroupLabel,
+    shortAssetId,
+    verifiedPhotosFor
+} from './utils';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { AssetIdIntake } from '@/features/assets/components/AssetIdIntake';
 import { ProviderErrorNotice } from '@/features/assets/components/ProviderErrorNotice';
+import { useDeleteVerifiedPerson } from '@/features/assets/hooks/use-delete-verified-person';
 import { usePortraitStatusCheck } from '@/features/assets/hooks/use-portrait-status-check';
 import { usePortraitVerificationResult } from '@/features/assets/hooks/use-portrait-verification-result';
 import { useProcessingPortraitRefresh } from '@/features/assets/hooks/use-processing-portrait-refresh';
 import { useProviderAssetList } from '@/features/assets/hooks/use-provider-asset-list';
+import { useVerifiedPeople } from '@/features/assets/hooks/use-verified-people';
+import { useVerifiedPhotoUpload } from '@/features/assets/hooks/use-verified-photo-upload';
 import { validateAssetImage } from '@/features/assets/image/validation';
 import type { PortraitGroup, PortraitGroupType } from '@/features/assets/portrait/api';
+import { groupVerifiedPhoto, groupedVerifiedPhotos } from '@/features/assets/portrait/group-verified-photo';
 import {
     clearPortraitVerificationResult,
     type PortraitVerificationResult
@@ -30,42 +40,10 @@ import {
 import { createAndTrackPortraitAsset } from '@/features/assets/portrait/track';
 import { assetIdFromReferenceUrl, refKey } from '@/features/assets/reference/origin';
 import { characterPreviewUrl } from '@/features/generation/history/characters';
-import { businessStorage } from '@/features/persistence/store';
 import type { UserAsset } from '@/lib/media-archive';
-import { ImagePlus, Loader2, RefreshCw, ShieldCheck, Sparkles, Trash2, UserRound } from 'lucide-react';
+import { Loader2, RefreshCw, ShieldCheck, Sparkles, Trash2, UserRound } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import * as React from 'react';
-
-const ASSET_NAME_ALIASES_STORAGE_KEY = 'xctStudioAssetNameAliases';
-
-function assetNameAliasKey(asset: UserAsset): string {
-    return asset.key || refKey(asset.url);
-}
-
-function readAssetNameAliases(): Record<string, string> {
-    if (typeof window === 'undefined') return {};
-    try {
-        const parsed = JSON.parse(businessStorage.getItem(ASSET_NAME_ALIASES_STORAGE_KEY) ?? '{}') as unknown;
-        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-        return Object.fromEntries(
-            Object.entries(parsed)
-                .map(([key, value]) => [key, typeof value === 'string' ? value.trim() : ''])
-                .filter(([, value]) => value)
-        );
-    } catch {
-        return {};
-    }
-}
-
-function writeAssetNameAliases(aliases: Record<string, string>) {
-    if (typeof window === 'undefined') return;
-    businessStorage.setItem(ASSET_NAME_ALIASES_STORAGE_KEY, JSON.stringify(aliases));
-}
-
-function applyAssetNameAlias(asset: UserAsset, aliases: Record<string, string>): UserAsset {
-    const alias = aliases[assetNameAliasKey(asset)]?.trim();
-    return alias ? { ...asset, name: alias } : asset;
-}
 
 export function AssetsPanel({
     loadAssets,
@@ -95,10 +73,10 @@ export function AssetsPanel({
     onUseAsReference,
     onUseAsReferenceVideo,
     onAttachAssetId,
-    projectAssets = [],
-    onChangeProjectAssetKind,
-    onRemoveProjectAsset,
+    onOpenVideo,
     onSyncProjectAssetStatuses,
+    onAddVerifiedToProject,
+    onArchiveVerifiedAssets,
     active
 }: AssetsPanelProps) {
     const t = useTranslations();
@@ -113,6 +91,7 @@ export function AssetsPanel({
     const unknownImageValidationNotice = t('Studio will validate this image after submission');
     const virtualCharacterAddedNotice = t('Virtual character image added');
     const verifiedPhotoAddedNotice = t('Verified photo added');
+    const duplicatePhotoNotice = t('This photo is already in the verified person');
     const portraitImageError = t('Could not add portrait image');
     const verificationCompleteNotice = t('Verification complete<dot> You can now upload photos of this person');
     const assetCharacterName = React.useCallback(
@@ -129,11 +108,13 @@ export function AssetsPanel({
     const [characterReferenceUrl, setCharacterReferenceUrl] = React.useState('');
     const [characterName, setCharacterName] = React.useState('');
     const [portraitGroups, setPortraitGroups] = React.useState<PortraitGroup[] | null>(null);
+    const { profiles: verifiedPeople, save: saveVerifiedPerson, remove: removeVerifiedPerson } = useVerifiedPeople();
     const [isLoadingPortraitGroups, setIsLoadingPortraitGroups] = React.useState(false);
     const [isStartingPortraitSession, setIsStartingPortraitSession] = React.useState(false);
     const [portraitVerificationUrl, setPortraitVerificationUrl] = React.useState<string | null>(null);
     const [isCreatingVirtualGroup, setIsCreatingVirtualGroup] = React.useState(false);
     const [deletingPortraitGroupId, setDeletingPortraitGroupId] = React.useState<string | null>(null);
+    const [deletingVerifiedGroupId, setDeletingVerifiedGroupId] = React.useState<string | null>(null);
     const [pendingDeleteGroup, setPendingDeleteGroup] = React.useState<PortraitGroup | null>(null);
     const [virtualCharacterName, setVirtualCharacterName] = React.useState('');
     const [portraitError, setPortraitError] = React.useState<string | null>(null);
@@ -254,21 +235,19 @@ export function AssetsPanel({
         }
     }, [active, portraitEnabled, refreshPortraitGroups]);
 
-    const receiveVerification = React.useCallback((result: PortraitVerificationResult) => {
-        if (receivedVerificationRef.current === result.completedAt) return;
-        if (pendingPortraitSetup && result.completedAt < pendingPortraitSetup.requestedAt) return;
-        receivedVerificationRef.current = result.completedAt;
-        setVerifiedSetupGroupId(result.groupId);
-        setPortraitVerificationUrl(null);
-        setPortraitNotice(verificationCompleteNotice);
-        void Promise.all([refreshPortraitGroups(), refreshProviderAssets()]);
-        if (!pendingPortraitSetup) clearPortraitVerificationResult();
-    }, [
-        pendingPortraitSetup,
-        refreshPortraitGroups,
-        refreshProviderAssets,
-        verificationCompleteNotice
-    ]);
+    const receiveVerification = React.useCallback(
+        (result: PortraitVerificationResult) => {
+            if (receivedVerificationRef.current === result.completedAt) return;
+            if (pendingPortraitSetup && result.completedAt < pendingPortraitSetup.requestedAt) return;
+            receivedVerificationRef.current = result.completedAt;
+            setVerifiedSetupGroupId(result.groupId);
+            setPortraitVerificationUrl(null);
+            setPortraitNotice(verificationCompleteNotice);
+            void Promise.all([refreshPortraitGroups(), refreshProviderAssets()]);
+            if (!pendingPortraitSetup) clearPortraitVerificationResult();
+        },
+        [pendingPortraitSetup, refreshPortraitGroups, refreshProviderAssets, verificationCompleteNotice]
+    );
     usePortraitVerificationResult(active && portraitEnabled, receiveVerification);
 
     const deletedIdSet = React.useMemo(() => new Set(deletedIds), [deletedIds]);
@@ -370,9 +349,17 @@ export function AssetsPanel({
         handleCharacterDialogOpenChange(false);
     };
 
-    const { livenessGroups, virtualGroups, verifiedPortraits } = React.useMemo(
+    const { livenessGroups, virtualGroups } = React.useMemo(
         () => portraitCollections(assets, portraitGroups, portraits, declarations),
         [assets, declarations, portraitGroups, portraits]
+    );
+    const verifiedPhotos = React.useMemo(
+        () => verifiedPhotosFor(portraits, visibleProviderAssets),
+        [portraits, visibleProviderAssets]
+    );
+    const groupedPhotos = React.useMemo(
+        () => groupedVerifiedPhotos(verifiedPhotos, verifiedPeople),
+        [verifiedPhotos, verifiedPeople]
     );
     useProcessingPortraitRefresh({
         active,
@@ -451,6 +438,29 @@ export function AssetsPanel({
         }
     };
 
+    const saveVerifiedPhotoToGroup = async (
+        photo: (typeof verifiedPhotos)[number],
+        groupId: string | null,
+        newGroupName: string
+    ) => {
+        const result = await groupVerifiedPhoto({
+            photo,
+            groupId,
+            newGroupName,
+            groups: virtualGroups,
+            profile: verifiedPeople[photo.groupId],
+            createGroup: createPortraitGroup,
+            saveProfile: saveVerifiedPerson,
+            addToProject: onAddVerifiedToProject
+        });
+        if (result.created)
+            setPortraitGroups((current) =>
+                current?.some((group) => group.id === result.group.id) ? current : [...(current ?? []), result.group]
+            );
+        setPortraitNotice(t('Photo saved to character group'));
+        if (result.created) void refreshPortraitGroups();
+    };
+
     const removeVirtualGroupLocally = (groupId: string) => {
         const deletedAssetIds = new Set([
             ...portraits.filter((portrait) => portrait.groupId === groupId).map((portrait) => portrait.assetId),
@@ -475,7 +485,10 @@ export function AssetsPanel({
             setPendingDeleteGroup(null);
             return;
         }
-        if (visibleProviderAssets.some((asset) => asset.groupId === group.id)) {
+        if (
+            visibleProviderAssets.some((asset) => asset.groupId === group.id) ||
+            groupedPhotos.some((photo) => photo.groupId === group.id)
+        ) {
             setCharacterGroupError(t('Only empty character groups can be deleted'));
             setPendingDeleteGroup(null);
             return;
@@ -519,6 +532,18 @@ export function AssetsPanel({
             setOperationError(null);
             setOperationNotice(null);
             try {
+                const duplicate =
+                    groupType === 'LivenessFace' && existingVerifiedPhoto(verifiedPhotos, groupId, sourceUrl);
+                if (duplicate) {
+                    setOperationNotice(duplicatePhotoNotice);
+                    return {
+                        assetId: duplicate.assetId,
+                        groupId,
+                        status: duplicate.status,
+                        previewUrl: duplicate.thumbUrl,
+                        failureReason: ''
+                    };
+                }
                 const validation = await validateAssetImage(sourceUrl);
                 if (validation.status === 'rejected') {
                     throw new Error(invalidReferenceImageError);
@@ -575,7 +600,9 @@ export function AssetsPanel({
             unknownImageValidationNotice,
             upsertProviderAsset,
             verifiedPhotoAddedNotice,
-            virtualCharacterAddedNotice
+            virtualCharacterAddedNotice,
+            verifiedPhotos,
+            duplicatePhotoNotice
         ]
     );
 
@@ -602,18 +629,36 @@ export function AssetsPanel({
             onPortraitSetupComplete?.({ ...pendingPortraitSetup, assetId: providerAsset.assetId, groupId });
         }
     };
-    const handleUploadPortraitPhoto = async (groupId: string, file: File) => {
-        if (!uploadImage) return;
-        setPortraitError(null);
-        try {
-            const sourceUrl = await uploadImage(file);
-            const name = file.name.replace(/\.[^.]+$/, '').trim() || characterFallback;
-            await submitPortraitAsset(groupId, 'LivenessFace', sourceUrl, name);
-            await refresh();
-        } catch (error) {
-            setPortraitError(t('Could not upload photo<colon> <lcur>error<rcur>', { error: errorMessage(error) }));
-        }
-    };
+    const { upload: handleUploadPortraitPhoto, uploadingGroupId } = useVerifiedPhotoUpload({
+        uploadImage,
+        profiles: verifiedPeople,
+        photos: verifiedPhotos,
+        saveProfile: saveVerifiedPerson,
+        submit: submitPortraitAsset,
+        refresh,
+        setError: setPortraitError,
+        setNotice: setPortraitNotice
+    });
+
+    const handleDeleteVerifiedPerson = useDeleteVerifiedPerson({
+        photos: verifiedPhotos,
+        profiles: verifiedPeople,
+        deleteGroup: deletePortraitGroup,
+        removePortrait,
+        archiveAssets: onArchiveVerifiedAssets,
+        removeProfile: removeVerifiedPerson,
+        onDeleted: (groupId) => {
+            if (verifiedSetupGroupId === groupId) {
+                setVerifiedSetupGroupId(null);
+                clearPortraitVerificationResult();
+            }
+        },
+        refreshAssets: refreshProviderAssets,
+        setGroups: setPortraitGroups,
+        setDeletingId: setDeletingVerifiedGroupId,
+        setError: setPortraitError,
+        setNotice: setPortraitNotice
+    });
 
     React.useEffect(() => {
         if (!pendingPortraitSetup || !verifiedSetupGroupId || addingPortraitGroupId) return;
@@ -828,8 +873,6 @@ export function AssetsPanel({
                             <ProviderErrorNotice error={portraitError} />
                         )}
 
-                        <AssetStrip assets={verifiedPortraits} kind='verified' onRemove={removePortrait} />
-
                         {isLoadingPortraitGroups && portraitGroups === null ? (
                             <div className='flex items-center gap-2 text-xs text-white/40'>
                                 <Loader2 className='h-3 w-3 animate-spin' />
@@ -841,69 +884,30 @@ export function AssetsPanel({
                                     const draft = portraitDrafts[group.id] ?? { assetKey: '', name: '' };
                                     const isAdding = addingPortraitGroupId === group.id;
                                     return (
-                                        <div
+                                        <VerifiedPersonCard
                                             key={group.id}
-                                            className='space-y-2 rounded-md border border-white/10 bg-white/[0.03] p-2'>
-                                            <div className='flex items-center justify-between gap-2'>
-                                                <div className='flex min-w-0 items-center gap-1.5 text-xs text-white/70'>
-                                                    <ShieldCheck className='h-3.5 w-3.5 shrink-0 text-emerald-300' />
-                                                    <span className='truncate'>
-                                                        {group.name || t('Verified people')}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                            <div className='grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(8rem,12rem)_auto]'>
-                                                <AssetImageDropdown
-                                                    ariaLabel={t('Image asset')}
-                                                    assets={selectableImageAssets}
-                                                    value={draft.assetKey}
-                                                    onValueChange={(value, asset) => {
-                                                        updatePortraitDraft(group.id, {
-                                                            assetKey: value,
-                                                            name: draft.name || (asset ? assetCharacterName(asset) : '')
-                                                        });
-                                                    }}
-                                                    disabled={isAdding}
-                                                    placeholder={t('Choose image asset')}
-                                                    labelFor={(asset) => asset.name || assetCharacterName(asset)}
-                                                />
-                                                <Input
-                                                    value={draft.name}
-                                                    onChange={(event) =>
-                                                        updatePortraitDraft(group.id, { name: event.target.value })
-                                                    }
-                                                    placeholder={t('Name')}
-                                                    disabled={isAdding}
-                                                    className='h-8 rounded-md border border-white/20 bg-black text-xs text-white placeholder:text-white/40 focus:border-white/50 focus:ring-white/50'
-                                                />
-                                                <Button
-                                                    type='button'
-                                                    size='sm'
-                                                    onClick={() =>
-                                                        void handleAddPortraitAsset(group.id, 'LivenessFace')
-                                                    }
-                                                    disabled={isAdding || !draft.assetKey}
-                                                    className='h-8 bg-white text-xs text-black hover:bg-white/90 disabled:bg-white/40'>
-                                                    {isAdding ? (
-                                                        <Loader2 className='h-3 w-3 animate-spin' />
-                                                    ) : (
-                                                        <ImagePlus className='h-3 w-3' />
-                                                    )}
-                                                    {t('Add verified photo')}
-                                                </Button>
-                                            </div>
-                                            {uploadImage && (
-                                                <div className={styles.portraitUploadRow}>
-                                                    <PortraitPhotoUpload
-                                                        disabled={isAdding}
-                                                        onUpload={(file) => handleUploadPortraitPhoto(group.id, file)}
-                                                    />
-                                                    <span>
-                                                        {t('Upload a new photo or choose one already in Assets')}
-                                                    </span>
-                                                </div>
-                                            )}
-                                        </div>
+                                            group={group}
+                                            profile={verifiedPeople[group.id] ?? { name: '' }}
+                                            photos={verifiedPhotos.filter((photo) => photo.groupId === group.id)}
+                                            sourceAssets={selectableImageAssets}
+                                            characterGroups={virtualGroups}
+                                            draft={draft}
+                                            busy={isAdding || uploadingGroupId === group.id}
+                                            deleting={deletingVerifiedGroupId === group.id}
+                                            newlyVerified={verifiedSetupGroupId === group.id}
+                                            canUpload={Boolean(uploadImage)}
+                                            onProfileChange={(patch) => saveVerifiedPerson(group.id, patch)}
+                                            onCoverUpload={async (file) => {
+                                                if (!uploadImage) throw new Error('Upload unavailable');
+                                                saveVerifiedPerson(group.id, { coverUrl: await uploadImage(file) });
+                                            }}
+                                            onDraftChange={(patch) => updatePortraitDraft(group.id, patch)}
+                                            onAddPhoto={() => void handleAddPortraitAsset(group.id, 'LivenessFace')}
+                                            onUploadPhoto={(file) => handleUploadPortraitPhoto(group.id, file)}
+                                            onDelete={() => void handleDeleteVerifiedPerson(group)}
+                                            onSaveToGroup={saveVerifiedPhotoToGroup}
+                                            onOpenVideo={() => onOpenVideo?.()}
+                                        />
                                     );
                                 })}
                             </div>
@@ -921,7 +925,7 @@ export function AssetsPanel({
                                     </h3>
                                     <p className='mt-1 text-xs text-white/40'>
                                         {t(
-                                            'A character group stores multiple reviewed images for the same virtual character'
+                                            'Organize reviewed character images and verified person photos in one place'
                                         )}
                                     </p>
                                 </div>
@@ -966,6 +970,7 @@ export function AssetsPanel({
                                 <CharacterGroupBrowser
                                     groups={virtualGroups}
                                     assets={visibleProviderAssets}
+                                    verifiedPhotos={groupedPhotos}
                                     sourceAssets={selectableImageAssets}
                                     drafts={portraitDrafts}
                                     addingGroupId={addingPortraitGroupId}

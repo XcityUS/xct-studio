@@ -26,6 +26,7 @@ function useAssetIdIntakeForm(onAttachAssetId: AssetIdIntakeProps['onAttachAsset
     const [note, setNote] = React.useState('');
     const [notice, setNotice] = React.useState('');
     const sourceLabels: Record<ReferenceOrigin, string> = {
+        uploaded: t('Needs review'),
         'no-person': t('Reviewed material without a person or protected IP'),
         'official-asset': t('Official asset'),
         'byteplus-ai': t('Seedream output'),

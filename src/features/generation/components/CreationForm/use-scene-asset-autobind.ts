@@ -29,17 +29,21 @@ export function useSceneAssetAutobind({
         const total = getTotal(draft, options);
         setBusy(true);
         setError(null);
-        setProgress({ done: 0, total });
+        setProgress({ done: 0, total, targetId: options?.targetId });
+        let failed = false;
         try {
             const nextDraft = await onAutoBind(draft, (nextDraft, nextProgress) => {
-                setProgress(nextProgress);
+                setProgress({ ...nextProgress, targetId: options?.targetId });
                 onDraftChange(structuredClone(nextDraft), draft);
             }, options);
             onDraftChange(structuredClone(nextDraft), draft);
         } catch (err) {
+            failed = true;
             setError(err instanceof Error ? err.message : fallbackError);
         } finally {
             setBusy(false);
+            // Keep the attempted row identity on failure so its error can render beside the control.
+            if (!failed) setProgress(null);
         }
     }, [busy, draft, fallbackError, getTotal, onAutoBind, onDraftChange]);
     return { busy, error, progress, run: onAutoBind ? run : undefined };

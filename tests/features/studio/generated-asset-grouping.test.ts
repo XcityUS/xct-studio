@@ -4,6 +4,8 @@ import type { EditorDraft } from '@/features/script/components/ShotBuilderDialog
 import type { UserAsset } from '@/lib/media-archive';
 import { describe, expect, it, vi } from 'vitest';
 
+vi.mock('@/features/assets/storage/db', () => ({ db: { images: { put: vi.fn() } } }));
+
 const projectTitle = '我的短剧项目';
 const characterAsset: UserAsset = {
     key: 'refs/hero.png',
@@ -69,6 +71,23 @@ describe('generated short-drama asset grouping', () => {
         expect(reviewAsset).toHaveBeenCalledWith(
             expect.objectContaining({ name: '主角', groupName: projectTitle })
         );
+    });
+
+    it('generates the explicitly selected character even when not referenced by a shot', async () => {
+        const generateImages = vi.fn(async () => [{ url: 'https://media.xcity.ai/new-character.png' }]);
+        const reviewAsset = vi.fn(async () => 'asset://generated-character');
+        const result = await autoBindCharacterAssets({
+            draft: { ...draft, characters: [{ ...draft.characters[0], presence: 'mentioned', description: '蓝色外套' }], shots: [] },
+            imageAssets: [], imageModel: 'seedream', uploadEnabled: false,
+            assetGroupName: projectTitle, basePrompt: '', styleNote: '',
+            loadImageAssets: async () => [], generateImages, reviewAsset,
+            resolveKey: async () => null,
+            options: { targetId: 'character-1', forceGenerate: true }
+        });
+
+        expect(generateImages).toHaveBeenCalledWith(expect.objectContaining({ prompt: expect.stringContaining('蓝色外套') }));
+        expect(reviewAsset).toHaveBeenCalledTimes(1);
+        expect(result.characters[0].assetId).toBe('generated-character');
     });
 
     it('reviews scene assets inside the same project directory', async () => {

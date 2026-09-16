@@ -55,9 +55,13 @@ export type AssetsPanelProps = {
     onUseAsReferenceVideo: (sourceUrl: string, providerReferenceUrl?: string) => void;
     onAttachAssetId: (input: { assetId: string; origin: ReferenceOrigin; note?: string }) => boolean;
     projectAssets?: ProjectAsset[];
+    currentProjectName?: string;
+    onOpenVideo?: () => void;
     onChangeProjectAssetKind?: (assetId: string, kind: ProjectAssetKind) => void;
     onRemoveProjectAsset?: (assetId: string) => void;
     onSyncProjectAssetStatuses?: (statusesByProviderAssetId: Record<string, ProjectAsset['status']>) => void;
+    onAddVerifiedToProject?: (input: { assetId: string; name: string; sourceUrl: string }) => void;
+    onArchiveVerifiedAssets?: (assetIds: string[]) => void;
     /** The panel fetches lazily — only once it has actually been shown. */
     active: boolean;
 };

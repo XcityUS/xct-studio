@@ -14,12 +14,7 @@ import { Textarea } from '@/components/ui/Textarea';
 import { ReferenceImagesInput } from '@/features/assets/components/ReferenceImagesInput';
 import type { ProviderAssetReviewInput } from '@/features/assets/hooks/use-provider-asset-review';
 import type { PortraitSetupRequest } from '@/features/assets/portrait/setup-flow';
-import {
-    declarationSatisfied,
-    refKey,
-    type ReferenceDeclaration,
-    type ReferenceOrigin
-} from '@/features/assets/reference/origin';
+import { declarationSatisfied, refKey, type ReferenceDeclaration } from '@/features/assets/reference/origin';
 import type { VideoCharacter, VideoPortrait } from '@/features/generation/history/merge';
 import { calculateVideoCost } from '@/features/generation/utils/cost';
 import type { UserAsset } from '@/lib/media-archive';
@@ -59,7 +54,6 @@ type FinalizeDialogProps = {
     isLoadingImageAssets: boolean;
     onRefreshImageAssets: () => void;
     onReviewReferenceAsset?: (input: ProviderAssetReviewInput) => Promise<string>;
-    onDeclareReference: (url: string, origin: ReferenceOrigin) => void;
     onUploadImage?: (file: File) => Promise<string>;
     onOpenAssets?: (request?: PortraitSetupRequest) => void;
     onOpenChange: (open: boolean) => void;
@@ -105,7 +99,6 @@ export function FinalizeDialog({
     isLoadingImageAssets,
     onRefreshImageAssets,
     onReviewReferenceAsset,
-    onDeclareReference,
     onUploadImage,
     onOpenAssets,
     onOpenChange,
@@ -188,7 +181,6 @@ export function FinalizeDialog({
                         maxImages={30}
                         onUpload={onUploadImage}
                         declarations={declarations}
-                        onDeclare={onDeclareReference}
                         approvedAuthorizationIds={approvedAuthorizationIds}
                         onOpenAssets={onOpenAssets}
                         characters={characters}

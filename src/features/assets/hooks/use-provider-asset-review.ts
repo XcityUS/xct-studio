@@ -107,7 +107,9 @@ async function createTarget(
         const validation = await validateAssetImage(input.url);
         if (validation.status === 'rejected') throw new ReviewImageError(validation.message);
     }
-    const groupName = input.groupName?.trim() || (input.origin === 'no-person' ? 'Reviewed materials' : input.name);
+    const groupName =
+        input.groupName?.trim() ||
+        (input.origin === 'no-person' || input.origin === 'uploaded' ? 'Reviewed materials' : input.name);
     const groupId = existing?.groupId || (await options.createGroup(groupName)).groupId;
     const created = await options.createAsset({
         groupId,
@@ -150,7 +152,7 @@ async function waitForApproval(
     }
 }
 
-async function reviewProviderAsset(
+export async function reviewProviderAsset(
     options: ProviderAssetReviewOptions,
     rawInput: ProviderAssetReviewInput
 ): Promise<string> {

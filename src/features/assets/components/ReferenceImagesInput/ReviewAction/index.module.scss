@@ -1,23 +1,8 @@
 .root {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    display: flex;
+    flex-direction: column;
     gap: 8px;
-    align-items: center;
-}
-
-.input {
-    min-width: 0;
-    height: 32px;
-    padding: 0 10px;
-    color: var(--studio-foreground);
-    background: var(--studio-surface);
-    border: 1px solid var(--studio-border-strong);
-    border-radius: 6px;
-    outline: none;
-
-    &:focus {
-        border-color: var(--studio-focus);
-    }
+    align-items: flex-start;
 }
 
 .button {
@@ -54,7 +39,6 @@
 
 .status {
     display: flex;
-    grid-column: 1 / -1;
     gap: 8px;
     align-items: center;
     color: var(--studio-warning);
@@ -67,14 +51,9 @@
     &[data-status='failed'] {
         color: var(--studio-danger);
     }
-
-    code {
-        color: var(--studio-muted-soft);
-    }
 }
 
 .error {
-    grid-column: 1 / -1;
     margin: 0;
     color: var(--studio-danger);
     font-size: 12px;
@@ -84,16 +63,5 @@
 @keyframes spin {
     to {
         transform: rotate(360deg);
-    }
-}
-
-@media (max-width: 640px) {
-    .root {
-        grid-template-columns: 1fr;
-    }
-
-    .status,
-    .error {
-        grid-column: 1;
     }
 }
