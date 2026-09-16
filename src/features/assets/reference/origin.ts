@@ -44,7 +44,7 @@ export const REFERENCE_ORIGIN_LABELS: Record<ReferenceOrigin, { label: string; h
     },
     'no-person': {
         label: 'No person in this image',
-        hint: 'Landscapes, products, and styles still need provider review and an active Asset ID.'
+        hint: 'Landscapes, products, and styles can be used after declaring that no person or protected IP is present.'
     },
     'byteplus-ai': {
         label: 'AI-generated · Studio',
@@ -143,6 +143,7 @@ export function declarationSatisfied(
     void approvedAuthorizationIds;
     if (!decl) return false;
     if (decl.assetId) return true;
+    if (decl.origin === 'no-person') return true;
     if (decl.origin !== 'byteplus-ai') return false;
 
     const model = decl.model?.trim();
@@ -157,6 +158,7 @@ export function declarationBlockReason(
     void approvedAuthorizationIds;
     if (!decl) return 'Choose where this image came from.';
     if (decl.assetId) return null;
+    if (decl.origin === 'no-person') return null;
 
     if (decl.origin === 'byteplus-ai') {
         const model = decl.model?.trim();
@@ -165,7 +167,6 @@ export function declarationBlockReason(
 
     if (decl.origin === 'byteplus-ai') return 'Review this material and attach its Asset ID before submitting.';
     if (decl.origin === 'official-asset') return 'Attach the official Asset ID before submitting.';
-    if (decl.origin === 'no-person') return 'Review this material and attach its Asset ID before submitting.';
     if (decl.origin === 'thirdparty-ai') {
         return 'Add this AI-generated material to the virtual asset library before submitting.';
     }
@@ -182,7 +183,7 @@ export function declarationBlockReason(
 }
 
 export function originRequiresAssetLibrary(origin: ReferenceOrigin): boolean {
-    return origin !== 'byteplus-ai';
+    return origin !== 'byteplus-ai' && origin !== 'no-person';
 }
 
 /** `asset://<id>` — a reference already living in a BytePlus portrait library. */
@@ -197,7 +198,7 @@ export function isAssetReferenceUrl(url: string): boolean {
  * before "go set this up".
  */
 export function referenceRequiresAssetLibrary(url: string, declaration: ReferenceDeclaration | undefined): boolean {
-    return isAssetReferenceUrl(url) || (declaration ? !isSeedreamExempt(declaration) : false);
+    return isAssetReferenceUrl(url) || (declaration ? originRequiresAssetLibrary(declaration.origin) : false);
 }
 
 const SEEDREAM_MODEL_RE = /^(byteplus\/)?(dreamina-)?seedream/i;

@@ -16,10 +16,10 @@ function declaration(origin: ReferenceOrigin, extra: Partial<ReferenceDeclaratio
 }
 
 describe('reference asset admission', () => {
-    it('only exempts Seedream-generated material from Asset ID admission', () => {
+    it('admits Seedream and no-person/no-IP material without Asset ID admission', () => {
         expect(declarationSatisfied(declaration('byteplus-ai', { model: 'seedream-4.0' }))).toBe(true);
         expect(declarationSatisfied(declaration('byteplus-ai', { model: 'seedance-2.5' }))).toBe(false);
-        expect(declarationSatisfied(declaration('no-person'))).toBe(false);
+        expect(declarationSatisfied(declaration('no-person'))).toBe(true);
         expect(declarationSatisfied(declaration('official-asset'))).toBe(false);
         expect(declarationSatisfied(declaration('thirdparty-ai'))).toBe(false);
         expect(declarationSatisfied(declaration('real-person'))).toBe(false);
@@ -39,7 +39,7 @@ describe('reference asset admission', () => {
 
     it('classifies library and authorization requirements independently', () => {
         expect(originRequiresAssetLibrary('byteplus-ai')).toBe(false);
-        expect(originRequiresAssetLibrary('no-person')).toBe(true);
+        expect(originRequiresAssetLibrary('no-person')).toBe(false);
         expect(originRequiresAuthorization('real-person')).toBe(false);
         expect(originRequiresAuthorization('public-figure')).toBe(false);
         expect(originRequiresAuthorization('licensed-ip')).toBe(false);

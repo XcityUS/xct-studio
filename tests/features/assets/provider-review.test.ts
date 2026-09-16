@@ -1,7 +1,13 @@
 import { normalizeProviderAssetName, PROVIDER_ASSET_NAME_MAX_LENGTH } from '@/features/assets/portrait/name';
 import { portraitGroupLabel } from '@/features/assets/components/AssetsPanel/utils';
 import { portraitReferenceUrl } from '@/features/assets/portrait/reference';
-import { refKey, type ReferenceDeclaration } from '@/features/assets/reference/origin';
+import {
+    declarationBlockReason,
+    declarationSatisfied,
+    refKey,
+    referenceRequiresAssetLibrary,
+    type ReferenceDeclaration
+} from '@/features/assets/reference/origin';
 import { parsePortraits } from '@/features/generation/history/portraits';
 import { providerReferenceUrl, withPortraitDeclarations } from '@/features/studio/components/StudioWorkspace/utils';
 import { describe, expect, it } from 'vitest';
@@ -101,5 +107,21 @@ describe('provider asset review state', () => {
         expect(providerReferenceUrl('https://example.com/unreviewed.mp4', declarations)).toBe(
             'https://example.com/unreviewed.mp4'
         );
+    });
+
+    it('allows no-person, no-IP references without a provider Asset ID', () => {
+        const declaration: ReferenceDeclaration = { origin: 'no-person', declaredAt: 1 };
+
+        expect(declarationSatisfied(declaration)).toBe(true);
+        expect(declarationBlockReason(declaration)).toBeNull();
+        expect(referenceRequiresAssetLibrary(sourceUrl, declaration)).toBe(false);
+    });
+
+    it.each(['public-figure', 'licensed-ip'] as const)('still requires an Asset ID for %s references', (origin) => {
+        const declaration: ReferenceDeclaration = { origin, declaredAt: 1 };
+
+        expect(declarationSatisfied(declaration)).toBe(false);
+        expect(declarationBlockReason(declaration)).toMatch(/provider asset library|IP image/);
+        expect(referenceRequiresAssetLibrary(sourceUrl, declaration)).toBe(true);
     });
 });
