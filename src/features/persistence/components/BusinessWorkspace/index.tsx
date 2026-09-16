@@ -13,6 +13,7 @@ import {
 import { useMediaPersistence } from '../../use-media-persistence';
 import styles from './index.module.scss';
 import { ApiKeyDialog } from '@/features/settings/components/ApiKeyDialog';
+import { useLocalApiKeyOption } from '@/features/settings/hooks/use-local-api-key-option';
 import { useXcityKeyState } from '@/features/settings/hooks/use-xcity-key';
 import { XcityKeyContext } from '@/features/settings/key-context';
 import { useLoginHref } from '@/features/settings/hooks/use-login-href';
@@ -24,6 +25,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore, type ReactNode 
 export function BusinessWorkspace({ children }: { children: ReactNode }) {
     const auth = useXcityKeyState();
     const loginHref = useLoginHref();
+    const allowManualApiKey = useLocalApiKeyOption();
     const { apiKey, keyRef, resolveKey, invalidateKey } = auth;
     const checkingAuth = auth.ssoStatus === 'checking';
     const sync = useSyncExternalStore(subscribeBusiness, businessStatus, businessStatus);
@@ -110,7 +112,9 @@ export function BusinessWorkspace({ children }: { children: ReactNode }) {
                     <>
                         <span>{t('Sign in to load your projects')}</span>
                         <a href={loginHref}>{t('Sign in')}</a>
-                        <button onClick={() => setDialog(true)}>{t('Configure Xcity API Key')}</button>
+                        {allowManualApiKey && (
+                            <button onClick={() => setDialog(true)}>{t('Configure Xcity API Key')}</button>
+                        )}
                     </>
                 ) : autoRetry ? (
                     <span>{t('Sync is queued<dot> Retrying automatically<comma> local changes are safe')} ({sync.pending})</span>
@@ -164,7 +168,9 @@ export function BusinessWorkspace({ children }: { children: ReactNode }) {
                     <span>{t('Your API key must belong to a user account')}</span>
                 )}
                 {sync.error === 'AUTH_REQUIRED' && (
-                    <button onClick={() => setDialog(true)}>{t('Configure Xcity API Key')}</button>
+                    allowManualApiKey
+                        ? <button onClick={() => setDialog(true)}>{t('Configure Xcity API Key')}</button>
+                        : <a href={loginHref}>{t('Sign in')}</a>
                 )}
                 {sync.error && sync.error !== 'DATA_CONFLICT' && !autoRetry && <button onClick={retry}>{t('Retry')}</button>}
                 {sync.error === 'DATA_CONFLICT' && (
@@ -184,7 +190,9 @@ export function BusinessWorkspace({ children }: { children: ReactNode }) {
             </div>
             }
             {ready && <div key={`${sync.owner}:${generation}`}>{children}</div>}
-            <ApiKeyDialog isOpen={dialog} onOpenChange={setDialog} onSave={auth.saveManualKey} />
+            {allowManualApiKey && (
+                <ApiKeyDialog isOpen={dialog} onOpenChange={setDialog} onSave={auth.saveManualKey} />
+            )}
         </XcityKeyContext.Provider>
     );
 }

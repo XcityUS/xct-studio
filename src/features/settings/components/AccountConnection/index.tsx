@@ -9,7 +9,7 @@ interface AccountConnectionProps {
     checking: boolean;
     error: string | null;
     onRetry: () => void;
-    onConfigure: () => void;
+    onConfigure?: () => void;
 }
 
 export function AccountConnection({ checking, error, onRetry, onConfigure }: AccountConnectionProps) {
@@ -37,9 +37,11 @@ export function AccountConnection({ checking, error, onRetry, onConfigure }: Acc
                         <Button type='button' variant='secondary' onClick={onRetry} className={styles.secondary}>
                             {t('Retry')}
                         </Button>
-                        <Button type='button' variant='ghost' onClick={onConfigure} className={styles.alternative}>
-                            {t('Use an API key instead')}
-                        </Button>
+                        {onConfigure && (
+                            <Button type='button' variant='ghost' onClick={onConfigure} className={styles.alternative}>
+                                {t('Use an API key instead')}
+                            </Button>
+                        )}
                     </div>
                 </>
             )}

@@ -75,8 +75,8 @@ describe('translation dictionaries', () => {
         }
     });
 
-    it('uses distinct translations for the primary navigation and key dialog', () => {
+    it('uses distinct translations for the primary navigation and sign-in flow', () => {
         expect(zh['Video Studio']).not.toBe(en['Video Studio']);
-        expect(zh['Configure Xcity API Key']).not.toBe(en['Configure Xcity API Key']);
+        expect(zh['Sign in with Xcity']).not.toBe(en['Sign in with Xcity']);
     });
 });

@@ -104,7 +104,7 @@ export function AssetsPanel({
     const t = useTranslations();
     const loadAssetsError = t('Could not load assets');
     const loadPortraitGroupsError = t('Could not load portrait groups');
-    const assetsSignInError = t('Sign in at xcity<dot>ai or set an API key to view your assets');
+    const assetsSignInError = t('Sign in at xcity<dot>ai to view your assets');
     const characterFallback = t('Character');
     const unknownError = t('Unknown error');
     const invalidReferenceImageError = t(

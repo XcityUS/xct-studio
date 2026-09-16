@@ -84,7 +84,7 @@ async function generatedSceneImageUrl(input: AutoBindSceneAssetsInput, scene: Ed
     });
     if (!image.blob || !input.uploadEnabled) return image.url;
     const key = await input.resolveKey();
-    if (!key) throw new Error('Sign in at xcity.ai (or set an API key) first.');
+    if (!key) throw new Error('Sign in at xcity.ai first.');
     const file = new File([image.blob], `${scene.name}.png`, { type: image.blob.type || 'image/png' });
     return uploadReferenceImage(file, key, scene.name);
 }

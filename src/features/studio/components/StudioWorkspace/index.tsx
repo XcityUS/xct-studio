@@ -118,6 +118,7 @@ import {
 import { AccountConnection } from '@/features/settings/components/AccountConnection';
 import { ApiKeyDialog } from '@/features/settings/components/ApiKeyDialog';
 import { ApiKeyGate } from '@/features/settings/components/ApiKeyGate';
+import { useLocalApiKeyOption } from '@/features/settings/hooks/use-local-api-key-option';
 import { useXcityKey } from '@/features/settings/hooks/use-xcity-key';
 import { XCITY_SSO_ENABLED } from '@/features/settings/sso';
 import { useAssetIdIntake } from '@/features/studio/hooks/use-asset-id-intake';
@@ -289,6 +290,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
     const [isLoadingImageAssets, setIsLoadingImageAssets] = React.useState(false);
 
     const { apiKey, keyRef, ssoStatus, ssoError, attemptSso, resolveKey, saveManualKey, invalidateKey } = useXcityKey();
+    const allowManualApiKey = useLocalApiKeyOption();
     const {
         history,
         getItem,
@@ -644,7 +646,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
             }
             const key = await resolveKey();
             if (!key) {
-                throw new Error('Sign in at xcity.ai (or set an API key) before uploading images.');
+                throw new Error('Sign in at xcity.ai before uploading images.');
             }
             return uploadReferenceImage(file, key, fileNameWithoutExtension(file.name));
         },
@@ -655,7 +657,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         async (file: File): Promise<string> => {
             const key = await resolveKey();
             if (!key) {
-                throw new Error('Sign in at xcity.ai (or set an API key) before uploading audio.');
+                throw new Error('Sign in at xcity.ai before uploading audio.');
             }
             return uploadReferenceAudio(file, key, fileNameWithoutExtension(file.name));
         },
@@ -666,7 +668,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         async (text: string, voice: TtsVoice): Promise<string> => {
             const key = await resolveKey();
             if (!key) {
-                throw new Error('Sign in at xcity.ai (or set an API key) to generate voiceover.');
+                throw new Error('Sign in at xcity.ai to generate voiceover.');
             }
 
             const model = await ttsModel();
@@ -686,7 +688,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         async (file: File): Promise<string> => {
             const key = await resolveKey();
             if (!key) {
-                throw new Error('Sign in at xcity.ai (or set an API key) before uploading video.');
+                throw new Error('Sign in at xcity.ai before uploading video.');
             }
             return uploadReferenceVideo(file, key, fileNameWithoutExtension(file.name));
         },
@@ -697,7 +699,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         async (params: { prompt: string; model: string; size: ImageSizeId; n: number }): Promise<GeneratedImage[]> => {
             const key = await resolveKey();
             if (!key) {
-                throw new Error('Sign in at xcity.ai (or set an API key) to generate images.');
+                throw new Error('Sign in at xcity.ai to generate images.');
             }
             return generateImages(params, key, process.env.NEXT_PUBLIC_OPENAI_API_BASE_URL);
         },
@@ -713,7 +715,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
             if (record.blob && (await mediaArchiveEnabled())) {
                 const key = await resolveKey();
                 if (!key) {
-                    throw new Error('Sign in at xcity.ai (or set an API key) first.');
+                    throw new Error('Sign in at xcity.ai first.');
                 }
                 const file = new File([record.blob], `${record.id}.png`, {
                     type: record.blob.type || 'image/png'
@@ -750,7 +752,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         if (!uploadEnabled) return [];
         const key = await resolveKey();
         if (!key) {
-            throw new Error('Sign in at xcity.ai (or set an API key) to view your assets.');
+            throw new Error('Sign in at xcity.ai to view your assets.');
         }
         return listUserAssets(key);
     }, [resolveKey, uploadEnabled]);
@@ -787,7 +789,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         async (origin: string) => {
             const key = await resolveKey();
             if (!key) {
-                throw new Error('Sign in at xcity.ai (or set an API key) before verifying a person.');
+                throw new Error('Sign in at xcity.ai before verifying a person.');
             }
             return createPortraitSession(origin, key);
         },
@@ -798,7 +800,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         async (type?: PortraitGroupQueryType) => {
             const key = await resolveKey();
             if (!key) {
-                throw new Error('Sign in at xcity.ai (or set an API key) to view portrait groups.');
+                throw new Error('Sign in at xcity.ai to view portrait groups.');
             }
             return (await listPortraitGroups(key, type)).groups;
         },
@@ -836,7 +838,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         async (type?: PortraitGroupQueryType) => {
             const key = await resolveKey();
             if (!key) {
-                throw new Error('Sign in at xcity.ai (or set an API key) to view reviewed assets.');
+                throw new Error('Sign in at xcity.ai to view reviewed assets.');
             }
             return (await listPortraitAssets(key, type)).assets;
         },
@@ -847,7 +849,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         async (name: string) => {
             const key = await resolveKey();
             if (!key) {
-                throw new Error('Sign in at xcity.ai (or set an API key) before creating a virtual character.');
+                throw new Error('Sign in at xcity.ai before creating a virtual character.');
             }
             const result = await createPortraitGroup(name, key);
             projectDraft.createCharacterReferencePack(name, [], result.groupId);
@@ -860,7 +862,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         async (groupId: string) => {
             const key = await resolveKey();
             if (!key) {
-                throw new Error('Sign in at xcity.ai (or set an API key) before deleting a character group.');
+                throw new Error('Sign in at xcity.ai before deleting a character group.');
             }
             await deletePortraitGroup(groupId, key);
         },
@@ -871,7 +873,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         async (input: { groupId: string; url: string; name: string; assetType?: 'Image' | 'Video' | 'Audio' }) => {
             const key = await resolveKey();
             if (!key) {
-                throw new Error('Sign in at xcity.ai (or set an API key) before adding a portrait image.');
+                throw new Error('Sign in at xcity.ai before adding a portrait image.');
             }
             const result = await createPortraitAsset(input, key);
             projectDraft.registerProjectAsset({
@@ -892,7 +894,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         async (assetId: string) => {
             const key = await resolveKey();
             if (!key) {
-                throw new Error('Sign in at xcity.ai (or set an API key) to check portrait image status.');
+                throw new Error('Sign in at xcity.ai to check portrait image status.');
             }
             return getPortraitAsset(assetId, key);
         },
@@ -902,7 +904,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
     const handleGetPortraitStatus = React.useCallback(async () => {
         const key = await resolveKey();
         if (!key) {
-            throw new Error('Sign in at xcity.ai (or set an API key) to check the setup.');
+            throw new Error('Sign in at xcity.ai to check the setup.');
         }
         return fetchPortraitStatus(key);
     }, [resolveKey]);
@@ -1007,7 +1009,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
     const handleLoadAssemblyAudioAssets = React.useCallback(async (): Promise<UserAsset[]> => {
         const key = await resolveKey();
         if (!key) {
-            throw new Error('Sign in at xcity.ai (or set an API key) to view your audio assets.');
+            throw new Error('Sign in at xcity.ai to view your audio assets.');
         }
         return (await listUserAssets(key)).filter((asset) => asset.kind === 'audio');
     }, [resolveKey]);
@@ -1026,7 +1028,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         async (shareId: string, action: CommunityReviewAction) => {
             const key = await resolveKey();
             if (!key) {
-                throw new Error('Sign in at xcity.ai (or set an API key) to review community submissions.');
+                throw new Error('Sign in at xcity.ai to review community submissions.');
             }
             await reviewCommunityItem(shareId, action, key);
         },
@@ -1044,7 +1046,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         async (assetKey: string) => {
             const key = await resolveKey();
             if (!key) {
-                throw new Error('Sign in at xcity.ai (or set an API key) first.');
+                throw new Error('Sign in at xcity.ai first.');
             }
             await deleteUserAsset(assetKey, key);
         },
@@ -1158,7 +1160,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         async (prompt: string): Promise<string> => {
             const key = await resolveKey();
             if (!key) {
-                throw new Error('Sign in at xcity.ai (or set an API key) to use AI optimization.');
+                throw new Error('Sign in at xcity.ai to use AI optimization.');
             }
             return optimizePrompt(prompt, key, process.env.NEXT_PUBLIC_OPENAI_API_BASE_URL);
         },
@@ -1169,27 +1171,27 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         async (script: string) => {
             const key = await resolveKey();
             if (!key) {
-                setIsApiKeyDialogOpen(true);
-                throw new Error('Sign in at xcity.ai (or set an API key) to use script breakdown.');
+                if (allowManualApiKey) setIsApiKeyDialogOpen(true);
+                throw new Error('Sign in at xcity.ai to use script breakdown.');
             }
             try {
                 return await breakdownScript(script, key, projectDraft.activeProject.sourceLanguage);
             } catch (error) {
                 if (error instanceof InvalidApiKeyError) {
                     invalidateKey();
-                    setIsApiKeyDialogOpen(true);
+                    if (allowManualApiKey) setIsApiKeyDialogOpen(true);
                 }
                 throw error;
             }
         },
-        [invalidateKey, projectDraft.activeProject.sourceLanguage, resolveKey]
+        [allowManualApiKey, invalidateKey, projectDraft.activeProject.sourceLanguage, resolveKey]
     );
 
     const handleTranscribeVideo = React.useCallback(
         async (blob: Blob): Promise<CaptionSegment[]> => {
             const key = await resolveKey();
             if (!key) {
-                throw new Error('Sign in at xcity.ai (or set an API key) to generate captions.');
+                throw new Error('Sign in at xcity.ai to generate captions.');
             }
 
             const model = await transcribeModel();
@@ -1203,12 +1205,12 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
     );
 
     const handleInvalidApiKey = React.useCallback(
-        (message = 'Your Xcity API key was rejected. Please sign in again or enter a new key.') => {
+        (message = 'Your Xcity session was rejected. Please sign in again.') => {
             invalidateKey();
-            setIsApiKeyDialogOpen(true);
+            if (allowManualApiKey) setIsApiKeyDialogOpen(true);
             setError(message);
         },
-        [invalidateKey, setError]
+        [allowManualApiKey, invalidateKey, setError]
     );
 
     const resolveArchivedPlayback = React.useCallback(
@@ -2387,7 +2389,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         try {
             const activeKey = await resolveKey();
             if (!activeKey) {
-                throw new Error('Sign in at xcity.ai (or set an API key) before submitting to community.');
+                throw new Error('Sign in at xcity.ai before submitting to community.');
             }
             await publishToCommunity(shareDialogId, activeKey);
             setShareCommunityStatus('submitted');
@@ -2417,7 +2419,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
             try {
                 const activeKey = await resolveKey();
                 if (!activeKey) {
-                    throw new Error('Sign in at xcity.ai (or set an API key) before sharing.');
+                    throw new Error('Sign in at xcity.ai before sharing.');
                 }
 
                 const reusablePrompt = cleanPromptForReuse(item.prompt);
@@ -3229,8 +3231,8 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
             try {
                 const key = await resolveKey();
                 if (!key) {
-                    setIsApiKeyDialogOpen(true);
-                    setError('Sign in or enter your Xcity API key before archiving.', 'output');
+                    if (allowManualApiKey) setIsApiKeyDialogOpen(true);
+                    setError('Sign in to Xcity before archiving.', 'output');
                     return;
                 }
 
@@ -3313,6 +3315,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
             }
         },
         [
+            allowManualApiKey,
             hasLocalCopy,
             history,
             manualArchiveIds,
@@ -3456,7 +3459,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         }
     }, [currentHistoryItem, currentMediaExpired, currentVideoSrc, resolvePlaybackSource, unresolvedPreviewIds]);
 
-    // Without SSO the manual key is the only way in — gate until one is set.
+    // Production is sign-in only; localhost may use the manual-key development fallback.
     const isApiKeyGateBlocked = videoMode === 'normal' && !XCITY_SSO_ENABLED && !apiKey;
 
     const videoTabContent = (
@@ -3494,14 +3497,14 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                     className='relative flex min-h-[600px] flex-col overflow-hidden lg:sticky lg:top-6 lg:col-span-1 lg:h-[calc(100vh-3rem)] lg:min-h-0 lg:self-start'>
                     <ApiKeyGate
                         isBlocked={isApiKeyGateBlocked}
-                        onConfigure={() => setIsApiKeyDialogOpen(true)}
+                        onConfigure={allowManualApiKey ? () => setIsApiKeyDialogOpen(true) : undefined}
                         className='flex-1'>
                         {XCITY_SSO_ENABLED && ssoStatus !== 'ok' ? (
                             <AccountConnection
                                 checking={ssoStatus === 'checking'}
                                 error={ssoStatus === 'error' ? ssoError : null}
                                 onRetry={() => void attemptSso()}
-                                onConfigure={() => setIsApiKeyDialogOpen(true)}
+                                onConfigure={allowManualApiKey ? () => setIsApiKeyDialogOpen(true) : undefined}
                             />
                         ) : (
                             <CreationForm
@@ -3651,7 +3654,13 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
 
     return (
         <main data-studio-workspace className='bg-black py-4 text-white md:py-8 lg:py-12'>
-            <ApiKeyDialog isOpen={isApiKeyDialogOpen} onOpenChange={setIsApiKeyDialogOpen} onSave={handleSaveApiKey} />
+            {allowManualApiKey && (
+                <ApiKeyDialog
+                    isOpen={isApiKeyDialogOpen}
+                    onOpenChange={setIsApiKeyDialogOpen}
+                    onSave={handleSaveApiKey}
+                />
+            )}
             <Dialog open={isShareDialogOpen} onOpenChange={handleShareDialogOpenChange}>
                 <DialogContent className='border-neutral-700 bg-neutral-900 text-white sm:max-w-[460px]'>
                     <DialogHeader>

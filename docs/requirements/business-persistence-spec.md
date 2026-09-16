@@ -69,6 +69,10 @@ and local-backup recovery flow. Preparing media cache does not generate videos.
 
 The login link uses the same base URL for SSR and the first hydration render;
 the browser return URL is added after hydration. Do not suppress hydration warnings.
+Production Studio exposes Xcity sign-in as the only user authentication action. It
+must not show a manual API-key input, fallback button, or error copy that asks users
+to configure a key; the resolved TokenHub credential remains an internal session
+detail. Localhost may retain the manual TokenHub-key dialog as a development fallback.
 In development, the locale provider directly consumes the shared JSON dictionaries
 so Fast Refresh updates translations even when a retained server layout still has
 older message props. Production keeps server-selected messages. The provider retains

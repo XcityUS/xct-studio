@@ -22,6 +22,10 @@ const KEY_FETCH_TIMEOUT_MS = 15_000;
 
 export const XCITY_LOGIN_URL = process.env.NEXT_PUBLIC_XCITY_LOGIN_URL || 'https://xcity.ai/login';
 
+export function isLocalStudioHost(hostname: string): boolean {
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+}
+
 export function xcityLoginHref(): string {
     if (typeof window === 'undefined') return XCITY_LOGIN_URL;
     return `${XCITY_LOGIN_URL}?return=${encodeURIComponent(window.location.href)}`;

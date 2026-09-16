@@ -78,7 +78,7 @@ export function PortraitCallback() {
     const failureMessages = {
         incomplete: t('Verification did not complete<dot> Try again from Assets'),
         missingToken: t('Verification returned no token<dot> Try again from Assets'),
-        signInRequired: t('Sign in at xcity<dot>ai or set an API key<comma> then try again'),
+        signInRequired: t('Sign in at xcity<dot>ai<comma> then try again'),
         confirmFailed: t('Could not confirm verification')
     };
 
