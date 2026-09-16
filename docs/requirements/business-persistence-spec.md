@@ -130,6 +130,11 @@ and every browser outbox as a local recovery copy, then automatically loads the
 database version without asking the user to choose. If writing that copy fails,
 the conflicting state remains mounted, no outbox is removed, and retry remains
 available. Startup and authentication failures retain actionable controls.
+Saved recovery copies remain discoverable for the signed-in owner in this browser.
+The user can see their creation time and record count and download the original
+JSON before clearing browser data. Downloading does not reapply stale edits or
+overwrite newer database records; field-level conflict resolution remains a
+separate workflow.
 
 The workspace status banner disappears when loading is complete, the business
 outbox is empty, no errors or invalid records remain, and no media needs archiving.

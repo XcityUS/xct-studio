@@ -1,0 +1,105 @@
+.launcher {
+    position: fixed;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 1rem);
+    left: 1rem;
+    z-index: 40;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    max-width: calc(100vw - 2rem);
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--background);
+    color: var(--foreground);
+    box-shadow: 0 8px 24px color-mix(in srgb, var(--foreground) 10%, transparent);
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.75rem;
+}
+
+.launcher:hover,
+.item button:hover {
+    background: var(--muted);
+}
+
+.launcher:focus-visible,
+.item button:focus-visible {
+    outline: 2px solid var(--foreground);
+    outline-offset: 2px;
+}
+
+.dialog {
+    max-width: min(36rem, calc(100vw - 2rem));
+    max-height: min(80vh, 40rem);
+    overflow-y: auto;
+    color: var(--foreground);
+}
+
+.list {
+    display: grid;
+    gap: 0.5rem;
+    padding: 0;
+    margin: 0;
+    list-style: none;
+}
+
+.item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    min-width: 0;
+    padding: 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 0.625rem;
+}
+
+.item div {
+    display: grid;
+    gap: 0.25rem;
+    min-width: 0;
+}
+
+.item strong {
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.item span,
+.hint {
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+}
+
+.item button {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.375rem 0.625rem;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    background: transparent;
+    color: var(--foreground);
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.75rem;
+}
+
+.error {
+    color: var(--destructive);
+    font-size: 0.75rem;
+}
+
+@media (max-width: 640px) {
+    .launcher {
+        left: 0.5rem;
+        bottom: calc(env(safe-area-inset-bottom, 0px) + 0.5rem);
+    }
+
+    .item {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+}

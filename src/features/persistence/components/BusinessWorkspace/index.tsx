@@ -13,6 +13,7 @@ import {
 import { useMediaPersistence } from '../../use-media-persistence';
 import styles from './index.module.scss';
 import { WorkspaceStartup } from '../WorkspaceStartup';
+import { RecoveryCopies } from '../RecoveryCopies';
 import { ApiKeyDialog } from '@/features/settings/components/ApiKeyDialog';
 import { useLocalApiKeyOption } from '@/features/settings/hooks/use-local-api-key-option';
 import { useXcityKeyState } from '@/features/settings/hooks/use-xcity-key';
@@ -190,6 +191,7 @@ export function BusinessWorkspace({ children }: { children: ReactNode }) {
                 {sync.error && sync.error !== 'DATA_CONFLICT' && sync.error !== 'LOCAL_BACKUP_FAILED' && !autoRetry && <button onClick={retry}>{t('Retry')}</button>}
             </div>}
             {ready && <div key={`${sync.owner}:${generation}`}>{children}</div>}
+            {ready && <RecoveryCopies owner={sync.owner} />}
             {allowManualApiKey && (
                 <ApiKeyDialog isOpen={dialog} onOpenChange={setDialog} onSave={auth.saveManualKey} />
             )}
