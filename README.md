@@ -71,6 +71,12 @@ The upgrade introduces Server Component route shells, CSS Modules for the locali
 
 The [short-drama business rules](docs/rules/business.md) define the reference-project roles, IP continuity, script/storyboard review, candidate selection, director-agent boundaries, captions, multilingual releases, and export traceability. These are target constraints, not completed platform features.
 
+## 📋 Launch planning
+
+- [Studio launch plan](docs/LAUNCH_PLAN.md) — XCT-814 release timeline, feature checklist, cross-project dependencies, and first demo milestone.
+- [Roadmap](docs/ROADMAP.md) — strategic product evolution beyond the launch.
+- [Release notes](docs/RELEASE_NOTES.md) — user-facing release announcement draft.
+
 ### Benchmarks
 
 Pure studio logic (cloud-sync merge, cost math, SRT/FCP7 export, media-state resolution, reference keys) is benchmarked with `vitest bench` and tracked on CodSpeed:
