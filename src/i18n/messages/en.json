@@ -993,6 +993,8 @@
     "Progress follows startup stages<comma> not remaining time<dot> Local originals are retained": "Progress follows startup stages, not remaining time. Local originals are retained.",
     "Startup is taking longer<dot> Time depends on record count and network speed": "Startup is taking longer. Time depends on record count and network speed.",
     "Changes are not synced<dot> Your local backup is preserved": "Changes are not synced. Your local backup is preserved",
+    "Keep this tab open<dot> Local backup could not be saved": "Keep this tab open. Local backup could not be saved",
+    "Latest version loaded<dot> Unsynced edits were saved locally": "Latest version loaded. Unsynced edits were saved locally",
     "Saving changes to database": "Saving changes to database",
     "Changes saved to database": "Changes saved to database",
     "Some cached records need attention and were kept locally": "Some cached records need attention and were kept locally",

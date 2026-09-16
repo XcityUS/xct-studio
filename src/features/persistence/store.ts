@@ -2,6 +2,7 @@ import { fetchSnapshot, PersistenceError, postChanges } from './api';
 import { allDocumentKeys, decodeDocument, encodeDocument } from './codec';
 import { collectLegacy } from './legacy';
 import { prepareMediaCache } from './media-cache';
+import { preserveConflictOutboxes } from './recovery';
 import { localMigrationComplete, markLocalMigrationComplete } from './startup';
 import { validateChange } from './validation';
 import { recordKey, type BusinessChange, type BusinessRecord } from '@/shared/contracts/business-data';
@@ -350,9 +351,11 @@ export function stopBusiness() {
 }
 
 export async function loadDatabaseVersion(): Promise<void> {
-    // Keep the conflicting edits recoverable instead of silently throwing them away.
-    localStorage.setItem(`${legacyOutboxKey(status.owner)}:recovery:${Date.now()}`, JSON.stringify([...pending.values()]));
-    for (const name of Object.keys(localStorage))
-        if (name === legacyOutboxKey(status.owner) || name.startsWith(outboxPrefix(status.owner))) localStorage.removeItem(name);
+    try {
+        preserveConflictOutboxes(status.owner, [...pending.values()]);
+    } catch {
+        publish({ error: 'LOCAL_BACKUP_FAILED' });
+        throw new PersistenceError('LOCAL_BACKUP_FAILED');
+    }
     await startBusiness(key);
 }

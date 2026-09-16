@@ -21,7 +21,7 @@ import { useLoginHref } from '@/features/settings/hooks/use-login-href';
 import { PersistenceError } from '../../api';
 import { clearRememberedDrafts } from '@/features/script/components/ShotBuilderDialog/draft';
 import { useTranslations } from 'next-intl';
-import { useCallback, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 
 export function BusinessWorkspace({ children }: { children: ReactNode }) {
     const auth = useXcityKeyState();
@@ -33,6 +33,8 @@ export function BusinessWorkspace({ children }: { children: ReactNode }) {
     const [dialog, setDialog] = useState(false);
     const [generation, setGeneration] = useState(0);
     const [now, setNow] = useState(0);
+    const [recoveryNotice, setRecoveryNotice] = useState(false);
+    const recoveringConflict = useRef(false);
     const t = useTranslations();
     const ready = businessSessionMatches(auth.apiKey);
     const elapsed = sync.startedAt ? Math.max(0, Math.floor((now - sync.startedAt) / 1000)) : 0;
@@ -43,11 +45,11 @@ export function BusinessWorkspace({ children }: { children: ReactNode }) {
         : t('Reading database records');
     const mediaPending = ready && businessRecords().some((r) => r.table === 'media_assets' && r.data?.archivePending);
     const showStartup = Boolean(apiKey && !ready && !sync.error);
-    const showStatus = !ready || Boolean(sync.error) || sync.pending > 0 || sync.invalid > 0 || mediaPending;
+    const showStatus = !ready || Boolean(sync.error) || sync.pending > 0 || sync.invalid > 0 || mediaPending || recoveryNotice;
     const autoRetry = ready && sync.pending > 0 && (
         sync.error === 'DATABASE_BUSY' || sync.error === 'DATABASE_TIMEOUT' || sync.error === 'DATABASE_UNAVAILABLE'
     );
-    const statusState = sync.error && !autoRetry ? 'error' : sync.invalid > 0 ? 'notice' : 'working';
+    const statusState = sync.error && !autoRetry ? 'error' : sync.invalid > 0 || recoveryNotice ? 'notice' : 'working';
     const retry = useCallback(() => {
         if (!auth.apiKey) return;
         if (businessSessionMatches(auth.apiKey)) {
@@ -64,6 +66,29 @@ export function BusinessWorkspace({ children }: { children: ReactNode }) {
         const timer = window.setInterval(() => setNow(Date.now()), 1000);
         return () => window.clearInterval(timer);
     }, [ready, apiKey, sync.error]);
+
+    const recoverConflict = useCallback(() => {
+        if (recoveringConflict.current) return;
+        recoveringConflict.current = true;
+        void loadDatabaseVersion()
+            .then(() => {
+                clearRememberedDrafts(sync.owner);
+                setGeneration((value) => value + 1);
+                setRecoveryNotice(true);
+            })
+            .catch(() => undefined)
+            .finally(() => { recoveringConflict.current = false; });
+    }, [sync.owner]);
+
+    useEffect(() => {
+        if (sync.error === 'DATA_CONFLICT' && ready) recoverConflict();
+    }, [ready, sync.error, recoverConflict]);
+
+    useEffect(() => {
+        if (!recoveryNotice) return;
+        const timer = window.setTimeout(() => setRecoveryNotice(false), 8000);
+        return () => window.clearTimeout(timer);
+    }, [recoveryNotice]);
 
     useEffect(() => {
         if (!apiKey || checkingAuth) return;
@@ -118,7 +143,7 @@ export function BusinessWorkspace({ children }: { children: ReactNode }) {
                     processed={sync.processed}
                     total={sync.total}
                 />
-            ) : showStatus && <div className={styles.status} data-state={statusState} data-sync-error={sync.error ?? undefined} data-pending-count={sync.pending} role={statusState === 'error' ? 'alert' : 'status'}>
+            ) : showStatus && <div className={styles.status} data-mode={ready ? 'floating' : 'gate'} data-state={statusState} data-sync-error={sync.error ?? undefined} data-pending-count={sync.pending} role={statusState === 'error' ? 'alert' : 'status'}>
                 <span className={styles.indicator} aria-hidden="true" />
                 {!auth.apiKey ? (
                     <>
@@ -130,10 +155,14 @@ export function BusinessWorkspace({ children }: { children: ReactNode }) {
                     </>
                 ) : autoRetry ? (
                     <span>{t('Sync is queued<dot> Retrying automatically<comma> local changes are safe')} ({sync.pending})</span>
+                ) : sync.error === 'LOCAL_BACKUP_FAILED' ? (
+                    <span>{t('Keep this tab open<dot> Local backup could not be saved')}</span>
                 ) : sync.error ? (
                     <span>{t('Changes are not synced<dot> Your local backup is preserved')}</span>
                 ) : sync.pending ? (
                     <span>{t('Saving <lcur>count<rcur> records', { count: sync.pending })}</span>
+                ) : recoveryNotice ? (
+                    <span>{t('Latest version loaded<dot> Unsynced edits were saved locally')}</span>
                 ) : (
                     <span>{t('Changes saved to database')}</span>
                 )}
@@ -157,21 +186,8 @@ export function BusinessWorkspace({ children }: { children: ReactNode }) {
                         ? <button onClick={() => setDialog(true)}>{t('Configure Xcity API Key')}</button>
                         : <a href={loginHref}>{t('Sign in')}</a>
                 )}
-                {sync.error && sync.error !== 'DATA_CONFLICT' && !autoRetry && <button onClick={retry}>{t('Retry')}</button>}
-                {sync.error === 'DATA_CONFLICT' && (
-                    <>
-                        <span>{t('This data was changed on another device')}</span>
-                        <button
-                            onClick={() => {
-                                clearRememberedDrafts(sync.owner);
-                                void loadDatabaseVersion()
-                                    .then(() => setGeneration((v) => v + 1))
-                                    .catch(() => undefined);
-                            }}>
-                            {t('Load database version and keep local recovery copy')}
-                        </button>
-                    </>
-                )}
+                {sync.error === 'LOCAL_BACKUP_FAILED' && ready && <button onClick={recoverConflict}>{t('Retry')}</button>}
+                {sync.error && sync.error !== 'DATA_CONFLICT' && sync.error !== 'LOCAL_BACKUP_FAILED' && !autoRetry && <button onClick={retry}>{t('Retry')}</button>}
             </div>}
             {ready && <div key={`${sync.owner}:${generation}`}>{children}</div>}
             {allowManualApiKey && (

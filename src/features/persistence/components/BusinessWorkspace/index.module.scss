@@ -37,6 +37,16 @@
     }
 }
 
+.status[data-mode='floating'] {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 5rem);
+    right: 1.25rem;
+    z-index: 50;
+    max-width: min(26rem, calc(100vw - 2.5rem));
+    margin: 0;
+    box-shadow: 0 12px 32px color-mix(in srgb, var(--foreground) 10%, transparent);
+}
+
 .indicator {
     flex: 0 0 auto;
     width: 0.875rem;
@@ -69,5 +79,12 @@
         max-width: calc(100% - 1rem);
         margin: 0.5rem auto;
         padding: 0.5rem 0.625rem;
+    }
+
+    .status[data-mode='floating'] {
+        top: calc(env(safe-area-inset-top, 0px) + 4.5rem);
+        right: 0.5rem;
+        max-width: calc(100vw - 1rem);
+        margin: 0;
     }
 }

@@ -120,11 +120,16 @@ over stale media cache writes. Conflict diagnostics log field names, never value
 Unchanged browser records do not publish sync events, rewrite the outbox, or restart
 the save timer. This prevents media inventory polling from retriggering idle saves.
 
-The sync notice uses a compact, centered theme-aware layout, with reduced-motion
-support. It shows pending record count. For an initialized workspace with pending
-writes, transient database busy/timeout/unavailable states indicate automatic retry
-through the existing 15-second flush loop; they do not also demand a manual retry.
-Authentication, revision conflicts, and startup failures retain actionable controls.
+The sync notice uses a compact, theme-aware layout with reduced-motion support.
+After initialization it floats outside document flow so pending writes and error
+messages never shift the workspace. It shows pending record count. For an initialized
+workspace with pending writes, transient database busy/timeout/unavailable states
+indicate automatic retry through the existing 15-second flush loop; they do not
+also demand a manual retry. A revision conflict first preserves the pending changes
+and every browser outbox as a local recovery copy, then automatically loads the
+database version without asking the user to choose. If writing that copy fails,
+the conflicting state remains mounted, no outbox is removed, and retry remains
+available. Startup and authentication failures retain actionable controls.
 
 The workspace status banner disappears when loading is complete, the business
 outbox is empty, no errors or invalid records remain, and no media needs archiving.
@@ -149,8 +154,8 @@ changing it requires restarting an existing development connection pool.
 User edits enter a credential-free, account-scoped local outbox immediately and
 are sent to PostgreSQL. An edit is shown as saved only after acknowledgement.
 Requests are serialized per browser, and database writes lock the verified owner.
-Revision mismatches reject the entire request. Conflicting edits can be retained
-as a local recovery copy while explicitly reloading the database version.
+Revision mismatches reject the entire request. Conflicting edits are retained
+as a local recovery copy before automatically reloading the database version.
 Deletes are persistent tombstones. Prior values are retained in `business_revisions`.
 Network failures retain pending changes and retry on reconnect or periodically.
 An unload warning protects writes that are not yet acknowledged.

@@ -993,6 +993,8 @@
     "Progress follows startup stages<comma> not remaining time<dot> Local originals are retained": "百分比按启动阶段计算，不代表剩余时间；本地原始数据会保留。",
     "Startup is taking longer<dot> Time depends on record count and network speed": "本次初始化耗时较长，具体时间取决于数据量和网络速度。",
     "Changes are not synced<dot> Your local backup is preserved": "修改尚未同步，本地备份已保留",
+    "Keep this tab open<dot> Local backup could not be saved": "请保持此页面打开，本地备份保存失败",
+    "Latest version loaded<dot> Unsynced edits were saved locally": "已加载最新版本，未同步修改已保存在本地",
     "Saving changes to database": "正在保存到数据库",
     "Changes saved to database": "修改已保存到数据库",
     "Some cached records need attention and were kept locally": "部分缓存记录未通过校验，已保留在本地",
