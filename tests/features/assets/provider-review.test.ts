@@ -1,4 +1,5 @@
 import { normalizeProviderAssetName, PROVIDER_ASSET_NAME_MAX_LENGTH } from '@/features/assets/portrait/name';
+import { portraitGroupLabel } from '@/features/assets/components/AssetsPanel/utils';
 import { portraitReferenceUrl } from '@/features/assets/portrait/reference';
 import { refKey, type ReferenceDeclaration } from '@/features/assets/reference/origin';
 import { parsePortraits } from '@/features/generation/history/portraits';
@@ -8,6 +9,20 @@ import { describe, expect, it } from 'vitest';
 const sourceUrl = 'https://media.xcity.ai/media/u/user/refs/material.png';
 
 describe('provider asset review state', () => {
+    it('uses the project title instead of the provider slug for a generated asset directory', () => {
+        expect(
+            portraitGroupLabel(
+                {
+                    id: 'group-1',
+                    name: 'xcity:owner:character-1234567890',
+                    displayName: '我的短剧项目',
+                    groupType: 'AIGC'
+                },
+                'group-1'
+            )
+        ).toBe('我的短剧项目');
+    });
+
     it('normalizes provider asset names to the BytePlus 64-character limit', () => {
         const normalized = normalizeProviderAssetName(`  ${'素材'.repeat(40)}  `);
 

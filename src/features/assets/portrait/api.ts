@@ -7,6 +7,7 @@ export type PortraitSession = {
 export type PortraitGroup = {
     id: string;
     name: string;
+    displayName?: string;
     groupType: PortraitGroupType;
 };
 

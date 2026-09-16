@@ -228,7 +228,17 @@ export function useShortDramaProject() {
                 providerGroupId,
                 referenceAssetIds: assetIds
             });
-            setState((current) => ({ ...current, characterVersions: [...current.characterVersions, version] }));
+            setState((current) => {
+                const alreadyRegistered = Boolean(
+                    providerGroupId &&
+                    current.characterVersions.some(
+                        (item) => item.projectId === activeProject.id && item.providerGroupId === providerGroupId
+                    )
+                );
+                return alreadyRegistered
+                    ? current
+                    : { ...current, characterVersions: [...current.characterVersions, version] };
+            });
         },
         [activeProject.id]
     );

@@ -127,5 +127,5 @@ export function shortAssetId(assetId: string): string {
 
 export function portraitGroupLabel(group: PortraitGroup, fallbackLabel: string): string {
     const slug = group.name.split(':').slice(2).join(':').trim();
-    return slug || fallbackLabel;
+    return group.displayName?.trim() || slug || fallbackLabel;
 }

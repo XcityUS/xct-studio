@@ -937,6 +937,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                 imageModel,
                 ratio: createRatio,
                 uploadEnabled,
+                assetGroupName: projectDraft.activeProject.title,
                 basePrompt: projectDraft.activeProject.basePrompt,
                 styleNote: projectDraft.activeProject.styleNote,
                 loadImageAssets: handleLoadAssets,
@@ -959,6 +960,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
             isPortraitEnabled,
             projectDraft.activeProject.basePrompt,
             projectDraft.activeProject.styleNote,
+            projectDraft.activeProject.title,
             refreshImageAssets,
             resolveKey,
             uploadEnabled
@@ -979,6 +981,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                 imageAssets,
                 imageModel,
                 uploadEnabled,
+                assetGroupName: projectDraft.activeProject.title,
                 basePrompt: projectDraft.activeProject.basePrompt,
                 styleNote: projectDraft.activeProject.styleNote,
                 loadImageAssets: handleLoadAssets,
@@ -1000,6 +1003,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
             isPortraitEnabled,
             projectDraft.activeProject.basePrompt,
             projectDraft.activeProject.styleNote,
+            projectDraft.activeProject.title,
             refreshImageAssets,
             resolveKey,
             uploadEnabled

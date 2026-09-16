@@ -10,11 +10,18 @@ type AutoBindCharacterAssetsInput = {
     imageAssets: UserAsset[];
     imageModel: string;
     uploadEnabled: boolean;
+    assetGroupName: string;
     basePrompt: string;
     styleNote: string;
     loadImageAssets: () => Promise<UserAsset[]>;
     generateImages: (params: { prompt: string; model: string; size: '1024x1024'; n: number }) => Promise<GeneratedImage[]>;
-    reviewAsset: (input: { url: string; name: string; origin: 'thirdparty-ai'; assetType: 'Image' }) => Promise<string>;
+    reviewAsset: (input: {
+        url: string;
+        name: string;
+        groupName: string;
+        origin: 'thirdparty-ai';
+        assetType: 'Image';
+    }) => Promise<string>;
     resolveKey: () => Promise<string | null>;
     onProgress?: (draft: EditorDraft, progress: SceneAssetBindingProgress) => void;
     options?: AssetBindingOptions;
@@ -147,6 +154,7 @@ export async function autoBindCharacterAssets(input: AutoBindCharacterAssetsInpu
             const referenceUrl = await input.reviewAsset({
                 url: imageUrl,
                 name: character.name,
+                groupName: input.assetGroupName,
                 origin: 'thirdparty-ai',
                 assetType: 'Image'
             });

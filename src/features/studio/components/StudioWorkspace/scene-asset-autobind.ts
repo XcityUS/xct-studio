@@ -12,11 +12,18 @@ type AutoBindSceneAssetsInput = {
     imageModel: string;
     ratio: VideoRatio;
     uploadEnabled: boolean;
+    assetGroupName: string;
     basePrompt: string;
     styleNote: string;
     loadImageAssets: () => Promise<UserAsset[]>;
     generateImages: (params: { prompt: string; model: string; size: ImageSizeId; n: number }) => Promise<GeneratedImage[]>;
-    reviewAsset: (input: { url: string; name: string; origin: 'no-person'; assetType: 'Image' }) => Promise<string>;
+    reviewAsset: (input: {
+        url: string;
+        name: string;
+        groupName: string;
+        origin: 'no-person';
+        assetType: 'Image';
+    }) => Promise<string>;
     resolveKey: () => Promise<string | null>;
     onProgress?: (draft: EditorDraft, progress: SceneAssetBindingProgress) => void;
     options?: AssetBindingOptions;
@@ -110,6 +117,7 @@ export async function autoBindSceneAssets(input: AutoBindSceneAssetsInput): Prom
             const referenceUrl = await input.reviewAsset({
                 url: imageUrl,
                 name: scene.name,
+                groupName: input.assetGroupName,
                 origin: 'no-person',
                 assetType: 'Image'
             });

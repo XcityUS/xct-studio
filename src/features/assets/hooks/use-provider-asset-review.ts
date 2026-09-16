@@ -16,6 +16,7 @@ import * as React from 'react';
 export type ProviderAssetReviewInput = {
     url: string;
     name: string;
+    groupName?: string;
     origin: InlineReviewOrigin;
     assetType?: PortraitAssetType;
 };
@@ -104,9 +105,8 @@ async function createTarget(
         const validation = await validateAssetImage(input.url);
         if (validation.status === 'rejected') throw new Error(validation.message);
     }
-    const groupId =
-        existing?.groupId ||
-        (await options.createGroup(input.origin === 'no-person' ? 'Reviewed materials' : input.name)).groupId;
+    const groupName = input.groupName?.trim() || (input.origin === 'no-person' ? 'Reviewed materials' : input.name);
+    const groupId = existing?.groupId || (await options.createGroup(groupName)).groupId;
     const created = await options.createAsset({
         groupId,
         url: input.url,
