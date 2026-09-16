@@ -5,9 +5,9 @@ import { CopyUrlButton } from '../CopyUrlButton';
 import type { AssetListItem, AssetReviewState } from '../asset-list';
 import { formatBytes, formatDate } from '../utils';
 import { AssetPreview } from './AssetPreview';
+import { AssetPreviewDialog } from './AssetPreviewDialog';
 import { CopyAssetButton } from './CopyAssetButton';
 import styles from './index.module.scss';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/Dialog';
 import type { ReferenceUseOptions } from '@/features/assets/components/AssetsPanel/types';
 import type { ProviderAssetReviewInput } from '@/features/assets/hooks/use-provider-asset-review';
 import { assetIdFromReferenceUrl, type InlineReviewOrigin } from '@/features/assets/reference/origin';
@@ -108,33 +108,7 @@ export function AssetGrid({
                     }}
                 />
             )}
-            <Dialog open={Boolean(previewItem)} onOpenChange={(open) => !open && setPreviewItem(null)}>
-                <DialogContent className={styles.previewDialog}>
-                    <DialogHeader>
-                        <DialogTitle>{previewItem?.asset.name || previewItem?.asset.key.split('/').pop()}</DialogTitle>
-                        <DialogDescription>
-                            {previewItem?.asset.kind === 'video' ? t('Video preview') : t('Image preview')}
-                        </DialogDescription>
-                    </DialogHeader>
-                    {previewItem?.asset.kind === 'image' && (
-                        // eslint-disable-next-line @next/next/no-img-element -- provider/cloud media URL
-                        <img
-                            src={previewItem.asset.url}
-                            alt={previewItem.asset.name || previewItem.asset.key}
-                            className={styles.previewImage}
-                        />
-                    )}
-                    {previewItem?.asset.kind === 'video' && (
-                        <video
-                            src={previewItem.asset.url}
-                            className={styles.previewVideo}
-                            controls
-                            autoPlay
-                            playsInline
-                        />
-                    )}
-                </DialogContent>
-            </Dialog>
+            <AssetPreviewDialog item={previewItem} onOpenChange={(open) => !open && setPreviewItem(null)} />
             <div className={styles.grid}>
                 {items.map((item) => {
                     const { asset } = item;

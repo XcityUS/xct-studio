@@ -188,24 +188,6 @@
     }
 }
 
-.previewDialog {
-    width: min(92vw, 980px);
-    max-width: min(92vw, 980px);
-    border-color: var(--studio-border);
-    background: var(--studio-background);
-    color: var(--studio-foreground);
-}
-
-.previewImage,
-.previewVideo {
-    display: block;
-    width: 100%;
-    max-height: 72vh;
-    border-radius: 8px;
-    background: var(--studio-surface);
-    object-fit: contain;
-}
-
 @media (min-width: 640px) {
     .grid {
         grid-template-columns: repeat(3, minmax(0, 1fr));
