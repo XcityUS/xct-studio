@@ -3,7 +3,7 @@
 import styles from './index.module.scss';
 import { Dropdown } from '@/components/ui/Dropdown';
 import { normalizeAssetId, type ReferenceOrigin } from '@/features/assets/reference/origin';
-import { ExternalLink, Link2, ShieldCheck } from 'lucide-react';
+import { ChevronDown, Link2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import * as React from 'react';
 
@@ -11,7 +11,6 @@ const SOURCE_OPTIONS: ReferenceOrigin[] = [
     'no-person',
     'official-asset',
     'thirdparty-ai',
-    'real-person',
     'public-figure',
     'licensed-ip'
 ];
@@ -28,7 +27,7 @@ function useAssetIdIntakeForm(onAttachAssetId: AssetIdIntakeProps['onAttachAsset
     const [notice, setNotice] = React.useState('');
     const sourceLabels: Record<ReferenceOrigin, string> = {
         'no-person': t('Reviewed material without a person or protected IP'),
-        'official-asset': t('Seedance official reference asset'),
+        'official-asset': t('Official asset'),
         'byteplus-ai': t('Seedream output'),
         'thirdparty-ai': t('External AI material'),
         'real-person': t('Verified ordinary person'),
@@ -106,30 +105,15 @@ export function AssetIdIntake({ onAttachAssetId }: AssetIdIntakeProps) {
     const form = useAssetIdIntakeForm(onAttachAssetId);
 
     return (
-        <section className={styles.root} aria-labelledby='asset-id-intake-title'>
-            <div className={styles.heading}>
-                <span className={styles.icon} aria-hidden='true'>
-                    <ShieldCheck size={18} />
-                </span>
-                <div>
-                    <h3 id='asset-id-intake-title'>{t('Asset approval and ID')}</h3>
-                    <p>
-                        {t(
-                            'Seedream output can be used directly<dot> Every other material must be reviewed and bound to an Asset ID'
-                        )}
-                    </p>
-                </div>
+        <details className={styles.root}>
+            <summary className={styles.summary}>
+                <span id='asset-id-intake-title'>{t('Import existing approved asset')}</span>
+                <ChevronDown aria-hidden='true' />
+            </summary>
+            <div className={styles.content} aria-labelledby='asset-id-intake-title'>
+                <AssetIdForm {...form} />
+                {form.notice && <p className={styles.notice}>{form.notice}</p>}
             </div>
-
-            <AssetIdForm {...form} />
-
-            <div className={styles.meta}>
-                <p>{form.notice || t('Private asset APIs require KYC High access')}</p>
-                <a href='https://docs.byteplus.com/en/docs/ModelArk/2333565' target='_blank' rel='noreferrer'>
-                    {t('Open ModelArk asset guide')}
-                    <ExternalLink size={13} aria-hidden='true' />
-                </a>
-            </div>
-        </section>
+        </details>
     );
 }

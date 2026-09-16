@@ -1,3 +1,36 @@
+.headerActions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.verificationLink {
+    display: inline-flex;
+    width: fit-content;
+    padding: 5px 9px;
+    border: 1px solid var(--studio-border-strong);
+    border-radius: 6px;
+    color: var(--studio-foreground);
+    font-size: 12px;
+    text-decoration: none;
+
+    &:hover {
+        background: var(--studio-hover);
+    }
+}
+
+.portraitUploadRow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+
+    span {
+        color: var(--studio-muted-soft);
+        font-size: 10px;
+    }
+}
+
 .actions {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));

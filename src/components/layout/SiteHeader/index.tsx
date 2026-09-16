@@ -10,12 +10,7 @@ import Image from 'next/image';
 
 export async function SiteHeader({ locale }: { locale: AppLocale }) {
     const t = await getTranslations({ locale });
-    const links = [
-        { label: t('Dashboard'), href: 'https://xcity.ai/dashboard' },
-        { label: t('Models'), href: 'https://xcity.ai/models' },
-        { label: t('Chat'), href: 'https://chat.xcity.ai' },
-        { label: t('Docs'), href: 'https://xcity.ai/docs' }
-    ];
+    const links = [{ label: t('Docs'), href: 'https://xcity.ai/docs' }];
     return (
         <header className={styles.header}>
             <div className={styles.headerInner}>

@@ -20,6 +20,7 @@ export type ReferenceUseOptions = {
 export type AssetsPanelProps = {
     /** Fetches the caller's stored assets (uploads + archived videos). */
     loadAssets: () => Promise<UserAsset[]>;
+    uploadImage?: (file: File) => Promise<string>;
     deleteAsset: (key: string) => Promise<void>;
     characters: VideoCharacter[];
     addCharacter: (character: VideoCharacter) => void;
@@ -28,7 +29,6 @@ export type AssetsPanelProps = {
     portraits: VideoPortrait[];
     deletedIds: string[];
     declarations: Record<string, ReferenceDeclaration>;
-    referenceImageUrls: string[];
     addPortrait: (portrait: VideoPortrait) => void;
     syncPortraitState: () => Promise<void>;
     removePortrait: (assetId: string) => void;
@@ -54,7 +54,6 @@ export type AssetsPanelProps = {
     /** Loads a video asset into the video form's reference video list. */
     onUseAsReferenceVideo: (sourceUrl: string, providerReferenceUrl?: string) => void;
     onAttachAssetId: (input: { assetId: string; origin: ReferenceOrigin; note?: string }) => boolean;
-    onUpdateOfficialAssetNote: (key: string, note: string) => void;
     projectAssets?: ProjectAsset[];
     onChangeProjectAssetKind?: (assetId: string, kind: ProjectAssetKind) => void;
     onRemoveProjectAsset?: (assetId: string) => void;

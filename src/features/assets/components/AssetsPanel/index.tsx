@@ -2,10 +2,12 @@
 
 import { AssetImageDropdown } from './AssetImageDropdown';
 import { AssetLibrary } from './AssetLibrary';
+import { AssetReviewHelp } from './AssetReviewHelp';
 import { AssetStrip } from './AssetStrip';
 import { CharacterDialog } from './CharacterDialog';
 import { CharacterGroupBrowser } from './CharacterGroupBrowser';
 import { DeleteCharacterGroupDialog } from './DeleteCharacterGroupDialog';
+import { PortraitPhotoUpload } from './PortraitPhotoUpload';
 import { buildAssetList, selectablePortraitSourceAssets } from './asset-list';
 import styles from './index.module.scss';
 import type { AssetsPanelProps } from './types';
@@ -67,6 +69,7 @@ function applyAssetNameAlias(asset: UserAsset, aliases: Record<string, string>):
 
 export function AssetsPanel({
     loadAssets,
+    uploadImage,
     deleteAsset,
     characters,
     addCharacter,
@@ -75,7 +78,6 @@ export function AssetsPanel({
     portraits,
     deletedIds,
     declarations,
-    referenceImageUrls,
     addPortrait,
     syncPortraitState,
     removePortrait,
@@ -93,7 +95,6 @@ export function AssetsPanel({
     onUseAsReference,
     onUseAsReferenceVideo,
     onAttachAssetId,
-    onUpdateOfficialAssetNote,
     projectAssets = [],
     onChangeProjectAssetKind,
     onRemoveProjectAsset,
@@ -113,6 +114,7 @@ export function AssetsPanel({
     const virtualCharacterAddedNotice = t('Virtual character image added');
     const verifiedPhotoAddedNotice = t('Verified photo added');
     const portraitImageError = t('Could not add portrait image');
+    const verificationCompleteNotice = t('Verification complete<dot> You can now upload photos of this person');
     const assetCharacterName = React.useCallback(
         (asset: UserAsset) => defaultCharacterName(asset, characterFallback),
         [characterFallback]
@@ -129,6 +131,7 @@ export function AssetsPanel({
     const [portraitGroups, setPortraitGroups] = React.useState<PortraitGroup[] | null>(null);
     const [isLoadingPortraitGroups, setIsLoadingPortraitGroups] = React.useState(false);
     const [isStartingPortraitSession, setIsStartingPortraitSession] = React.useState(false);
+    const [portraitVerificationUrl, setPortraitVerificationUrl] = React.useState<string | null>(null);
     const [isCreatingVirtualGroup, setIsCreatingVirtualGroup] = React.useState(false);
     const [deletingPortraitGroupId, setDeletingPortraitGroupId] = React.useState<string | null>(null);
     const [pendingDeleteGroup, setPendingDeleteGroup] = React.useState<PortraitGroup | null>(null);
@@ -144,6 +147,7 @@ export function AssetsPanel({
     const [automaticSetupRetry, setAutomaticSetupRetry] = React.useState(0);
     const [isCheckingPortraitSetup, setIsCheckingPortraitSetup] = React.useState(false);
     const automaticSetupAttemptRef = React.useRef('');
+    const receivedVerificationRef = React.useRef<number | null>(null);
     const errorMessage = React.useCallback(
         (value: unknown) => (value instanceof Error && value.message ? value.message : unknownError),
         [unknownError]
@@ -251,12 +255,17 @@ export function AssetsPanel({
     }, [active, portraitEnabled, refreshPortraitGroups]);
 
     React.useEffect(() => {
-        if (!active || !portraitEnabled || !pendingPortraitSetup) return;
+        if (!active || !portraitEnabled) return;
         const receiveVerification = () => {
             const result = readPortraitVerificationResult();
-            if (!result || result.completedAt < pendingPortraitSetup.requestedAt) return;
+            if (!result || receivedVerificationRef.current === result.completedAt) return;
+            if (pendingPortraitSetup && result.completedAt < pendingPortraitSetup.requestedAt) return;
+            receivedVerificationRef.current = result.completedAt;
             setVerifiedSetupGroupId(result.groupId);
-            void refreshPortraitGroups();
+            setPortraitVerificationUrl(null);
+            setPortraitNotice(verificationCompleteNotice);
+            void Promise.all([refreshPortraitGroups(), refreshProviderAssets()]);
+            if (!pendingPortraitSetup) clearPortraitVerificationResult();
         };
         const handleStorage = (event: StorageEvent) => {
             if (event.key === PORTRAIT_VERIFICATION_RESULT_STORAGE_KEY) receiveVerification();
@@ -273,7 +282,14 @@ export function AssetsPanel({
             window.removeEventListener('focus', receiveVerification);
             document.removeEventListener('visibilitychange', handleVisibility);
         };
-    }, [active, pendingPortraitSetup, portraitEnabled, refreshPortraitGroups]);
+    }, [
+        active,
+        pendingPortraitSetup,
+        portraitEnabled,
+        refreshPortraitGroups,
+        refreshProviderAssets,
+        verificationCompleteNotice
+    ]);
 
     const deletedIdSet = React.useMemo(() => new Set(deletedIds), [deletedIds]);
     const visibleProviderAssets = React.useMemo(
@@ -402,16 +418,25 @@ export function AssetsPanel({
     );
 
     const handleStartPortraitSession = async () => {
+        const verificationWindow = window.open('about:blank', '_blank');
+        if (verificationWindow) verificationWindow.opener = null;
         setIsStartingPortraitSession(true);
         setPortraitError(null);
         setPortraitNotice(null);
+        setPortraitVerificationUrl(null);
         try {
             clearPortraitVerificationResult();
             setVerifiedSetupGroupId(null);
             const session = await startPortraitSession(window.location.origin);
-            window.open(session.h5Link, '_blank', 'noopener,noreferrer');
-            setPortraitNotice(t('Complete verification in the opened page<comma> then return'));
+            if (verificationWindow && !verificationWindow.closed) {
+                verificationWindow.location.replace(session.h5Link);
+                setPortraitNotice(t('Complete verification in the opened page<comma> then return'));
+            } else {
+                setPortraitVerificationUrl(session.h5Link);
+                setPortraitNotice(t('The browser blocked the verification window<dot> Open it to continue'));
+            }
         } catch (err) {
+            verificationWindow?.close();
             setPortraitError(
                 t('Could not start verification<colon> <lcur>error<rcur>', {
                     error: errorMessage(err)
@@ -597,6 +622,18 @@ export function AssetsPanel({
             onPortraitSetupComplete?.({ ...pendingPortraitSetup, assetId: providerAsset.assetId, groupId });
         }
     };
+    const handleUploadPortraitPhoto = async (groupId: string, file: File) => {
+        if (!uploadImage) return;
+        setPortraitError(null);
+        try {
+            const sourceUrl = await uploadImage(file);
+            const name = file.name.replace(/\.[^.]+$/, '').trim() || characterFallback;
+            await submitPortraitAsset(groupId, 'LivenessFace', sourceUrl, name);
+            await refresh();
+        } catch (error) {
+            setPortraitError(t('Could not upload photo<colon> <lcur>error<rcur>', { error: errorMessage(error) }));
+        }
+    };
 
     React.useEffect(() => {
         if (!pendingPortraitSetup || !verifiedSetupGroupId || addingPortraitGroupId) return;
@@ -648,18 +685,21 @@ export function AssetsPanel({
                         {t('Uploaded reference media and cloud<dash>archived videos')}
                     </CardDescription>
                 </div>
-                <Button
-                    variant='ghost'
-                    size='sm'
-                    onClick={() => void Promise.all([refresh(), refreshProviderAssets()])}
-                    disabled={isLoading || isLoadingProviderAssets}
-                    className='h-auto rounded-md px-2 py-1 text-white/60 hover:bg-white/10 hover:text-white'>
-                    <RefreshCw
-                        size={14}
-                        className={isLoading || isLoadingProviderAssets ? 'animate-spin' : undefined}
-                    />
-                    <span className='ml-1'>{t('Refresh')}</span>
-                </Button>
+                <div className={styles.headerActions}>
+                    <AssetReviewHelp />
+                    <Button
+                        variant='ghost'
+                        size='sm'
+                        onClick={() => void Promise.all([refresh(), refreshProviderAssets()])}
+                        disabled={isLoading || isLoadingProviderAssets}
+                        className='h-auto rounded-md px-2 py-1 text-white/60 hover:bg-white/10 hover:text-white'>
+                        <RefreshCw
+                            size={14}
+                            className={isLoading || isLoadingProviderAssets ? 'animate-spin' : undefined}
+                        />
+                        <span className='ml-1'>{t('Refresh')}</span>
+                    </Button>
+                </div>
             </CardHeader>
             <CardContent className='flex-grow overflow-y-auto p-4'>
                 {error && <p className='mb-3 text-sm text-red-400'>{error}</p>}
@@ -795,6 +835,15 @@ export function AssetsPanel({
                         )}
 
                         {portraitNotice && <p className='text-xs text-emerald-300'>{portraitNotice}</p>}
+                        {portraitVerificationUrl && (
+                            <a
+                                className={styles.verificationLink}
+                                href={portraitVerificationUrl}
+                                target='_blank'
+                                rel='noopener noreferrer'>
+                                {t('Open verification')}
+                            </a>
+                        )}
                         {portraitStatus && <p className='text-xs text-white/50'>{portraitStatus}</p>}
                         {portraitError && portraitError !== providerAssetsError && (
                             <ProviderErrorNotice error={portraitError} />
@@ -865,10 +914,16 @@ export function AssetsPanel({
                                                     {t('Add verified photo')}
                                                 </Button>
                                             </div>
-                                            {selectableImageAssets.length === 0 && (
-                                                <p className='text-[10px] text-white/35'>
-                                                    {t('Upload or save an image asset first')}
-                                                </p>
+                                            {uploadImage && (
+                                                <div className={styles.portraitUploadRow}>
+                                                    <PortraitPhotoUpload
+                                                        disabled={isAdding}
+                                                        onUpload={(file) => handleUploadPortraitPhoto(group.id, file)}
+                                                    />
+                                                    <span>
+                                                        {t('Upload a new photo or choose one already in Assets')}
+                                                    </span>
+                                                </div>
                                             )}
                                         </div>
                                     );
@@ -989,8 +1044,6 @@ export function AssetsPanel({
                     checkingAssetId={checkingAssetId}
                     items={assetList}
                     providerAssets={visibleProviderAssets}
-                    declarations={declarations}
-                    referenceImageUrls={referenceImageUrls}
                     isLoading={isLoading || isLoadingProviderAssets}
                     onCheckReviewStatus={handleCheckReviewStatus}
                     onDelete={handleDelete}
@@ -998,7 +1051,6 @@ export function AssetsPanel({
                     onSaveCharacter={openCharacterDialog}
                     onUseImage={onUseAsReference}
                     onUseVideo={onUseAsReferenceVideo}
-                    onUpdateOfficialAssetNote={onUpdateOfficialAssetNote}
                 />
 
                 {/* Legacy internal authorization UI is intentionally disabled; provider review happens inline. */}

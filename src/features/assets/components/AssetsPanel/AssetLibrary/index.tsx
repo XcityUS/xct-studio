@@ -2,12 +2,9 @@
 
 import { AssetFilters, type AssetKind } from '../AssetFilters';
 import { AssetGrid, type AssetGridProps } from '../AssetGrid';
-import { AssetSourceTabs, type AssetSource } from '../AssetSourceTabs';
-import { OfficialAssetLibrary } from '../OfficialAssetLibrary';
 import type { AssetListItem } from '../asset-list';
 import styles from './index.module.scss';
 import type { ProviderLibraryAsset } from '@/features/assets/portrait/api';
-import type { ReferenceDeclaration } from '@/features/assets/reference/origin';
 import { Loader2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import * as React from 'react';
@@ -17,24 +14,17 @@ const ASSET_BATCH_SIZE = 15;
 type AssetLibraryProps = Omit<AssetGridProps, 'items'> & {
     items: AssetListItem[];
     providerAssets: ProviderLibraryAsset[];
-    declarations: Record<string, ReferenceDeclaration>;
-    referenceImageUrls: string[];
-    onUpdateOfficialAssetNote: (key: string, note: string) => void;
     isLoading: boolean;
 };
 
 type AssetLibraryBodyProps = {
     availableOnly: boolean;
-    referenceImageUrls: string[];
     gridProps: Omit<AssetGridProps, 'items'>;
     isLoading: boolean;
     items: AssetListItem[];
-    declarations: Record<string, ReferenceDeclaration>;
     kindFilter: AssetKind;
     onAvailableOnlyChange: (active: boolean) => void;
     onKindFilterChange: (kind: AssetKind) => void;
-    onUpdateOfficialAssetNote: (key: string, note: string) => void;
-    source: AssetSource;
     visible: AssetListItem[];
     visibleCount: number;
     isLoadingNextPage: boolean;
@@ -113,31 +103,17 @@ function AssetLibraryEmpty({ hasItems, isLoading }: { hasItems: boolean; isLoadi
 
 function AssetLibraryBody({
     availableOnly,
-    referenceImageUrls,
     gridProps,
     isLoading,
     items,
-    declarations,
     kindFilter,
     onAvailableOnlyChange,
     onKindFilterChange,
-    onUpdateOfficialAssetNote,
-    source,
     visible,
     visibleCount,
     isLoadingNextPage,
     loadMoreRef
 }: AssetLibraryBodyProps) {
-    if (source === 'seedance') {
-        return (
-            <OfficialAssetLibrary
-                declarations={declarations}
-                onUseImage={gridProps.onUseImage}
-                onUpdateNote={onUpdateOfficialAssetNote}
-                referenceImageUrls={referenceImageUrls}
-            />
-        );
-    }
     return (
         <>
             <AssetFilters
@@ -166,12 +142,10 @@ function AssetLibraryBody({
 }
 
 export function AssetLibrary(props: AssetLibraryProps) {
-    const { items, providerAssets, declarations, isLoading, referenceImageUrls, onUpdateOfficialAssetNote, ...gridProps } =
-        props;
+    const { items, providerAssets, isLoading, ...gridProps } = props;
     const t = useTranslations();
     const [kindFilter, setKindFilter] = React.useState<AssetKind>('all');
     const [availableOnly, setAvailableOnly] = React.useState(false);
-    const [source, setSource] = React.useState<AssetSource>('xcity');
     const [visibleCount, setVisibleCount] = React.useState(ASSET_BATCH_SIZE);
     const [isLoadingNextPage, setIsLoadingNextPage] = React.useState(false);
     const loadMoreRef = React.useRef<HTMLDivElement | null>(null);
@@ -187,16 +161,27 @@ export function AssetLibrary(props: AssetLibraryProps) {
     );
     const availableCount = React.useMemo(() => items.filter((item) => Boolean(item.referenceUrl)).length, [items]);
     const metricProps = { assets: providerAssets, availableCount, itemCount: items.length, isLoading };
-    const hasMoreAssets = source === 'xcity' && visibleCount < visible.length;
+    const displayedCount = Math.min(visibleCount, visible.length);
+    const hasMoreAssets = displayedCount < visible.length;
 
-    React.useEffect(() => {
-        setVisibleCount(Math.min(ASSET_BATCH_SIZE, visible.length));
+    const resetPagination = () => {
+        setVisibleCount(ASSET_BATCH_SIZE);
         setIsLoadingNextPage(false);
         if (loadingTimerRef.current) {
             window.clearTimeout(loadingTimerRef.current);
             loadingTimerRef.current = null;
         }
-    }, [availableOnly, kindFilter, source, visible.length]);
+    };
+
+    const handleAvailableOnlyChange = (next: boolean) => {
+        setAvailableOnly(next);
+        resetPagination();
+    };
+
+    const handleKindFilterChange = (next: AssetKind) => {
+        setKindFilter(next);
+        resetPagination();
+    };
 
     const loadMoreAssets = React.useCallback(() => {
         if (!hasMoreAssets || isLoadingNextPage) return;
@@ -242,25 +227,19 @@ export function AssetLibrary(props: AssetLibraryProps) {
                 <h3 id='asset-library-heading' className={styles.title}>
                     {t('Assets')}
                 </h3>
-                {source === 'xcity' && <AssetMetrics {...metricProps} />}
+                <AssetMetrics {...metricProps} />
             </div>
-
-            <AssetSourceTabs active={source} itemCount={items.length} onChange={setSource} />
 
             <AssetLibraryBody
                 availableOnly={availableOnly}
-                declarations={declarations}
                 gridProps={gridProps}
                 isLoading={isLoading}
                 items={items}
                 kindFilter={kindFilter}
-                onAvailableOnlyChange={setAvailableOnly}
-                onKindFilterChange={setKindFilter}
-                onUpdateOfficialAssetNote={onUpdateOfficialAssetNote}
-                referenceImageUrls={referenceImageUrls}
-                source={source}
+                onAvailableOnlyChange={handleAvailableOnlyChange}
+                onKindFilterChange={handleKindFilterChange}
                 visible={visible}
-                visibleCount={visibleCount}
+                visibleCount={displayedCount}
                 isLoadingNextPage={isLoadingNextPage}
                 loadMoreRef={loadMoreRef}
             />

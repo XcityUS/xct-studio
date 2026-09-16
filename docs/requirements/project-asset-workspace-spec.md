@@ -1,6 +1,6 @@
 # Project Asset Workspace Specification
 
-Last updated: 2026-09-09
+Last updated: 2026-09-16
 
 ## Decision
 
@@ -175,6 +175,15 @@ Project / IP default
 - A more specific override must be visible to the user.
 - An asset with status `uploaded`, `reviewing`, `failed`, or `revoked` must not be submitted as a provider reference unless it is explicitly exempt, such as Studio-generated Seedream output under the current business rule.
 - Raw Asset IDs are transport identifiers. Prompts should refer to ordered inputs such as `[Image 1]`, not rely on prose containing an Asset ID.
+
+## User-facing Review Flow
+
+- Real-person authorization starts from Studio and opens its verification page directly from the user's click so Chrome and Safari follow the same flow.
+- When the verification callback succeeds, Studio must detect it automatically, refresh the verified-person group, and allow the user to upload that person's photo without a manual page refresh.
+- Uploading a photo from a verified-person group stores the image and submits it for review as one UI action. The user must not have to copy a URL or Asset ID between screens.
+- Manual Asset ID entry is an advanced import path for an already-approved asset. It must not be the default workflow and must not be offered as a way to bypass real-person verification.
+- Provider product names, provider consoles, KYC tiers, and provider catalog instructions are implementation details and are not exposed in the standard asset workflow.
+- General review guidance stays behind contextual help. The default asset view prioritizes upload, selection, review status, and use in the current Project.
 
 ## Recommended Workspace Information Architecture
 

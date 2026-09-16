@@ -433,19 +433,6 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         [handleAttachAssetId, projectDraft]
     );
 
-    const handleUpdateOfficialAssetNote = React.useCallback(
-        (key: string, note: string) => {
-            const existing = declarations[key];
-            if (!existing || existing.origin !== 'official-asset') return;
-            const nextNote = note.trim();
-            const nextDeclaration = { ...existing };
-            if (nextNote) nextDeclaration.note = nextNote;
-            else delete nextDeclaration.note;
-            setDeclaration(key, nextDeclaration);
-        },
-        [declarations, setDeclaration]
-    );
-
     const creationFormRef = React.useRef<HTMLDivElement>(null);
     const scrollToCreationForm = React.useCallback(() => {
         return new Promise<void>((resolve) => {
@@ -3780,6 +3767,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                                 <div className='min-h-[450px]'>
                                     <AssetsPanel
                                         loadAssets={handleLoadAssets}
+                                        uploadImage={uploadEnabled ? handleUploadImage : undefined}
                                         deleteAsset={handleDeleteAsset}
                                         characters={characters}
                                         addCharacter={addCharacter}
@@ -3788,7 +3776,6 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                                         portraits={portraits}
                                         deletedIds={deletedIds}
                                         declarations={effectiveDeclarations}
-                                        referenceImageUrls={createReferenceUrls}
                                         addPortrait={addPortrait}
                                         syncPortraitState={syncNow}
                                         removePortrait={removePortrait}
@@ -3806,7 +3793,6 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                                         onUseAsReference={handleUseAssetAsReference}
                                         onUseAsReferenceVideo={handleUseAssetAsReferenceVideo}
                                         onAttachAssetId={handleAttachAssetIdToProject}
-                                        onUpdateOfficialAssetNote={handleUpdateOfficialAssetNote}
                                         projectAssets={projectDraft.projectAssets}
                                         onChangeProjectAssetKind={projectDraft.updateProjectAssetKind}
                                         onRemoveProjectAsset={projectDraft.archiveProjectAsset}
