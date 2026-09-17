@@ -17,6 +17,7 @@ import {
 } from './references';
 import { autoBindSceneAssets } from './scene-asset-autobind';
 import { captionModeFromLanguages, shareParamsToForm, sharePromptWithinLimit, shareTitleFromItem } from './share';
+import { hostedShareVideoUrl, HostedShareMediaError } from './share-media';
 import { shotVideoPreviewsForProject } from './shot-video-previews';
 import type { ErrorScope, SocialShareTarget, StudioTab, WatermarkQueueItem } from './types';
 import { useCaptionSync } from './use-caption-sync';
@@ -2193,10 +2194,11 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                     prompt: sharePrompt,
                     ...(item.captionTrack ? { caption_track: item.captionTrack } : {})
                 };
+                const videoUrl = await hostedShareVideoUrl(item.storedUrl, await mediaWorkerUrl());
                 const share = await createShare(
                     {
                         videoId: item.id,
-                        videoUrl: item.storedUrl,
+                        videoUrl,
                         prompt: sharePrompt,
                         params: shareParams,
                         title: shareTitleFromItem(item)
@@ -2210,7 +2212,13 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                 }
             } catch (err) {
                 console.error('Error creating share:', err);
-                setShareDialogError(err instanceof Error ? err.message : 'Failed to create share.');
+                setShareDialogError(err instanceof HostedShareMediaError
+                    ? err.reason === 'not-archived'
+                        ? t('This video has no shareable cloud archive<dot> Wait for archiving and try again')
+                        : t('This video is unavailable on the current media host<dot> Restore its archive before sharing')
+                    : err instanceof Error && err.message === 'video_url is outside your hosted media namespace'
+                        ? t('This video belongs to a different media account<dot> Sign in with the account that archived it')
+                        : err instanceof Error ? err.message : t('Failed to create share'));
             } finally {
                 setSharingVideoId(null);
             }
