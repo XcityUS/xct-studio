@@ -48,6 +48,8 @@ The default user may understand storytelling but does not need professional stor
 
 When sharing an archived video, Studio resolves any historical media-domain URL to the current media host and verifies the object exists before sending the share request. The Worker still enforces the signed-in user's media namespace; an object owned by a different account must not be relabelled as shareable and should produce an actionable error.
 
+Community approval must preserve the existing public index when moving it from legacy R2 storage to the current bucket. Conditional index-write conflicts should be retried; an approved share whose index update failed must remain recoverable from the administrator's review queue instead of disappearing from both the queue and public gallery.
+
 ## One Production Context
 
 Every production view should resolve to the same context:

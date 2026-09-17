@@ -970,16 +970,21 @@ function normalizeCommunityIndex(value) {
 }
 
 async function readCommunityIndex(env) {
-    const object = await getMedia(env, COMMUNITY_INDEX_KEY);
-    if (!object) {
-        return { entries: [], etag: null };
+    const object = await env.XCITY_MEDIA.get(COMMUNITY_INDEX_KEY);
+    if (object) {
+        const parsed = await object.json().catch(() => []);
+        return { entries: normalizeCommunityIndex(parsed), etag: etagFromIfMatch(object.httpEtag || '') };
     }
-    const parsed = await object.json().catch(() => []);
-    return { entries: normalizeCommunityIndex(parsed), etag: etagFromIfMatch(object.httpEtag || '') };
+
+    const legacyObject = env.LEGACY_XCITY_MEDIA ? await env.LEGACY_XCITY_MEDIA.get(COMMUNITY_INDEX_KEY) : null;
+    if (!legacyObject) return { entries: [], etag: null };
+    const parsed = await legacyObject.json().catch(() => []);
+    // A legacy ETag cannot guard a conditional write to the current bucket.
+    return { entries: normalizeCommunityIndex(parsed), etag: null };
 }
 
 async function updateCommunityIndex(env, update) {
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (let attempt = 0; attempt < 6; attempt++) {
         const { entries, etag } = await readCommunityIndex(env);
         const next = normalizeCommunityIndex(update(entries));
         const onlyIf = etag ? { etagMatches: etag } : { etagDoesNotExist: true };
@@ -991,6 +996,7 @@ async function updateCommunityIndex(env, update) {
             }
         });
         if (stored) return true;
+        await delay(25 * (attempt + 1));
     }
     return false;
 }
@@ -1036,6 +1042,8 @@ async function handleCommunityQueue(request, env, cors) {
     }
 
     const items = [];
+    const { entries } = await readCommunityIndex(env);
+    const indexedIds = new Set(entries.map((entry) => entry.id));
     let cursor;
     let walked = 0;
     while (walked < 500) {
@@ -1049,7 +1057,10 @@ async function handleCommunityQueue(request, env, cors) {
             const match = obj.key.match(/^share\/([0-9a-z]{8})\.json$/);
             if (!match) continue;
             const record = await readShareRecord(env, match[1]);
-            if (record?.plaza !== 'pending') continue;
+            // A prior review may have saved the approval but failed to update the public index.
+            if (record?.plaza !== 'pending' && !(record?.plaza === 'approved' && !indexedIds.has(record.id))) {
+                continue;
+            }
             items.push({
                 id: record.id,
                 title: typeof record.title === 'string' ? record.title : '',
