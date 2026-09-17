@@ -55,14 +55,12 @@ import { providerLinkLikelyDead } from '@/features/assets/media/state';
 import { captureVideoLastFrame, captureVideoPoster } from '@/features/assets/media/thumbnail';
 import { refreshProjectAssetStatus } from '@/features/assets/portrait/refresh-project-asset';
 import {
-    ASSET_LIBRARY_MODEL_BLOCK_REASON,
     assetIdFromReferenceUrl,
-    declarationBlockReason,
-    declarationSatisfied,
     isAssetReferenceUrl,
+    knownReferenceStatus,
     originForGeneratedImage,
     refKey,
-    referenceRequiresAssetLibrary,
+    referenceAdmissionReason,
     type ReferenceOrigin
 } from '@/features/assets/reference/origin';
 import { db, type ImageRecord } from '@/features/assets/storage/db';
@@ -76,6 +74,7 @@ import {
     type CreationFormData,
     type SceneAssetBindingProgress
 } from '@/features/generation/components/CreationForm';
+import { canUseReferenceAudio } from '@/features/generation/components/CreationForm/reference-audio';
 import { FinalizeDialog, type FinalizeSettings } from '@/features/generation/components/FinalizeDialog';
 import { ImageStudio } from '@/features/generation/components/ImageStudio';
 import { VideoHistoryPanel } from '@/features/generation/components/VideoHistoryPanel';
@@ -84,6 +83,7 @@ import { useVideoHistory } from '@/features/generation/hooks/use-video-history';
 import { useVideoJobs } from '@/features/generation/hooks/use-video-jobs';
 import { calculateVideoCost } from '@/features/generation/utils/cost';
 import { estimateVideoProgress } from '@/features/generation/utils/progress';
+import { prepareReferenceAudio, ReferenceAudioPreparationError } from '@/features/generation/reference-audio/prepare';
 import { burnBrandingWatermarkIntoVideo } from '@/features/post-production/assembly/client';
 import { renderTextOverlays } from '@/features/post-production/overlays/render';
 import { useShortDramaProject } from '@/features/projects/hooks/use-short-drama-project';
@@ -256,6 +256,11 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
     const [createTitleOverlayLanguage, setCreateTitleOverlayLanguage] = React.useState(DEFAULT_TITLE_OVERLAY_LANGUAGE);
     const [createCameraFixed, setCreateCameraFixed] = React.useState(false);
     const [createReferenceUrls, setCreateReferenceUrls] = React.useState<string[]>([]);
+    const [createSingleImageMode, setCreateSingleImageMode] = React.useState<'reference' | 'first-frame'>('reference');
+    const setVisualReferenceUrls = React.useCallback<React.Dispatch<React.SetStateAction<string[]>>>((next) => {
+        setCreateSingleImageMode('reference');
+        setCreateReferenceUrls(next);
+    }, []);
     const [createLastFrameUrl, setCreateLastFrameUrl] = React.useState('');
     const [createReferenceAudioUrl, setCreateReferenceAudioUrl] = React.useState('');
     const [createReferenceVideoUrls, setCreateReferenceVideoUrls] = React.useState<string[]>([]);
@@ -354,6 +359,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         setCreateTitleOverlayLanguage(DEFAULT_TITLE_OVERLAY_LANGUAGE);
         setCreateCameraFixed(false);
         setCreateReferenceUrls([]);
+        setCreateSingleImageMode('reference');
         setCreateLastFrameUrl('');
         setCreateReferenceAudioUrl('');
         setCreateReferenceVideoUrls([]);
@@ -366,7 +372,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         createModel,
         setCreateModel,
         referenceUrls: createReferenceUrls,
-        setReferenceUrls: setCreateReferenceUrls,
+        setReferenceUrls: setVisualReferenceUrls,
         declarations,
         setDeclaration,
         setNotice: setCreateNotice,
@@ -421,7 +427,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         navigateToTab,
         scrollToCreationForm,
         setDeclaration,
-        setReferenceUrls: setCreateReferenceUrls
+        setReferenceUrls: setVisualReferenceUrls
     });
     const applyPreset = React.useCallback(
         (item: GalleryItem) => {
@@ -447,8 +453,9 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
             setCreateTitleOverlayLanguage(normalizeTitleOverlayLanguage(p.title_overlay_language));
             setCreateCameraFixed(p.camera_fixed ?? false);
             setCreateReferenceUrls(refs);
+            setCreateSingleImageMode(p.input_reference_url ? 'first-frame' : 'reference');
             setCreateLastFrameUrl(p.input_reference_url ? (p.last_frame_url ?? '') : '');
-            setCreateReferenceAudioUrl(refs.length >= 2 ? (p.reference_audio_url ?? '') : '');
+            setCreateReferenceAudioUrl(p.input_reference_url ? '' : (p.reference_audio_url ?? ''));
             setCreateReferenceVideoUrls((p.reference_video_urls ?? []).slice(0, MAX_REFERENCE_VIDEOS));
             setCreateSeed(p.seed);
             setCreateWatermark(p.watermark ?? false);
@@ -521,6 +528,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
             setCreateModel(item.params.model);
             setCreateRatio(item.params.ratio);
             setCreateReferenceUrls([frameUrl]);
+            setCreateSingleImageMode('first-frame');
             setCreateLastFrameUrl('');
             setCreateReferenceAudioUrl('');
             setCreateReferenceVideoUrls([]);
@@ -539,18 +547,21 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
     }, [createReferenceUrls.length, createLastFrameUrl]);
 
     const isMultiReferenceMode = maxReferenceImages(createModel) > 1 && createReferenceUrls.length >= 2;
+    const canSubmitReferenceAudio = canUseReferenceAudio(
+        createReferenceUrls.length,
+        maxReferenceImages(createModel),
+        createSingleImageMode
+    );
     const wasMultiReferenceModeRef = React.useRef(isMultiReferenceMode);
     React.useEffect(() => {
+        if (!canSubmitReferenceAudio && createReferenceAudioUrl) setCreateReferenceAudioUrl('');
         if (wasMultiReferenceModeRef.current && !isMultiReferenceMode) {
-            if (createReferenceAudioUrl) {
-                setCreateReferenceAudioUrl('');
-            }
             if (createReferenceVideoUrls.length) {
                 setCreateReferenceVideoUrls([]);
             }
         }
         wasMultiReferenceModeRef.current = isMultiReferenceMode;
-    }, [isMultiReferenceMode, createReferenceAudioUrl, createReferenceVideoUrls.length]);
+    }, [canSubmitReferenceAudio, isMultiReferenceMode, createReferenceAudioUrl, createReferenceVideoUrls.length]);
 
     // One service for the app's lifetime: it reads the key through the ref at
     // call time, so it never needs rebuilding when the key arrives or rotates.
@@ -575,10 +586,22 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
     const imageGenerationEnabled = imageModels.length > 0;
     const imageTabEnabled = imageGenerationEnabled || uploadEnabled;
 
-    const { imageAssets, isLoadingImageAssets, handleUploadImage, handleUploadAudio, handleSynthesizeSpeech,
-        handleUploadVideo, handleGenerateImages, handleLoadAssets, refreshImageAssets } = useMediaActions({
-            resolveKey, uploadEnabled, activeTab, finalizeDialogItem
-        });
+    const {
+        imageAssets,
+        isLoadingImageAssets,
+        handleUploadImage,
+        handleUploadAudio,
+        handleSynthesizeSpeech,
+        handleUploadVideo,
+        handleGenerateImages,
+        handleLoadAssets,
+        refreshImageAssets
+    } = useMediaActions({
+        resolveKey,
+        uploadEnabled,
+        activeTab,
+        finalizeDialogItem
+    });
 
     const handleAnimateImage = React.useCallback(
         async (record: ImageRecord) => {
@@ -612,6 +635,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
 
             declareGeneratedReference(url, record.model);
             setCreateReferenceUrls([url]);
+            setCreateSingleImageMode('reference');
             setCreateLastFrameUrl('');
             setCreateReferenceAudioUrl('');
             setCreateReferenceVideoUrls([]);
@@ -621,12 +645,23 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         [declareGeneratedReference, navigateToTab, resolveKey]
     );
 
-    const { virtualCharacterGroups, handleStartPortraitSession,
-        handleLoadPortraitGroups, handleLoadPortraitAssets, handleCreatePortraitGroup,
-        handleDeletePortraitGroup, handleCreatePortraitAsset, handleGetPortraitAsset,
-        handleGetPortraitStatus } = usePortraitActions({
-            resolveKey, apiKey, activeTab, isPortraitEnabled, projectDraft
-        });
+    const {
+        virtualCharacterGroups,
+        handleStartPortraitSession,
+        handleLoadPortraitGroups,
+        handleLoadPortraitAssets,
+        handleCreatePortraitGroup,
+        handleDeletePortraitGroup,
+        handleCreatePortraitAsset,
+        handleGetPortraitAsset,
+        handleGetPortraitStatus
+    } = usePortraitActions({
+        resolveKey,
+        apiKey,
+        activeTab,
+        isPortraitEnabled,
+        projectDraft
+    });
 
     const handleReviewReferenceAsset = useProviderAssetReview({
         enabled: isPortraitEnabled,
@@ -798,6 +833,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                     return;
                 }
                 setCreateReferenceUrls((prev) => (prev.includes(url) ? prev : [...prev, url].slice(0, refCap)));
+                setCreateSingleImageMode('reference');
                 const assetId = approvedReferenceUrl ? assetIdFromReferenceUrl(approvedReferenceUrl) : undefined;
                 const key = refKey(url);
                 if (assetId && key) {
@@ -1507,25 +1543,23 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
 
     const blockedReferencesForParams = React.useCallback(
         (params: VideoJobCreate): string[] =>
-            imageReferenceUrlsFromParams(params).filter((url) => {
-                const declaration = effectiveDeclarations[refKey(url)];
-                if (!declarationSatisfied(declaration, approvedAuthorizationIds)) return true;
-                return maxReferenceImages(params.model) <= 1 && referenceRequiresAssetLibrary(url, declaration);
-            }),
-        [approvedAuthorizationIds, effectiveDeclarations]
+            imageReferenceUrlsFromParams(params).filter((url) => Boolean(referenceAdmissionReason(
+                url, effectiveDeclarations[refKey(url)], maxReferenceImages(params.model),
+                approvedAuthorizationIds, knownReferenceStatus(url, portraits)
+            ))),
+        [approvedAuthorizationIds, effectiveDeclarations, portraits]
     );
 
     const firstReferenceBlockReason = React.useCallback(
         (model: VideoModel, urls: string[]): string | null => {
             const first = urls[0];
             if (!first) return null;
-            const declaration = effectiveDeclarations[refKey(first)];
-            if (maxReferenceImages(model) <= 1 && referenceRequiresAssetLibrary(first, declaration)) {
-                return ASSET_LIBRARY_MODEL_BLOCK_REASON;
-            }
-            return declarationBlockReason(declaration, approvedAuthorizationIds);
+            return referenceAdmissionReason(
+                first, effectiveDeclarations[refKey(first)], maxReferenceImages(model),
+                approvedAuthorizationIds, knownReferenceStatus(first, portraits)
+            );
         },
-        [approvedAuthorizationIds, effectiveDeclarations]
+        [approvedAuthorizationIds, effectiveDeclarations, portraits]
     );
 
     // Repair local metadata when the browser already has the MP4 but the last
@@ -1784,23 +1818,32 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                 }
             }
         }
-        if (formData.reference_audio_url && formData.reference_image_urls?.length) {
+        if (formData.reference_audio_url) {
             options.onSubmitStage?.('Reading reference audio...');
             const isWorkerHosted = Boolean(workerBase && formData.reference_audio_url.startsWith(workerBase));
             const dataUri = formData.reference_audio_url.startsWith('data:')
                 ? formData.reference_audio_url
                 : await audioUrlToDataUri(formData.reference_audio_url);
             if (!dataUri) {
-                if (isWorkerHosted) {
-                    setError(
-                        'Background audio is no longer accessible — it may have been deleted from Assets. Remove it and upload it again.'
-                    );
+                setError(isWorkerHosted
+                    ? t('Background audio is no longer accessible<dot> Upload it again')
+                    : t('Cannot read or trim reference audio<dot> Upload an MP3 or WAV file and retry'), 'create');
+                setIsSubmitting(false);
+                return null;
+            } else {
+                try {
+                    const preparedAudio = await prepareReferenceAudio(dataUri, formData.seconds, formData.reference_audio_range);
+                    totalChars += preparedAudio.length;
+                    requestParams.reference_audio_url = preparedAudio;
+                } catch (error) {
+                    setError(error instanceof ReferenceAudioPreparationError && error.kind === 'too-short'
+                        ? t('Reference audio must be at least 2 seconds long')
+                        : error instanceof ReferenceAudioPreparationError && error.kind === 'invalid-range'
+                            ? t('Selected audio range is outside the file or longer than the video duration')
+                            : t('Cannot read or trim reference audio<dot> Upload an MP3 or WAV file and retry'), 'create');
                     setIsSubmitting(false);
                     return null;
                 }
-            } else {
-                totalChars += dataUri.length;
-                requestParams.reference_audio_url = dataUri;
             }
         }
         if (formData.reference_video_urls?.length) {
@@ -2195,8 +2238,9 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
             const refs =
                 params.reference_image_urls ?? (params.input_reference_url ? [params.input_reference_url] : []);
             setCreateReferenceUrls(refs);
+            setCreateSingleImageMode(params.input_reference_url ? 'first-frame' : 'reference');
             setCreateLastFrameUrl(refs.length === 1 ? (params.last_frame_url ?? '') : '');
-            setCreateReferenceAudioUrl(refs.length >= 2 ? (params.reference_audio_url ?? '') : '');
+            setCreateReferenceAudioUrl(params.input_reference_url ? '' : (params.reference_audio_url ?? ''));
             setCreateReferenceVideoUrls((params.reference_video_urls ?? []).slice(0, MAX_REFERENCE_VIDEOS));
             setCreateSeed(params.seed);
             setCreateWatermark(params.watermark ?? false);
@@ -2682,6 +2726,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                 setCreateTitleOverlayLanguage(normalizeTitleOverlayLanguage(params.title_overlay_language));
                 setCreateCameraFixed(params.camera_fixed ?? false);
                 setCreateReferenceUrls([frameUrl]);
+                setCreateSingleImageMode('first-frame');
                 setCreateLastFrameUrl('');
                 setCreateReferenceAudioUrl('');
                 setCreateReferenceVideoUrls([]);
@@ -3258,6 +3303,8 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                                 setCameraFixed={setCreateCameraFixed}
                                 referenceUrls={createReferenceUrls}
                                 setReferenceUrls={setCreateReferenceUrls}
+                                singleImageMode={createSingleImageMode}
+                                setSingleImageMode={setCreateSingleImageMode}
                                 declarations={effectiveDeclarations}
                                 approvedAuthorizationIds={approvedAuthorizationIds}
                                 characters={characters}
@@ -3284,14 +3331,16 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                                 onBreakdownScript={handleBreakdownScript}
                                 onAutoBindSceneAssets={handleAutoBindSceneAssets}
                                 onAutoBindCharacterAssets={handleAutoBindCharacterAssets}
-                                onRefreshAssetStatus={(assetId) => refreshProjectAssetStatus({
-                                    assetId,
-                                    getAsset: handleGetPortraitAsset,
-                                    portraits,
-                                    savePortrait: addPortrait,
-                                    syncPortraitState: syncNow,
-                                    syncProjectStatuses: projectDraft.syncProjectAssetStatuses
-                                })}
+                                onRefreshAssetStatus={(assetId) =>
+                                    refreshProjectAssetStatus({
+                                        assetId,
+                                        getAsset: handleGetPortraitAsset,
+                                        portraits,
+                                        savePortrait: addPortrait,
+                                        syncPortraitState: syncNow,
+                                        syncProjectStatuses: projectDraft.syncProjectAssetStatuses
+                                    })
+                                }
                                 shotVideoPreviews={shotVideoPreviews}
                                 projectAssets={projectDraft.projectAssets}
                                 projectConfig={projectDraft.activeProject}

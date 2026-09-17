@@ -2,11 +2,14 @@ import {
     assetIdFromReferenceUrl,
     automaticReviewOrigin,
     declarationSatisfied,
+    knownReferenceStatus,
     normalizeAssetId,
     originForGeneratedImage,
     originRequiresAssetLibrary,
     originRequiresAuthorization,
     originSupportsInlineReview,
+    referenceAdmissionReason,
+    referenceSatisfied,
     type ReferenceDeclaration,
     type ReferenceOrigin
 } from '@/features/assets/reference/origin';
@@ -66,5 +69,27 @@ describe('reference asset admission', () => {
         expect(assetIdFromReferenceUrl('asset://portrait-123')).toBe('portrait-123');
         expect(assetIdFromReferenceUrl('https://example.com/image.png')).toBeUndefined();
         expect(normalizeAssetId('bad asset')).toBe('');
+    });
+
+    it('keeps an explicit Asset ID usable after its local library card is removed', () => {
+        const url = 'asset://portrait-123';
+        expect(referenceSatisfied(url, undefined)).toBe(true);
+        expect(referenceAdmissionReason(url, undefined, 30)).toBeNull();
+        expect(referenceAdmissionReason(url, undefined, 1)).toBe(
+            'Current model does not support person assets. Switch to a compatible model.'
+        );
+        expect(knownReferenceStatus(url, [])).toBeUndefined();
+    });
+
+    it('still blocks a locally known failed or processing Asset ID', () => {
+        const url = 'asset://portrait-123';
+        expect(referenceSatisfied(url, undefined, undefined, 'Failed')).toBe(false);
+        expect(referenceAdmissionReason(url, undefined, 30, undefined, 'Failed')).toBe(
+            'Asset review failed; choose another'
+        );
+        expect(referenceAdmissionReason(url, undefined, 30, undefined, 'Processing')).toBe(
+            'Only an active Asset ID can be used as a reference'
+        );
+        expect(knownReferenceStatus(url, [{ assetId: 'portrait-123', status: 'Failed' }])).toBe('Failed');
     });
 });

@@ -1,0 +1,42 @@
+.root {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-width: 0;
+    margin-top: 0.2rem;
+    color: var(--studio-muted);
+    font-size: 0.78rem;
+    line-height: 1.45;
+}
+
+.text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.copyButton {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 1.65rem;
+    height: 1.65rem;
+    border: 0;
+    border-radius: 0.35rem;
+    background: transparent;
+    color: var(--studio-muted);
+    cursor: pointer;
+}
+
+.copyButton:hover,
+.copyButton:focus-visible {
+    background: var(--studio-hover);
+    color: var(--studio-foreground);
+}
+
+.copyButton:focus-visible {
+    outline: 2px solid var(--studio-foreground);
+    outline-offset: 1px;
+}

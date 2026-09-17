@@ -1,9 +1,11 @@
 'use client';
 
+import { AudioRangeControl } from './AudioRangeControl';
 import { Dropdown } from '@/components/ui/Dropdown';
 import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
 import { Textarea } from '@/components/ui/Textarea';
+import type { AudioRange } from '@/features/generation/reference-audio/range';
 import { ttsModel as loadTtsModel } from '@/lib/media-archive';
 import type { TtsVoice } from '@/lib/tts';
 import { cn } from '@/shared/utils/classnames';
@@ -14,6 +16,9 @@ import * as React from 'react';
 interface ReferenceAudioInputProps {
     url: string;
     onChange: (url: string) => void;
+    maxSeconds: number;
+    range: AudioRange;
+    onRangeChange: (range: AudioRange) => void;
     /** Uploads a local file and resolves to its public URL. Absent = URL-only mode. */
     onUpload?: (file: File) => Promise<string>;
     /** Generates speech, uploads it, and resolves to its public URL. */
@@ -35,6 +40,9 @@ function isHttpAudioUrl(url: string): boolean {
 export function ReferenceAudioInput({
     url,
     onChange,
+    maxSeconds,
+    range,
+    onRangeChange,
     onUpload,
     onSynthesizeSpeech,
     disabled
@@ -149,7 +157,16 @@ export function ReferenceAudioInput({
                         <div className='flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-white/15 bg-black text-white/60'>
                             <Music className='h-4 w-4' />
                         </div>
-                        <audio src={url} controls preload='none' className='min-w-0 flex-1' title={url} />
+                        <div className='min-w-0 flex-1'>
+                            <AudioRangeControl
+                                key={url}
+                                url={url}
+                                maxSeconds={maxSeconds}
+                                range={range}
+                                onRangeChange={onRangeChange}
+                                disabled={disabled}
+                            />
+                        </div>
                         <button
                             type='button'
                             onClick={() => {

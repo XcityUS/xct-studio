@@ -14,7 +14,12 @@ import { Textarea } from '@/components/ui/Textarea';
 import { ReferenceImagesInput } from '@/features/assets/components/ReferenceImagesInput';
 import type { ProviderAssetReviewInput } from '@/features/assets/hooks/use-provider-asset-review';
 import type { PortraitSetupRequest } from '@/features/assets/portrait/setup-flow';
-import { declarationSatisfied, refKey, type ReferenceDeclaration } from '@/features/assets/reference/origin';
+import {
+    knownReferenceStatus,
+    refKey,
+    referenceSatisfied,
+    type ReferenceDeclaration
+} from '@/features/assets/reference/origin';
 import type { VideoCharacter, VideoPortrait } from '@/features/generation/history/merge';
 import { calculateVideoCost } from '@/features/generation/utils/cost';
 import type { UserAsset } from '@/lib/media-archive';
@@ -143,7 +148,10 @@ export function FinalizeDialog({
     const cleanWatermarkText = watermarkText.trim().slice(0, WATERMARK_LIMIT);
     const unresolvedReferenceCount = referenceImageUrls.filter((url) => {
         const key = refKey(url);
-        return !key || !declarationSatisfied(declarations[key], approvedAuthorizationIds);
+        return (
+            !key ||
+            !referenceSatisfied(url, declarations[key], approvedAuthorizationIds, knownReferenceStatus(url, portraits))
+        );
     }).length;
     const canSubmit = Boolean(item && cleanPrompt && unresolvedReferenceCount === 0 && !isSubmitting);
 

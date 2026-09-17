@@ -121,7 +121,7 @@ export type VideoJobCreate = {
      */
     last_frame_url?: string;
     /**
-     * Multi-reference mode (Seedance 2.0/2.5, up to 9): each URL is sent with
+     * Visual-reference mode (one or more images, up to the model cap): each URL is sent with
      * role "reference_image"; prompts cite them as [Image 1], [Image 2], ….
      * Takes precedence over `input_reference_url` when non-empty.
      */
@@ -149,6 +149,8 @@ export type VideoJobCreate = {
      * History stores the public URL; submit code may inline it as a data URI.
      */
     reference_audio_url?: string;
+    /** Studio-only source excerpt, in seconds; never forwarded as a provider field. */
+    reference_audio_range?: { startSeconds: number; endSeconds: number };
     /** Lock the camera in place (BytePlus provider param, passed through). */
     camera_fixed?: boolean;
     /** Deterministic generation seed; absent means provider-random. */

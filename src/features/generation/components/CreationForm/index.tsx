@@ -1,16 +1,20 @@
 'use client';
 
+import { AspectRatioControl } from './AspectRatioControl';
+import { SingleImageModeControl } from './SingleImageModeControl';
 import { CharacterSelectors } from './CharacterSelectors';
 import { DramaLaunchPanel } from './DramaLaunchPanel';
-import { mergeAssetBindings as mergeDraftAssetBindings } from './draft-bindings';
 import { InlineError } from './InlineError';
 import { CAMERA_TEMPLATES, nativeCheckboxClass, nativeRangeClass } from './constants';
+import { mergeAssetBindings as mergeDraftAssetBindings } from './draft-bindings';
 import { useCreationOptions } from './options';
+import { canUseReferenceAudio, shouldGenerateAudio } from './reference-audio';
 import { createSubmissionBuilder } from './submission';
 import type { CreationFormProps, GenerationMode } from './types';
 import { useProjectConfig } from './use-project-config';
 import { useSceneAssetAutobind } from './use-scene-asset-autobind';
 import { useShotGeneration } from './use-shot-generation';
+import { useReferenceAudioRange } from './use-reference-audio-range';
 import { nextCharacterReference, referenceLabelsFor, referenceVideoPreviewsFor } from './utils';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -24,11 +28,9 @@ import { ReferenceImagesInput } from '@/features/assets/components/ReferenceImag
 import { ReferenceVideosInput } from '@/features/assets/components/ReferenceVideosInput';
 import { portraitReferenceUrl } from '@/features/assets/portrait/reference';
 import {
-    ASSET_LIBRARY_MODEL_BLOCK_REASON,
-    declarationBlockReason,
-    declarationSatisfied,
+    knownReferenceStatus,
     refKey,
-    referenceRequiresAssetLibrary
+    referenceAdmissionReason
 } from '@/features/assets/reference/origin';
 import { useReferenceCopy } from '@/features/assets/reference/use-copy';
 import type { VideoCharacter, VideoPortrait } from '@/features/generation/hooks/use-video-history';
@@ -39,7 +41,6 @@ import { ShotBuilderDialog } from '@/features/script/components/ShotBuilderDialo
 import { recalledDraft, rememberDraft, type EditorDraft } from '@/features/script/components/ShotBuilderDialog/draft';
 import {
     MAX_TITLE_OVERLAY_TEXT_LENGTH,
-    SILENT_VOICE_LANGUAGE,
     normalizeCaptionMode,
     normalizeTitleOverlayDuration,
     normalizeTitleOverlayLanguage,
@@ -60,7 +61,6 @@ import {
     modelSupportsResolution,
     secondsRange,
     type VideoModel,
-    type VideoRatio,
     type VideoResolution
 } from '@/shared/config/seedance';
 import { cn } from '@/shared/utils/classnames';
@@ -87,6 +87,8 @@ export function CreationForm({
     setCameraFixed,
     referenceUrls,
     setReferenceUrls,
+    singleImageMode,
+    setSingleImageMode,
     declarations,
     approvedAuthorizationIds,
     characters,
@@ -151,32 +153,22 @@ export function CreationForm({
     const activeSeconds = clampSeconds(seconds, activeModel);
     const modelDef = getSeedanceModel(activeModel);
     const refCap = maxReferenceImages(activeModel);
-    const isFirstFrameMode = referenceUrls.length === 1;
     const supportsMultiReferenceMedia = refCap > 1;
-    const showMultiReferenceMedia = supportsMultiReferenceMedia && referenceUrls.length >= 2;
-    const showReferenceAudio = showMultiReferenceMedia;
+    const isFirstFrameMode =
+        referenceUrls.length === 1 && (!supportsMultiReferenceMedia || singleImageMode === 'first-frame');
+    const showReferenceAudio = canUseReferenceAudio(referenceUrls.length, refCap, singleImageMode);
     const showReferenceVideos = supportsMultiReferenceMedia;
     const attachedReferenceUrls = React.useMemo(() => {
         const refs = referenceUrls.map((url) => url.trim()).filter(Boolean);
-        const lastFrame = lastFrameUrl.trim();
+        const lastFrame = isFirstFrameMode ? lastFrameUrl.trim() : '';
         return lastFrame ? [...refs, lastFrame] : refs;
-    }, [lastFrameUrl, referenceUrls]);
-    const blockedReferences = React.useMemo(
-        () =>
-            attachedReferenceUrls.filter((url) => {
-                const declaration = declarations[refKey(url)];
-                if (!declarationSatisfied(declaration, approvedAuthorizationIds)) return true;
-                return refCap <= 1 && referenceRequiresAssetLibrary(url, declaration);
-            }),
-        [approvedAuthorizationIds, attachedReferenceUrls, declarations, refCap]
+    }, [isFirstFrameMode, lastFrameUrl, referenceUrls]);
+    const admissionReasonFor = (url: string) => referenceAdmissionReason(
+        url, declarations[refKey(url)], refCap, approvedAuthorizationIds, knownReferenceStatus(url, portraits)
     );
+    const blockedReferences = attachedReferenceUrls.filter((url) => Boolean(admissionReasonFor(url)));
     const firstBlockedReference = blockedReferences[0];
-    const rawReferenceBlockReason = firstBlockedReference
-        ? refCap <= 1 &&
-          referenceRequiresAssetLibrary(firstBlockedReference, declarations[refKey(firstBlockedReference)])
-            ? ASSET_LIBRARY_MODEL_BLOCK_REASON
-            : declarationBlockReason(declarations[refKey(firstBlockedReference)], approvedAuthorizationIds)
-        : null;
+    const rawReferenceBlockReason = firstBlockedReference ? admissionReasonFor(firstBlockedReference) : null;
     const referenceBlockReason = referenceCopy.translateMessage(rawReferenceBlockReason);
     const submitMessage = error ?? notice ?? referenceBlockReason;
     const isBudgetError = Boolean(error && shouldShowBillingAction(error));
@@ -211,6 +203,7 @@ export function CreationForm({
     const supportsCameraFixed = activeModel.includes('seedance-1-5');
     const [promptBeforeOptimize, setPromptBeforeOptimize] = React.useState<string | null>(null);
     const [referenceVideoSecondsByUrl, setReferenceVideoSecondsByUrl] = React.useState<Record<string, number>>({});
+    const { range: referenceAudioRange, setRange: setReferenceAudioRange } = useReferenceAudioRange(referenceAudioUrl, activeSeconds);
     const supportsDraftMode = modelSupportsResolution(activeModel, '480p');
     const [generationMode, setGenerationMode] = React.useState<GenerationMode>(() =>
         modelSupportsResolution(activeModel, '480p') ? 'draft' : 'final'
@@ -298,7 +291,7 @@ export function CreationForm({
         ratio,
         resolution: activeResolution,
         seconds: activeSeconds,
-        generateAudio: normalizedVoiceLanguage !== SILENT_VOICE_LANGUAGE,
+        generateAudio: shouldGenerateAudio(normalizedVoiceLanguage, referenceAudioUrl, showReferenceAudio),
         inputVideoSeconds
     });
     const isCostLowerBound = Boolean(estimatedCost && (estimatedCost.lowerBound || hasReferenceVideos));
@@ -335,17 +328,17 @@ export function CreationForm({
         }
     };
 
-    const attachCharacterReference = React.useCallback((url: string, name: string) => {
+    const attachCharacterReference = (url: string, name: string) => {
         const next = nextCharacterReference(referenceUrls, url, name, refCap, '');
         if (!next) return;
         if (next.urls !== referenceUrls) setReferenceUrls(next.urls);
+        setSingleImageMode('reference');
         setPrompt((current) => nextCharacterReference(referenceUrls, url, name, refCap, current)?.prompt ?? current);
         setPromptBeforeOptimize(null);
-    }, [refCap, referenceUrls, setPrompt, setReferenceUrls]);
-    const handleAttachCharacter = React.useCallback((character: VideoCharacter) =>
-        attachCharacterReference(character.url, character.name), [attachCharacterReference]);
-    const handleAttachPortrait = React.useCallback((portrait: VideoPortrait) =>
-        attachCharacterReference(portraitReferenceUrl(portrait.assetId.trim()), portrait.name), [attachCharacterReference]);
+    };
+    const handleAttachCharacter = (character: VideoCharacter) => attachCharacterReference(character.url, character.name);
+    const handleAttachPortrait = (portrait: VideoPortrait) =>
+        attachCharacterReference(portraitReferenceUrl(portrait.assetId.trim()), portrait.name);
 
     const buildSubmissionData = createSubmissionBuilder({
         prompt,
@@ -368,8 +361,10 @@ export function CreationForm({
         titleOverlayLanguage: normalizedTitleOverlayLanguage,
         referenceUrls,
         referenceCap: refCap,
-        lastFrameUrl,
+        singleImageMode,
+        lastFrameUrl: isFirstFrameMode ? lastFrameUrl : '',
         referenceAudioUrl,
+        referenceAudioRange,
         showReferenceAudio,
         referenceVideoUrls,
         referenceVideoSecondsByUrl,
@@ -590,23 +585,13 @@ export function CreationForm({
                             </div>
 
                             <div className='grid grid-cols-2 gap-4'>
-                                <div className='space-y-2'>
-                                    <Label htmlFor='ratio-select' className='text-white'>
-                                        {t('Aspect Ratio')}
-                                    </Label>
-                                    {/* With a reference image the provider derives the ratio
-                                from the image and rejects an explicit one. */}
-                                    <Dropdown
-                                        id='ratio-select'
-                                        value={ratio}
-                                        onValueChange={(value) => setRatio(value as VideoRatio)}
-                                        disabled={isLoading || isFirstFrameMode}
-                                        options={creationOptions.ratios}
-                                    />
-                                    {isFirstFrameMode && (
-                                        <p className='text-xs text-white/40'>{t('Follows the reference image')}</p>
-                                    )}
-                                </div>
+                                <AspectRatioControl
+                                    ratio={ratio}
+                                    onRatioChange={setRatio}
+                                    options={creationOptions.ratios}
+                                    followsImageRatio={isFirstFrameMode}
+                                    disabled={isLoading}
+                                />
 
                                 <div className='space-y-2'>
                                     <Label htmlFor='resolution-select' className='text-white'>
@@ -967,8 +952,18 @@ export function CreationForm({
                                 urls={referenceUrls}
                                 onChange={setReferenceUrls}
                                 maxImages={refCap}
-                                lastFrameUrl={lastFrameUrl}
-                                onLastFrameChange={setLastFrameUrl}
+                                lastFrameUrl={isFirstFrameMode ? lastFrameUrl : ''}
+                                onLastFrameChange={isFirstFrameMode ? setLastFrameUrl : undefined}
+                                hint={referenceUrls.length === 1 ? '' : undefined}
+                                afterSelected={
+                                    <SingleImageModeControl
+                                        imageCount={referenceUrls.length}
+                                        supportsReferenceMode={supportsMultiReferenceMedia}
+                                        mode={singleImageMode}
+                                        onModeChange={setSingleImageMode}
+                                        disabled={isLoading}
+                                    />
+                                }
                                 onUpload={onUploadImage}
                                 declarations={declarations}
                                 approvedAuthorizationIds={approvedAuthorizationIds}
@@ -983,6 +978,9 @@ export function CreationForm({
                                 <ReferenceAudioInput
                                     url={referenceAudioUrl}
                                     onChange={setReferenceAudioUrl}
+                                    maxSeconds={activeSeconds}
+                                    range={referenceAudioRange}
+                                    onRangeChange={setReferenceAudioRange}
                                     onUpload={onUploadAudio}
                                     onSynthesizeSpeech={onSynthesizeSpeech}
                                     disabled={isLoading}

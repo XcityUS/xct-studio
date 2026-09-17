@@ -25,6 +25,8 @@ export function useReferenceCopy() {
             'Asset review is not available<dot> Ask an administrator to enable Assets'
         ),
         'Choose where this image came from.': t('Choose where this image came from'),
+        'Asset review failed; choose another': t('Asset review failed<semi> choose another'),
+        'Only an active Asset ID can be used as a reference': t('Only an active Asset ID can be used as a reference'),
         'Attach the official Asset ID before submitting.': t('Attach the official Asset ID before submitting'),
         'Review this material and attach its Asset ID before submitting.': t(
             'Review this material and attach its Asset ID before submitting'
@@ -76,10 +78,10 @@ export function useReferenceCopy() {
                     )
                   : imageCount === 1
                     ? t(
-                          'One image <eq> first<dash>frame mode <lpar>output ratio follows it<rpar><dot> Add more to switch to reference mode'
+                          'One image can guide appearance while the selected output ratio applies<dot> Select first<dash>frame mode only when the image already has the target canvas ratio'
                       )
                     : t(
-                          'First image starts the clip<semi> add 2<plus> <lpar>up to <lcur>max<rcur><rpar> for reference mode with <lbrk>Image n<rbrk> prompts',
+                          'Add up to <lcur>max<rcur> reference images and cite them as <lbrk>Image n<rbrk> in your prompt',
                           { max: maxImages }
                       ),
         translateMessage: (message: string | null) => (message ? (messages[message] ?? message) : null)

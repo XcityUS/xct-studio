@@ -13,7 +13,7 @@ import {
     ASSET_LIBRARY_MODEL_BLOCK_REASON,
     automaticReviewOrigin,
     assetIdFromReferenceUrl,
-    declarationSatisfied,
+    referenceSatisfied,
     originRequiresAssetLibrary,
     refKey
 } from '@/features/assets/reference/origin';
@@ -27,9 +27,8 @@ import * as React from 'react';
 /**
  * Reference image picker for image-to-video.
  *
- * Semantics mirror the request builder: exactly one image = first-frame mode
- * (output ratio follows the image); two or more = Seedance 2.x multi-reference
- * mode (role "reference_image", prompt cites [Image 1], [Image 2], …).
+ * The parent form chooses whether one image is an exact first frame or a
+ * visual reference; this picker only manages approved image attachments.
  */
 export function ReferenceImagesInput({
     urls,
@@ -50,6 +49,7 @@ export function ReferenceImagesInput({
     onSwitchToAssetModel,
     label,
     hint: hintOverride,
+    afterSelected,
     showCharacters = true,
     showAssetLibrary = false,
     disabled
@@ -77,6 +77,7 @@ export function ReferenceImagesInput({
             : [];
     const attachableCharacters = characters.filter((character) => !urls.includes(character.url));
     const attachableImageAssets = imageAssets.filter((asset) => asset.kind === 'image' && !urls.includes(asset.url));
+    const lastFrameAssetId = assetIdFromReferenceUrl(lastFrameUrl);
     const portraitsByAssetId = React.useMemo(
         () => new Map(portraits.map((portrait) => [portrait.assetId, portrait])),
         [portraits]
@@ -95,10 +96,19 @@ export function ReferenceImagesInput({
         if (lastFrameUrl.trim()) {
             items.push({ url: lastFrameUrl, label: 'Last frame' });
         }
-        return items.filter(
-            (item) => !declarationSatisfied(declarationForUrl(declarations, item.url), approvedAuthorizationIds)
-        );
-    }, [approvedAuthorizationIds, declarations, lastFrameUrl, urls]);
+        return items.filter((item) => {
+            const assetId = assetIdFromReferenceUrl(item.url);
+            const status = assetId
+                ? portraitsByAssetId.get(assetId)?.status
+                : portraitsBySource.get(refKey(item.url))?.status;
+            return !referenceSatisfied(
+                item.url,
+                declarationForUrl(declarations, item.url),
+                approvedAuthorizationIds,
+                status
+            );
+        });
+    }, [approvedAuthorizationIds, declarations, lastFrameUrl, portraitsByAssetId, portraitsBySource, urls]);
 
     const uploadReference = React.useCallback(
         async (file: File) => {
@@ -192,7 +202,11 @@ export function ReferenceImagesInput({
                                 portrait={
                                     assetId ? portraitsByAssetId.get(assetId) : portraitsBySource.get(refKey(url))
                                 }
-                                reviewStatus={portraitsBySource.get(refKey(url))?.status}
+                                reviewStatus={
+                                    assetId
+                                        ? portraitsByAssetId.get(assetId)?.status
+                                        : portraitsBySource.get(refKey(url))?.status
+                                }
                                 declaration={declaration}
                                 approvedAuthorizationIds={approvedAuthorizationIds}
                                 disabled={disabled}
@@ -202,6 +216,7 @@ export function ReferenceImagesInput({
                     })}
                 </div>
             )}
+            {urls.length > 0 && afterSelected}
 
             {showCharacters && remaining > 0 && attachableCharacters.length > 0 && (
                 <div className='space-y-2'>
@@ -340,7 +355,11 @@ export function ReferenceImagesInput({
                     onChange={onLastFrameChange}
                     onUpload={onUpload ? uploadReference : undefined}
                     declaration={declarationForUrl(declarations, lastFrameUrl)}
-                    reviewStatus={portraitsBySource.get(refKey(lastFrameUrl))?.status}
+                    reviewStatus={
+                        lastFrameAssetId
+                            ? portraitsByAssetId.get(lastFrameAssetId)?.status
+                            : portraitsBySource.get(refKey(lastFrameUrl))?.status
+                    }
                     approvedAuthorizationIds={approvedAuthorizationIds}
                     disabled={disabled}
                 />
@@ -352,10 +371,14 @@ export function ReferenceImagesInput({
                     <div className='space-y-2'>
                         {unresolvedDeclarations.map((item) => {
                             const declaration = declarationForUrl(declarations, item.url);
+                            const referencedAssetId = assetIdFromReferenceUrl(item.url);
+                            const knownStatus = referencedAssetId
+                                ? portraitsByAssetId.get(referencedAssetId)?.status
+                                : undefined;
                             const actionLabel = declaration?.origin
                                 ? referenceCopy.actionLabel(declaration.origin)
                                 : null;
-                            const reviewOrigin = automaticReviewOrigin(declaration);
+                            const reviewOrigin = referencedAssetId ? null : automaticReviewOrigin(declaration);
                             const mappingGroup =
                                 declaration?.origin === 'thirdparty-ai'
                                     ? 'AIGC'
@@ -379,25 +402,29 @@ export function ReferenceImagesInput({
                             const canReviewInline = Boolean(onReviewReferenceAsset) && Boolean(reviewOrigin);
                             const reviewUnavailable = Boolean(reviewOrigin) && !onReviewReferenceAsset;
                             const reviewAsset = portraitsBySource.get(referenceKey);
-                            const referencedAssetId = assetIdFromReferenceUrl(item.url);
                             const referencePreviewUrl =
                                 (referencedAssetId ? portraitsByAssetId.get(referencedAssetId)?.thumbUrl : undefined) ??
                                 reviewAsset?.thumbUrl;
-                            const originHint = reviewUnavailable
-                                ? referenceCopy.translateMessage(
-                                      'Provider asset review is not configured on this deployment. Ask an admin to enable Assets.'
-                                  )
-                                : reviewOrigin && assetLibraryUnsupported
-                                  ? t(
-                                        'Submit the review here<dot> After approval<comma> Studio selects a compatible model and uses the Asset ID automatically'
-                                    )
-                                  : assetLibraryUnsupported
-                                    ? referenceCopy.translateMessage(ASSET_LIBRARY_MODEL_BLOCK_REASON)
-                                    : declaration?.origin
-                                      ? referenceCopy.originHint(declaration.origin)
-                                      : reviewOrigin
-                                        ? referenceCopy.originHint(reviewOrigin)
-                                        : '';
+                            const originHint =
+                                knownStatus === 'Failed'
+                                    ? t('Asset review failed<semi> choose another')
+                                    : knownStatus === 'Processing'
+                                      ? t('Only an active Asset ID can be used as a reference')
+                                      : reviewUnavailable
+                                        ? referenceCopy.translateMessage(
+                                              'Provider asset review is not configured on this deployment. Ask an admin to enable Assets.'
+                                          )
+                                        : reviewOrigin && assetLibraryUnsupported
+                                          ? t(
+                                                'Submit the review here<dot> After approval<comma> Studio selects a compatible model and uses the Asset ID automatically'
+                                            )
+                                          : assetLibraryUnsupported
+                                            ? referenceCopy.translateMessage(ASSET_LIBRARY_MODEL_BLOCK_REASON)
+                                            : declaration?.origin
+                                              ? referenceCopy.originHint(declaration.origin)
+                                              : reviewOrigin
+                                                ? referenceCopy.originHint(reviewOrigin)
+                                                : '';
                             const displayLabel =
                                 item.label === 'Last frame'
                                     ? t('Last frame')
@@ -415,7 +442,7 @@ export function ReferenceImagesInput({
                                         />
                                         <span className='min-w-0 text-xs text-white/50'>{displayLabel}</span>
                                     </div>
-                                    {(declaration?.origin || reviewOrigin) && (
+                                    {(declaration?.origin || reviewOrigin || knownStatus) && (
                                         <div className='space-y-3 text-xs text-amber-100/80'>
                                             <div className='flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between'>
                                                 <span className='min-w-0 leading-5'>{originHint}</span>
@@ -624,7 +651,7 @@ export function ReferenceImagesInput({
             )}
 
             {uploadError && <p className='text-xs text-red-400'>{uploadError}</p>}
-            <p className='text-xs text-white/40'>{hint}</p>
+            {hint && <p className='text-xs text-white/40'>{hint}</p>}
         </div>
     );
 }

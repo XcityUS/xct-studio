@@ -78,7 +78,6 @@
 
 .headerActions,
 .photoActions,
-.bindingControls,
 .addRow {
     display: flex;
     flex-wrap: wrap;
@@ -206,8 +205,11 @@
 
 .binding {
     display: grid;
-    gap: 9px;
-    padding: 14px;
+    box-sizing: border-box;
+    gap: 8px;
+    width: 100%;
+    max-width: 640px;
+    padding: 14px 16px;
     border: 1px solid var(--studio-border);
     border-radius: 10px;
     background: var(--studio-surface-soft);
@@ -219,8 +221,14 @@
     color: var(--studio-muted);
     font-size: 12px;
 }
+.bindingControls {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr) max-content;
+    align-items: center;
+    gap: 8px;
+}
 .bindingControls label {
-    width: 100%;
+    white-space: nowrap;
 }
 .card .bindingControls input,
 .card .addRow input {
@@ -233,7 +241,23 @@
     background: var(--studio-surface);
 }
 .groupSelect {
-    min-width: 210px;
+    min-width: 0;
+}
+.card .groupSelect {
+    width: 100%;
+    height: 34px;
+    justify-content: space-between;
+    background: var(--studio-surface);
+    text-align: left;
+}
+.bindingControls input {
+    grid-column: 2 / 4;
+    width: 100%;
+}
+.bindingControls .primaryButton {
+    grid-column: 3;
+    grid-row: 1;
+    white-space: nowrap;
 }
 .saveError {
     color: var(--studio-danger) !important;
@@ -290,6 +314,12 @@
 .addRow > :first-child {
     flex: 1 1 200px;
 }
+.uploadError {
+    margin: 0;
+    padding: 0 20px 14px;
+    color: var(--studio-danger);
+    font-size: 12px;
+}
 
 @media (max-width: 680px) {
     .header {
@@ -311,5 +341,21 @@
     }
     .addRow {
         padding: 0 15px 15px;
+    }
+    .uploadError {
+        padding: 0 15px 14px;
+    }
+    .bindingControls {
+        grid-template-columns: minmax(0, 1fr) max-content;
+    }
+    .bindingControls label {
+        grid-column: 1 / -1;
+    }
+    .bindingControls .primaryButton {
+        grid-column: 2;
+        grid-row: 2;
+    }
+    .bindingControls input {
+        grid-column: 1 / -1;
     }
 }

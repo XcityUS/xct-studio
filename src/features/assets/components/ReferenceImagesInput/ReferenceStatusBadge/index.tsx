@@ -1,24 +1,34 @@
 'use client';
 
-import { declarationSatisfied, type ReferenceDeclaration } from '@/features/assets/reference/origin';
+import {
+    declarationSatisfied,
+    isAssetReferenceUrl,
+    referenceSatisfied,
+    type ReferenceDeclaration
+} from '@/features/assets/reference/origin';
 import type { VideoPortraitStatus } from '@/features/generation/history/merge';
 import { cn } from '@/shared/utils/classnames';
 import { AlertTriangle, Check, Clock3 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 export function ReferenceStatusBadge({
+    url,
     declaration,
     approvedAuthorizationIds,
     reviewStatus
 }: {
+    url: string;
     declaration: ReferenceDeclaration | undefined;
     approvedAuthorizationIds: ReadonlySet<string>;
     reviewStatus?: VideoPortraitStatus;
 }) {
     const t = useTranslations();
-    const satisfied = declarationSatisfied(declaration, approvedAuthorizationIds);
+    const satisfied = referenceSatisfied(url, declaration, approvedAuthorizationIds, reviewStatus);
+    const untrackedAssetId = isAssetReferenceUrl(url) && !declarationSatisfied(declaration, approvedAuthorizationIds);
     const title = satisfied
-        ? t('Reviewed')
+        ? untrackedAssetId
+            ? t('Asset ID')
+            : t('Reviewed')
         : reviewStatus === 'Processing'
           ? t('Under review')
           : reviewStatus === 'Failed'

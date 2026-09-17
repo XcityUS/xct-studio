@@ -1,4 +1,6 @@
-@import 'tailwindcss';
+@import 'tailwindcss' source(none);
+/* Legacy utility scan is limited to application source, never Next/Turbopack output. */
+@source '../';
 @import 'tw-animate-css';
 
 @custom-variant dark (&:is(.dark *));

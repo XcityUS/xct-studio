@@ -1,10 +1,8 @@
+import { shouldGenerateAudio } from './reference-audio';
 import { appendProjectReferenceUrls } from './shot-queue';
-import type { CreationFormData } from './types';
-import {
-    normalizeCaptionMode,
-    shouldAvoidGeneratedCaptions,
-    SILENT_VOICE_LANGUAGE
-} from '@/features/script/prompt/guards';
+import type { CreationFormData, SingleImageMode } from './types';
+import type { AudioRange } from '@/features/generation/reference-audio/range';
+import { normalizeCaptionMode, shouldAvoidGeneratedCaptions } from '@/features/script/prompt/guards';
 import { clampSeconds, type VideoModel, type VideoRatio, type VideoResolution } from '@/shared/config/seedance';
 import type { ProductionSnapshot } from '@/shared/contracts/production';
 
@@ -37,8 +35,10 @@ type Context = {
     titleOverlayLanguage: string;
     referenceUrls: string[];
     referenceCap: number;
+    singleImageMode: SingleImageMode;
     lastFrameUrl: string;
     referenceAudioUrl: string;
+    referenceAudioRange?: AudioRange;
     showReferenceAudio: boolean;
     referenceVideoUrls: string[];
     referenceVideoSecondsByUrl: Record<string, number>;
@@ -60,7 +60,11 @@ export function createSubmissionBuilder(context: Context) {
             ratio: context.ratio,
             resolution: context.resolution,
             seconds: clampSeconds(nextSeconds, context.model),
-            generate_audio: context.voiceLanguage !== SILENT_VOICE_LANGUAGE,
+            generate_audio: shouldGenerateAudio(
+                context.voiceLanguage,
+                context.referenceAudioUrl,
+                context.showReferenceAudio
+            ),
             camera_fixed: context.cameraFixed,
             seed: context.seed,
             watermark: context.watermark,
@@ -84,16 +88,25 @@ export function createSubmissionBuilder(context: Context) {
         const videos = context.showReferenceVideos
             ? context.referenceVideoUrls.map((url) => url.trim()).filter(Boolean)
             : [];
-        if (refs.length === 1 && !forceReferenceImageMode) {
+        if (
+            refs.length === 1 &&
+            !forceReferenceImageMode &&
+            (context.referenceCap <= 1 || context.singleImageMode === 'first-frame')
+        ) {
             data.input_reference_url = refs[0];
             if (context.lastFrameUrl.trim()) data.last_frame_url = context.lastFrameUrl.trim();
         } else if (refs.length > 1) {
             data.reference_image_urls = refs;
-            if (context.showReferenceAudio && context.referenceAudioUrl.trim()) {
-                data.reference_audio_url = context.referenceAudioUrl.trim();
-            }
         } else if (refs.length === 1) {
             data.reference_image_urls = refs;
+        }
+        if (!data.input_reference_url && context.showReferenceAudio && context.referenceAudioUrl.trim()) {
+            data.reference_audio_url = context.referenceAudioUrl.trim();
+            const range = context.referenceAudioRange ?? { startSeconds: 0, endSeconds: data.seconds };
+            data.reference_audio_range = {
+                startSeconds: range.startSeconds,
+                endSeconds: Math.min(range.endSeconds, range.startSeconds + data.seconds)
+            };
         }
         if (videos.length) {
             data.reference_video_urls = videos.slice(0, 2);

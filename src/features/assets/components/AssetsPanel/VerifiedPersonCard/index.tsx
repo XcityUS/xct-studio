@@ -45,6 +45,7 @@ export function VerifiedPersonCard(props: Props) {
     const [addedPhotoId, setAddedPhotoId] = React.useState<string | null>(null);
     const [coverBusy, setCoverBusy] = React.useState(false);
     const [coverError, setCoverError] = React.useState('');
+    const [uploadError, setUploadError] = React.useState('');
     const [copyState, setCopyState] = React.useState<{ assetId: string; failed: boolean } | null>(null);
     const cover = props.profile.coverUrl || props.photos.find((photo) => photo.thumbUrl)?.thumbUrl;
     const selectedPhoto = props.photos.find((photo) => photo.assetId === selectedPhotoId);
@@ -292,8 +293,12 @@ export function VerifiedPersonCard(props: Props) {
                         hidden
                         onChange={(event) => {
                             const file = event.target.files?.[0];
-                            if (file) void props.onUploadPhoto(file);
                             event.target.value = '';
+                            if (!file) return;
+                            setUploadError('');
+                            void props.onUploadPhoto(file).catch((error: unknown) => {
+                                setUploadError(error instanceof Error ? error.message : t('Unknown error'));
+                            });
                         }}
                     />
                     <button
@@ -305,6 +310,11 @@ export function VerifiedPersonCard(props: Props) {
                         {t('Upload photo')}
                     </button>
                 </div>
+                {uploadError && (
+                    <p className={styles.uploadError} role='alert'>
+                        {t('Could not upload photo<colon> <lcur>error<rcur>', { error: uploadError })}
+                    </p>
+                )}
             </details>
         </section>
     );

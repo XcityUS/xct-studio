@@ -1,6 +1,7 @@
 'use client';
 
 import { imageFingerprint, type VerifiedPersonProfile, type VerifiedPersonProfiles } from '../portrait/people';
+import { prepareVerifiedPhoto } from '../portrait/prepare-photo';
 import type { PortraitAsset } from '@/features/assets/portrait/api';
 import type { VideoPortrait } from '@/features/generation/history/merge';
 import { useTranslations } from 'next-intl';
@@ -33,16 +34,17 @@ export function useVerifiedPhotoUpload(options: Options) {
                 options.setNotice(t('This photo is already in the verified person'));
                 return;
             }
-            const url = await options.uploadImage(file);
+            const prepared = await prepareVerifiedPhoto(file);
+            const url = await options.uploadImage(prepared);
             const name = file.name.replace(/\.[^.]+$/, '').trim() || t('Character');
             const submitted = await options.submit(groupId, 'LivenessFace', url, name);
-            if (submitted)
-                options.saveProfile(groupId, {
-                    photoHashes: {
-                        ...options.profiles[groupId]?.photoHashes,
-                        [fingerprint]: submitted.assetId
-                    }
-                });
+            if (!submitted) throw new Error(t('Could not add portrait image'));
+            options.saveProfile(groupId, {
+                photoHashes: {
+                    ...options.profiles[groupId]?.photoHashes,
+                    [fingerprint]: submitted.assetId
+                }
+            });
             await options.refresh();
         } catch (error) {
             options.setError(
@@ -50,6 +52,7 @@ export function useVerifiedPhotoUpload(options: Options) {
                     error: error instanceof Error ? error.message : t('Unknown error')
                 })
             );
+            throw error;
         } finally {
             inFlight.current.delete(groupId);
             setUploadingGroupId(null);

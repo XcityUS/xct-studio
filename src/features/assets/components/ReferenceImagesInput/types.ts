@@ -3,6 +3,7 @@ import type { PortraitSetupRequest } from '@/features/assets/portrait/setup-flow
 import type { ReferenceDeclaration } from '@/features/assets/reference/origin';
 import type { VideoCharacter, VideoPortrait } from '@/features/generation/history/merge';
 import type { UserAsset } from '@/lib/media-archive';
+import type { ReactNode } from 'react';
 
 export interface ReferenceImagesInputProps {
     /** Public image URLs, in order — [Image 1], [Image 2], … in the prompt. */
@@ -27,6 +28,7 @@ export interface ReferenceImagesInputProps {
     onSwitchToAssetModel?: () => void;
     label?: string;
     hint?: string;
+    afterSelected?: ReactNode;
     showCharacters?: boolean;
     showAssetLibrary?: boolean;
     disabled?: boolean;

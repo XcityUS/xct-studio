@@ -97,6 +97,7 @@ export function LastFrameSlot({
                         <X className='h-3 w-3' />
                     </button>
                     <ReferenceStatusBadge
+                        url={url}
                         declaration={declaration}
                         approvedAuthorizationIds={approvedAuthorizationIds}
                         reviewStatus={reviewStatus}

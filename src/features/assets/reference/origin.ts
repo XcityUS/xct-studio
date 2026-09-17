@@ -23,6 +23,8 @@ export type ReferenceDeclaration = {
     note?: string;
 };
 
+export type ReferenceAssetStatus = 'Processing' | 'Active' | 'Failed';
+
 /** Display order mirrors the compliance path from immediately usable to blocked. */
 export const REFERENCE_ORIGINS: ReferenceOrigin[] = [
     'uploaded',
@@ -165,6 +167,42 @@ export function declarationSatisfied(
     const model = decl.model?.trim();
     if (!model) return false;
     return SEEDREAM_MODEL_RE.test(model);
+}
+
+/** An explicit Asset ID remains usable after its local library card is removed. */
+export function referenceSatisfied(
+    url: string,
+    declaration: ReferenceDeclaration | undefined,
+    approvedAuthorizationIds?: ReadonlySet<string>,
+    knownStatus?: ReferenceAssetStatus
+): boolean {
+    if (knownStatus && knownStatus !== 'Active') return false;
+    return isAssetReferenceUrl(url) || declarationSatisfied(declaration, approvedAuthorizationIds);
+}
+
+export function knownReferenceStatus(
+    url: string,
+    assets: readonly { assetId: string; status: ReferenceAssetStatus }[]
+): ReferenceAssetStatus | undefined {
+    const assetId = assetIdFromReferenceUrl(url);
+    return assetId ? assets.find((asset) => asset.assetId === assetId)?.status : undefined;
+}
+
+export function referenceAdmissionReason(
+    url: string,
+    declaration: ReferenceDeclaration | undefined,
+    referenceCap: number,
+    approvedAuthorizationIds?: ReadonlySet<string>,
+    knownStatus?: ReferenceAssetStatus
+): string | null {
+    if (referenceCap <= 1 && referenceRequiresAssetLibrary(url, declaration)) {
+        return ASSET_LIBRARY_MODEL_BLOCK_REASON;
+    }
+    if (knownStatus === 'Failed') return 'Asset review failed; choose another';
+    if (knownStatus === 'Processing') return 'Only an active Asset ID can be used as a reference';
+    return referenceSatisfied(url, declaration, approvedAuthorizationIds, knownStatus)
+        ? null
+        : declarationBlockReason(declaration, approvedAuthorizationIds);
 }
 
 export function declarationBlockReason(

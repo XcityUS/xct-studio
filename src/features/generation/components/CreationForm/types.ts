@@ -17,6 +17,7 @@ import type { VideoJobCreate } from '@/shared/contracts/video';
 import * as React from 'react';
 
 export type CreationFormData = VideoJobCreate;
+export type SingleImageMode = 'reference' | 'first-frame';
 
 export type CreationSubmitOptions = {
     title?: string;
@@ -78,6 +79,8 @@ export type CreationFormProps = {
     setCameraFixed: React.Dispatch<React.SetStateAction<boolean>>;
     referenceUrls: string[];
     setReferenceUrls: React.Dispatch<React.SetStateAction<string[]>>;
+    singleImageMode: SingleImageMode;
+    setSingleImageMode: React.Dispatch<React.SetStateAction<SingleImageMode>>;
     declarations: Record<string, ReferenceDeclaration>;
     approvedAuthorizationIds: ReadonlySet<string>;
     characters: VideoCharacter[];

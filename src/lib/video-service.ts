@@ -50,11 +50,12 @@ export function buildCreateBody(params: VideoJobCreate): Record<string, unknown>
     }
     if (
         (params.reference_image_urls && params.reference_image_urls.length > 0) ||
-        (params.reference_video_urls && params.reference_video_urls.length > 0)
+        (params.reference_video_urls && params.reference_video_urls.length > 0) ||
+        Boolean(params.reference_audio_url)
     ) {
-        // Multi-reference mode. BytePlus rejects mixing first/last-frame
-        // content with reference media, so first/last images are downgraded to
-        // ordinary reference images whenever video/audio/image refs are present.
+        // Reference mode also accepts prompt plus audio without an image.
+        // BytePlus rejects mixing first/last-frame content with reference media,
+        // so frame images are downgraded when other references are present.
         body.input_reference = [
             ...(params.input_reference_url ? [referenceItem(params.input_reference_url, 'reference_image')] : []),
             ...(params.last_frame_url ? [referenceItem(params.last_frame_url, 'reference_image')] : []),

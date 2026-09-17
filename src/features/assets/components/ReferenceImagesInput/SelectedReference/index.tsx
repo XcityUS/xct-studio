@@ -81,6 +81,7 @@ export function SelectedReference({
                     <X aria-hidden='true' />
                 </button>
                 <ReferenceStatusBadge
+                    url={url}
                     declaration={declaration}
                     approvedAuthorizationIds={approvedAuthorizationIds}
                     reviewStatus={reviewStatus}

@@ -2,6 +2,7 @@
 
 import { compileShotPrompt } from '@/features/generation/components/CreationForm/shot-queue';
 import { AssetBindingPicker } from './AssetBindingPicker';
+import { SceneDescription } from './SceneDescription';
 import { isUsableAssetBinding } from './AssetBindingPicker/choices';
 import { useAssetReviewPolling } from './use-asset-review-polling';
 import type { AssetBindingOptions, SceneAssetBindingProgress, ShotVideoPreview as ShotVideoPreviewItem } from '@/features/generation/components/CreationForm/types';
@@ -370,7 +371,7 @@ export function StoryboardDraftPanel({
                                             <strong title={scene.name}>{scene.name}</strong>
                                             {isUsableAssetBinding(scene.assetId, assets) && <span className={styles.boundTag}>{t('Bound')}</span>}
                                         </div>
-                                        <p title={scene.description || t('No description')}>{scene.description || t('No description')}</p>
+                                        <SceneDescription key={scene.description} description={scene.description} />
                                     </div>
                                     <AssetBindingPicker
                                         key={`${scene.id}:${scene.assetId ?? ''}`}
