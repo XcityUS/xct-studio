@@ -46,6 +46,8 @@ The default user may understand storytelling but does not need professional stor
 | Localization | Release in more than one language | script translation, subtitle tracks, translation review, dubbing, localized exports |
 | Publishing | Share or distribute approved results | versioned exports, share links, community and authorization flows |
 
+When a visitor has no Xcity session, the Studio workspace presents a focused full-page sign-in entry rather than an empty canvas or a boxed status notice. While session detection is still running, the entry shows a checking state instead of inviting a redundant sign-in. Manual API-key configuration is a localhost-only development fallback and must not appear on the production Studio domain.
+
 When sharing an archived video, Studio resolves any historical media-domain URL to the current media host and verifies the object exists before sending the share request. The Worker still enforces the signed-in user's media namespace; an object owned by a different account must not be relabelled as shareable and should produce an actionable error.
 
 Community approval must preserve the existing public index when moving it from legacy R2 storage to the current bucket. Conditional index-write conflicts should be retried; an approved share whose index update failed must remain recoverable from the administrator's review queue instead of disappearing from both the queue and public gallery.
@@ -133,6 +135,7 @@ The platform injects the selected asset and continuity context into Shot generat
 
 Generation must be Shot-centric:
 
+- Show Seedance model names in the Studio UI while keeping the existing gateway model IDs unchanged.
 - one Shot may request several Candidates
 - each Candidate retains its model, prompt snapshot, parameters, cost, status, and result media
 - a rejected Candidate can carry a structured reason such as character mismatch, wrong action, bad camera, poor timing, or visual defect

@@ -22,6 +22,7 @@ export type AssetsPanelProps = {
     loadAssets: () => Promise<UserAsset[]>;
     uploadImage?: (file: File) => Promise<string>;
     deleteAsset: (key: string) => Promise<void>;
+    checkDeletionProtection: () => Promise<boolean>;
     characters: VideoCharacter[];
     addCharacter: (character: VideoCharacter) => void;
     removeCharacter: (id: string) => void;

@@ -27,6 +27,7 @@ import * as React from 'react';
 
 export type AssetGridProps = {
     items: AssetListItem[];
+    deletionAllowed?: boolean;
     onDelete: (item: AssetListItem) => Promise<void>;
     onReview: (input: ProviderAssetReviewInput) => Promise<string>;
     onSaveCharacter: (asset: AssetListItem['asset'], referenceUrl: string) => void;
@@ -62,6 +63,7 @@ function ReviewActionShortLabel({ state }: { state: AssetReviewState }) {
 
 export function AssetGrid({
     items,
+    deletionAllowed = true,
     onDelete,
     onReview,
     onSaveCharacter,
@@ -151,7 +153,7 @@ export function AssetGrid({
                                         <ReviewStatusLabel state={item.reviewState} />
                                     </span>
                                 )}
-                                {canDelete && (
+                                {canDelete && deletionAllowed && (
                                     <button
                                         type='button'
                                         title={deleteLabel}

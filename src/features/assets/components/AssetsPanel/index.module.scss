@@ -4,21 +4,6 @@
     gap: 6px;
 }
 
-.verificationLink {
-    display: inline-flex;
-    width: fit-content;
-    padding: 5px 9px;
-    border: 1px solid var(--studio-border-strong);
-    border-radius: 6px;
-    color: var(--studio-foreground);
-    font-size: 12px;
-    text-decoration: none;
-
-    &:hover {
-        background: var(--studio-hover);
-    }
-}
-
 .portraitUploadRow {
     display: flex;
     flex-wrap: wrap;

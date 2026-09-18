@@ -23,6 +23,7 @@ type Props = {
     deleting: boolean;
     newlyVerified: boolean;
     canUpload: boolean;
+    deletionAllowed?: boolean;
     onProfileChange: (patch: Partial<VerifiedPersonProfile>) => void;
     onCoverUpload: (file: File) => Promise<void>;
     onDraftChange: (patch: Partial<{ assetKey: string; name: string }>) => void;
@@ -113,14 +114,16 @@ export function VerifiedPersonCard(props: Props) {
                         {coverBusy ? <Loader2 aria-hidden='true' /> : <ImagePlus aria-hidden='true' />}
                         {t('Set cover')}
                     </button>
-                    <button
-                        type='button'
-                        className={styles.delete}
-                        disabled={props.deleting || props.busy}
-                        onClick={props.onDelete}>
-                        {props.deleting ? <Loader2 aria-hidden='true' /> : <Trash2 aria-hidden='true' />}
-                        {t('Delete verified person')}
-                    </button>
+                    {props.deletionAllowed !== false && (
+                        <button
+                            type='button'
+                            className={styles.delete}
+                            disabled={props.deleting || props.busy}
+                            onClick={props.onDelete}>
+                            {props.deleting ? <Loader2 aria-hidden='true' /> : <Trash2 aria-hidden='true' />}
+                            {t('Delete verified person')}
+                        </button>
+                    )}
                 </div>
             </header>
             {coverError && <p className={styles.error}>{coverError}</p>}

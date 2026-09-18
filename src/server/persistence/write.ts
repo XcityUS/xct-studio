@@ -1,4 +1,5 @@
 import { BusinessError } from './auth';
+import { hasProtectedAssetUsers, isProtectedAssetSubject } from '@/server/assets/protection';
 import { TABLES } from '@/server/database/schema';
 import { recordKey, type BusinessChange, type BusinessRecord, type BusinessTable, type BusinessWriteResult } from '@/shared/contracts/business-data';
 import { isDeepStrictEqual } from 'node:util';
@@ -6,6 +7,12 @@ import type { PoolClient } from 'pg';
 import 'server-only';
 
 const ARCHIVE_FIELDS = new Set(['source_url', 'storedUrl', 'mediaKey', 'bytes', 'archivePending', 'archiveError']);
+const ASSET_TABLES = new Set<BusinessTable>([
+    'media_assets',
+    'project_assets',
+    'provider_assets',
+    'provider_asset_groups'
+]);
 function withoutArchive(data: NonNullable<BusinessRecord['data']>) {
     return Object.fromEntries(Object.entries(data).filter(([key]) => !ARCHIVE_FIELDS.has(key)));
 }
@@ -16,6 +23,15 @@ function archived(data: NonNullable<BusinessRecord['data']>) {
 
 /** The caller owns the transaction and owner lock. Validate all revisions before writing. */
 export async function writeRecordBatches(client: PoolClient, owner: string, changes: BusinessChange[]): Promise<BusinessWriteResult> {
+    if (hasProtectedAssetUsers() && changes.some((change) => ASSET_TABLES.has(change.table) && change.data === null)) {
+        const identity = await client.query<{ external_subject: string }>(
+            'SELECT external_subject FROM studio_users WHERE id = $1::uuid',
+            [owner]
+        );
+        if (!identity.rows[0]) throw new BusinessError('ASSET_IDENTITY_UNAVAILABLE', 503);
+        if (isProtectedAssetSubject(identity.rows[0].external_subject))
+            throw new BusinessError('ASSET_DELETE_PROTECTED', 403);
+    }
     const groups = new Map<BusinessTable, BusinessChange[]>();
     const seen = new Set<string>();
     for (const change of changes) {

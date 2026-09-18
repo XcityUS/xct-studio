@@ -50,7 +50,7 @@ export function useOutputMessages() {
             case 'Studio could not complete this request. Please check the input settings and try again.':
                 return t('Studio could not complete this request<dot> Please check the input settings and try again');
             case 'Finalize is only available for Xcity Video 2.5 drafts.':
-                return t('Finalize is only available for Xcity Video 2<dot>5 drafts');
+                return t('Finalize is only available for Seedance 2<dot>5 drafts');
             default:
                 return message;
         }

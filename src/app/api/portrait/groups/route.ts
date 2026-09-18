@@ -1,4 +1,5 @@
 import { jsonError, requirePortraitRoute } from '@/server/portrait/guards';
+import { assetDeletionProtection } from '@/server/assets/protection';
 import { providerAssetResponse } from '@/server/providers/xcity/provider-assets';
 
 export const dynamic = 'force-dynamic';
@@ -24,6 +25,10 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
     const gate = await requirePortraitRoute(request);
     if ('response' in gate) return gate.response;
+
+    const protection = await assetDeletionProtection(gate.auth.bearer);
+    if (protection === 'protected') return jsonError('ASSET_DELETE_PROTECTED', 403);
+    if (protection === 'unavailable') return jsonError('ASSET_IDENTITY_UNAVAILABLE', 503);
 
     const groupId = new URL(request.url).searchParams.get('id')?.trim();
     if (!groupId) return jsonError('missing group id', 400);

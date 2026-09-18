@@ -401,6 +401,14 @@ async function handleAssetsDelete(request, env, cors) {
     const { owner, error } = await authOwner(request, env, cors);
     if (error) return error;
 
+    // demo@xcity.ai is protected by default; the variable may add more user IDs.
+    const protectedOwners = ['d5f4d864-e07e-45c4-957f-795a724ac750', ...(env.PROTECTED_ASSET_USER_IDS || '').split(',')]
+        .map((id) => id.trim())
+        .filter(Boolean);
+    if (protectedOwners.some((id) => owner === `u/${id}`)) {
+        return json({ error: 'ASSET_DELETE_PROTECTED' }, 403, cors);
+    }
+
     let payload;
     try {
         payload = await request.json();

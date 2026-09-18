@@ -91,6 +91,8 @@ A Character Version should store:
 
 The UI should show one card per character group, with cover image, asset count, status, and actions to add/remove references. This matches the desired screenshot direction while preserving provider Asset ID gates.
 
+For protected demonstration accounts, asset deletion is forbidden at the media Worker, provider group route, and Studio business-record write boundary. Resolve accounts by the authenticated stable Xcity user ID, not by browser-supplied email or a password. Protection must not block asset reads or new uploads.
+
 When saving an approved verified-person photo to a character group, keep the group picker and save action together in a compact inline form. A new-group name field may use a second row, and the form must remain usable on narrow screens.
 
 For verified-person photo uploads, accept JPEG, PNG, and WebP under the existing upload limits. Images only slightly below the 300 px minimum side (280–299 px) may be enlarged proportionally before submission; keep the original file name and use the original bytes for duplicate detection. Show upload or provider failures next to the upload control instead of relying only on a notice above the card.
@@ -189,7 +191,7 @@ Project / IP default
 
 ## User-facing Review Flow
 
-- Real-person authorization starts from Studio and opens its verification page directly from the user's click so Chrome and Safari follow the same flow.
+- Real-person authorization starts from Studio and opens the provider H5 flow in a separate browser window directly from the user's click. Request a wider desktop window (up to 960 × 900 CSS pixels), capped by available screen dimensions; the browser may override the requested size. Studio shows a compact waiting dialog without embedding the provider page or displaying its raw verification URL; the provider H5 layout and camera access were unreliable inside an iframe. Retrying starts a fresh verification session rather than reusing a previously opened H5 URL. Browser-controlled address bars cannot be hidden. Closing Studio's waiting dialog must not discard an already completed callback.
 - When the verification callback succeeds, Studio must detect it automatically, refresh the verified-person group, and allow the user to upload that person's photo without a manual page refresh.
 - Callback notification uses same-origin storage and a same-origin browser channel, so restricting storage writes does not by itself leave an open Studio tab waiting for a manual refresh.
 - Uploading a photo from a verified-person group stores the image and submits it for review as one UI action. The user must not have to copy a URL or Asset ID between screens.

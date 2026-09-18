@@ -1,5 +1,5 @@
 import { writeBusinessRecords } from '@/server/persistence/repository';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const query = vi.hoisted(() => vi.fn());
 const release = vi.hoisted(() => vi.fn());
@@ -9,6 +9,8 @@ vi.mock('@/server/database/pool', () => ({
 }));
 
 const change = { table: 'projects' as const, scope: 'projects', id: 'p', data: { title: 'Local' }, baseRevision: 0 };
+
+afterEach(() => vi.unstubAllEnvs());
 
 describe('owner-scoped database transactions', () => {
     beforeEach(() => {
@@ -30,6 +32,24 @@ describe('owner-scoped database transactions', () => {
             'owner-a',
             JSON.stringify([{ scope: 'projects', id: 'p', data: change.data }])
         ]);
+    });
+
+    it('rejects asset tombstones for a protected account before writing records', async () => {
+        vi.stubEnv('PROTECTED_ASSET_USER_IDS', 'demo-id');
+        query.mockImplementation(async (sql: string) => ({
+            rows: sql.includes('pg_try_advisory')
+                ? [{ acquired: true }]
+                : sql.includes('SELECT external_subject')
+                  ? [{ external_subject: 'xcity:demo-id' }]
+                  : []
+        }));
+
+        await expect(writeBusinessRecords('owner-a', {
+            mode: 'write',
+            changes: [{ table: 'media_assets', scope: 'r2', id: 'photo', data: null, baseRevision: 1 }]
+        })).rejects.toMatchObject({ code: 'ASSET_DELETE_PROTECTED', status: 403 });
+        expect(query.mock.calls.some(([sql]) => String(sql).includes('WITH incoming'))).toBe(false);
+        expect(query).toHaveBeenCalledWith('ROLLBACK');
     });
 
     it('does not resurrect a deleted record from an old cache', async () => {
@@ -90,8 +110,9 @@ describe('owner-scoped database transactions', () => {
 
     it('rejects a stale explicit inventory deletion', async () => {
         query.mockImplementation(async (sql: string) => ({
-            rows: sql.includes('pg_try_advisory') ? [{ acquired: true }] : sql.startsWith('SELECT existing')
-                ? [{ scope: 'provider', id: 'asset-1', data: { status: 'Active' }, revision: 4 }] : []
+            rows: sql.includes('pg_try_advisory') ? [{ acquired: true }] : sql.includes('SELECT external_subject')
+                ? [{ external_subject: 'xcity:another-user' }] : sql.startsWith('SELECT existing')
+                  ? [{ scope: 'provider', id: 'asset-1', data: { status: 'Active' }, revision: 4 }] : []
         }));
         const result = await writeBusinessRecords('owner-a', { mode: 'write', changes: [{
             table: 'provider_assets', scope: 'provider', id: 'asset-1', data: null, baseRevision: 1

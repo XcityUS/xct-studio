@@ -143,6 +143,32 @@ describe('reference review presentation', () => {
         expect(html).not.toContain('Choose material source');
     });
 
+    it('hides the delete action when asset deletion is not allowed', () => {
+        const html = renderToStaticMarkup(
+            <NextIntlClientProvider locale='en' messages={en} timeZone='UTC'>
+                <AssetGrid
+                    items={[{
+                        asset: {
+                            key: 'photo', url: 'https://media.xcity.ai/photo.png', kind: 'image',
+                            bytes: 1024, uploaded: null, name: 'Photo'
+                        },
+                        reviewState: 'missing', source: 'cloud'
+                    }]}
+                    deletionAllowed={false}
+                    onDelete={async () => {}}
+                    onReview={async () => 'asset://approved'}
+                    onSaveCharacter={() => {}}
+                    onUseImage={() => {}}
+                    onUseVideo={() => {}}
+                    checkingAssetId={null}
+                    onCheckReviewStatus={async () => {}}
+                />
+            </NextIntlClientProvider>
+        );
+        expect(html).toContain('Photo');
+        expect(html).not.toContain('Delete from cloud storage');
+    });
+
     it('keeps the image visible while marking an existing provider review as in progress', () => {
         const imageUrl = 'https://media.xcity.ai/media/u/user/refs/photo.png';
         const html = renderToStaticMarkup(

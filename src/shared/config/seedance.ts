@@ -56,7 +56,7 @@ export interface SeedanceModel {
 export const SEEDANCE_MODELS = [
     {
         id: 'seedance-1-5-pro-251215',
-        label: 'Xcity Video 1.5 Pro',
+        label: 'Seedance 1.5 Pro',
         description: 'Native audio · best value',
         unitPrices: {
             '480p': { audio: 2.4, silent: 1.2 },
@@ -70,7 +70,7 @@ export const SEEDANCE_MODELS = [
     },
     {
         id: 'dreamina-seedance-2-0-260128',
-        label: 'Xcity Video 2.0',
+        label: 'Seedance 2.0',
         description: 'High quality · audio',
         unitPrices: {
             '480p': { noVideo: 7.0, withVideo: 4.3 },
@@ -84,7 +84,7 @@ export const SEEDANCE_MODELS = [
     },
     {
         id: 'dreamina-seedance-2-0-fast-260128',
-        label: 'Xcity Video 2.0 Fast',
+        label: 'Seedance 2.0 Fast',
         description: 'Faster · no 1080p',
         unitPrices: {
             '480p': { noVideo: 5.6, withVideo: 3.3 },
@@ -98,7 +98,7 @@ export const SEEDANCE_MODELS = [
     },
     {
         id: 'dreamina-seedance-2-5-260628',
-        label: 'Xcity Video 2.5',
+        label: 'Seedance 2.5',
         description: 'Up to 30s single shot',
         // Includes Xcity's 20% markup on Seedance 2.5.
         unitPrices: {

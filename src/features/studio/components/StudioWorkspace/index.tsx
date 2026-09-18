@@ -46,6 +46,7 @@ import {
 import { Input } from '@/components/ui/Input';
 import { Tabs, TabsContent } from '@/components/ui/Tabs';
 import { AssetsPanel } from '@/features/assets/components/AssetsPanel';
+import { checkAssetDeletionProtection } from '@/features/assets/protection/check';
 import type { ReferenceUseOptions } from '@/features/assets/components/AssetsPanel/types';
 import { useMediaArchive } from '@/features/assets/hooks/use-media-archive';
 import { usePosterBackfill } from '@/features/assets/hooks/use-poster-backfill';
@@ -811,6 +812,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
         },
         [resolveKey]
     );
+    const checkDeletionProtection = React.useCallback(() => checkAssetDeletionProtection(resolveKey), [resolveKey]);
 
     const handleUseAssetAsReference = React.useCallback(
         async (url: string, approvedReferenceUrl?: string, options?: ReferenceUseOptions) => {
@@ -3564,6 +3566,7 @@ export function StudioWorkspace({ locale }: StudioWorkspaceProps) {
                                         loadAssets={handleLoadAssets}
                                         uploadImage={uploadEnabled ? handleUploadImage : undefined}
                                         deleteAsset={handleDeleteAsset}
+                                        checkDeletionProtection={checkDeletionProtection}
                                         characters={characters}
                                         addCharacter={addCharacter}
                                         removeCharacter={removeCharacter}

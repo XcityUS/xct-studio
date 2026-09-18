@@ -5,6 +5,7 @@ import { AssetReviewHelp } from './AssetReviewHelp';
 import { CharacterDialog } from './CharacterDialog';
 import { CharacterGroupBrowser } from './CharacterGroupBrowser';
 import { DeleteCharacterGroupDialog } from './DeleteCharacterGroupDialog';
+import { PortraitVerificationDialog } from './PortraitVerificationDialog';
 import { VerifiedPersonCard } from './VerifiedPersonCard';
 import { buildAssetList, selectablePortraitSourceAssets } from './asset-list';
 import { applyAssetNameAlias, assetNameAliasKey, readAssetNameAliases, writeAssetNameAliases } from './asset-name-aliases';
@@ -23,6 +24,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/Input';
 import { AssetIdIntake } from '@/features/assets/components/AssetIdIntake';
 import { ProviderErrorNotice } from '@/features/assets/components/ProviderErrorNotice';
+import { checkAssetDeletionPermission, useAssetDeletionProtection } from '@/features/assets/hooks/use-asset-deletion-protection';
 import { useDeleteVerifiedPerson } from '@/features/assets/hooks/use-delete-verified-person';
 import { usePortraitStatusCheck } from '@/features/assets/hooks/use-portrait-status-check';
 import { usePortraitVerificationResult } from '@/features/assets/hooks/use-portrait-verification-result';
@@ -49,6 +51,7 @@ export function AssetsPanel({
     loadAssets,
     uploadImage,
     deleteAsset,
+    checkDeletionProtection,
     characters,
     addCharacter,
     removeCharacter,
@@ -80,6 +83,9 @@ export function AssetsPanel({
     active
 }: AssetsPanelProps) {
     const t = useTranslations();
+    const deletionStatus = useAssetDeletionProtection(active, checkDeletionProtection);
+    const protectedDeletionMessage = t('This account<apos>s assets are protected and cannot be deleted');
+    const unavailableDeletionMessage = t('Could not verify asset deletion permission<dot> Please retry');
     const loadAssetsError = t('Could not load assets');
     const loadPortraitGroupsError = t('Could not load portrait groups');
     const assetsSignInError = t('Sign in at xcity<dot>ai to view your assets');
@@ -111,7 +117,7 @@ export function AssetsPanel({
     const { profiles: verifiedPeople, save: saveVerifiedPerson, remove: removeVerifiedPerson } = useVerifiedPeople();
     const [isLoadingPortraitGroups, setIsLoadingPortraitGroups] = React.useState(false);
     const [isStartingPortraitSession, setIsStartingPortraitSession] = React.useState(false);
-    const [portraitVerificationUrl, setPortraitVerificationUrl] = React.useState<string | null>(null);
+    const [isPortraitVerificationOpen, setIsPortraitVerificationOpen] = React.useState(false);
     const [isCreatingVirtualGroup, setIsCreatingVirtualGroup] = React.useState(false);
     const [deletingPortraitGroupId, setDeletingPortraitGroupId] = React.useState<string | null>(null);
     const [deletingVerifiedGroupId, setDeletingVerifiedGroupId] = React.useState<string | null>(null);
@@ -241,7 +247,7 @@ export function AssetsPanel({
             if (pendingPortraitSetup && result.completedAt < pendingPortraitSetup.requestedAt) return;
             receivedVerificationRef.current = result.completedAt;
             setVerifiedSetupGroupId(result.groupId);
-            setPortraitVerificationUrl(null);
+            setIsPortraitVerificationOpen(false);
             setPortraitNotice(verificationCompleteNotice);
             void Promise.all([refreshPortraitGroups(), refreshProviderAssets()]);
             if (!pendingPortraitSetup) clearPortraitVerificationResult();
@@ -284,8 +290,12 @@ export function AssetsPanel({
         [aliasedAssets, assetNameAliases, declarations, deletedIds, portraits, providerAssets]
     );
     const selectableImageAssets = React.useMemo(() => selectablePortraitSourceAssets(assetList), [assetList]);
-
     const handleDelete = async (item: (typeof assetList)[number]) => {
+        const permission = await checkAssetDeletionPermission(checkDeletionProtection);
+        if (permission !== 'allowed') {
+            setError(permission === 'protected' ? protectedDeletionMessage : unavailableDeletionMessage);
+            return;
+        }
         const { asset } = item;
         const isProviderOnly = item.source === 'provider';
         const confirmMessage = isProviderOnly
@@ -385,25 +395,28 @@ export function AssetsPanel({
     );
 
     const handleStartPortraitSession = async () => {
-        const verificationWindow = window.open('about:blank', '_blank');
-        if (verificationWindow) verificationWindow.opener = null;
+        const width = Math.min(960, window.screen.availWidth);
+        const height = Math.min(900, window.screen.availHeight);
+        const popup = window.open('about:blank', '_blank', `popup=yes,width=${width},height=${height}`);
+        if (!popup) {
+            setPortraitError(t('Allow pop<dash>ups for this site and try again'));
+            return;
+        }
+        popup.opener = null;
         setIsStartingPortraitSession(true);
         setPortraitError(null);
         setPortraitNotice(null);
-        setPortraitVerificationUrl(null);
+        setIsPortraitVerificationOpen(false);
         try {
             clearPortraitVerificationResult();
             setVerifiedSetupGroupId(null);
             const session = await startPortraitSession(window.location.origin);
-            if (verificationWindow && !verificationWindow.closed) {
-                verificationWindow.location.replace(session.h5Link);
-                setPortraitNotice(t('Complete verification in the opened page<comma> then return'));
-            } else {
-                setPortraitVerificationUrl(session.h5Link);
-                setPortraitNotice(t('The browser blocked the verification window<dot> Open it to continue'));
-            }
+            if (popup.closed) throw new Error(t('Verification window was closed<dot> Try again'));
+            popup.location.replace(session.h5Link);
+            setIsPortraitVerificationOpen(true);
+            setPortraitNotice(t('Complete verification in the new window<comma> then return here'));
         } catch (err) {
-            verificationWindow?.close();
+            popup.close();
             setPortraitError(
                 t('Could not start verification<colon> <lcur>error<rcur>', {
                     error: errorMessage(err)
@@ -727,6 +740,9 @@ export function AssetsPanel({
                 </div>
             </CardHeader>
             <CardContent className='flex-grow overflow-y-auto p-4'>
+                {(deletionStatus === 'protected' || deletionStatus === 'unavailable') && (
+                    <p className='mb-3 text-sm text-amber-300'>{deletionStatus === 'protected' ? protectedDeletionMessage : unavailableDeletionMessage}</p>
+                )}
                 {error && <p className='mb-3 text-sm text-red-400'>{error}</p>}
                 {providerAssetsError && <ProviderErrorNotice error={providerAssetsError} />}
                 {characters.length > 0 && (
@@ -859,15 +875,6 @@ export function AssetsPanel({
                         )}
 
                         {portraitNotice && <p className='text-xs text-emerald-300'>{portraitNotice}</p>}
-                        {portraitVerificationUrl && (
-                            <a
-                                className={styles.verificationLink}
-                                href={portraitVerificationUrl}
-                                target='_blank'
-                                rel='noopener noreferrer'>
-                                {t('Open verification')}
-                            </a>
-                        )}
                         {portraitStatus && <p className='text-xs text-white/50'>{portraitStatus}</p>}
                         {portraitError && portraitError !== providerAssetsError && (
                             <ProviderErrorNotice error={portraitError} />
@@ -896,6 +903,7 @@ export function AssetsPanel({
                                             deleting={deletingVerifiedGroupId === group.id}
                                             newlyVerified={verifiedSetupGroupId === group.id}
                                             canUpload={Boolean(uploadImage)}
+                                            deletionAllowed={deletionStatus === 'allowed'}
                                             onProfileChange={(patch) => saveVerifiedPerson(group.id, patch)}
                                             onCoverUpload={async (file) => {
                                                 if (!uploadImage) throw new Error('Upload unavailable');
@@ -980,6 +988,7 @@ export function AssetsPanel({
                                         !isLoadingProviderAssets &&
                                         providerAssetsError === null
                                     }
+                                    deletionAllowed={deletionStatus === 'allowed'}
                                     groupLabel={(group) =>
                                         portraitGroupLabel(
                                             group,
@@ -1024,6 +1033,7 @@ export function AssetsPanel({
                 )}
 
                 <AssetLibrary
+                    deletionAllowed={deletionStatus === 'allowed'}
                     checkingAssetId={checkingAssetId}
                     items={assetList}
                     providerAssets={visibleProviderAssets}
@@ -1203,6 +1213,12 @@ export function AssetsPanel({
                 </div>
                 */}
             </CardContent>
+            <PortraitVerificationDialog
+                open={isPortraitVerificationOpen}
+                error={portraitError}
+                onClose={() => setIsPortraitVerificationOpen(false)}
+                onRestartInNewWindow={() => void handleStartPortraitSession()}
+            />
         </Card>
     );
 }

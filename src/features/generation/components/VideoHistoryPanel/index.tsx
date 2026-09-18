@@ -503,7 +503,7 @@ export function VideoHistoryPanel({
                                     const isDraft = item.draft === true || item.createParams?.draft === true;
                                     const finalizeDisabledReason = modelSupportsFinalize(item.model)
                                         ? null
-                                        : t('Finalize is only available for Xcity Video 2<dot>5 drafts');
+                                        : t('Finalize is only available for Seedance 2<dot>5 drafts');
                                     const selectionOrder = selectedClipIds.indexOf(item.id) + 1;
                                     const isSelectedForAssembly = selectionOrder > 0;
                                     const isSharePending = sharePendingId === item.id;

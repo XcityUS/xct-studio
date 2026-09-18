@@ -183,7 +183,7 @@ describe('completed output controls', () => {
             'zh'
         );
         expect(html).toContain('正在准备...');
-        expect(html).toContain('title="仅 Xcity Video 2.5 草稿支持生成正式版。"');
+        expect(html).toContain('title="仅 Seedance 2.5 草稿支持生成正式版。"');
         expect(html).toContain('title="请稍候，先归档到云端"');
         expect(html.match(/<button[^>]*disabled=""/g)).toHaveLength(3);
     });

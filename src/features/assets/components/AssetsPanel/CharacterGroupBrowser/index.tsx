@@ -41,6 +41,7 @@ type CharacterGroupBrowserProps = {
     addingGroupId: string | null;
     deletingGroupId: string | null;
     assetInventoryReady: boolean;
+    deletionAllowed?: boolean;
     groupLabel: (group: PortraitGroup) => string;
     sourceLabel: (asset: UserAsset) => string;
     onAdd: (groupId: string) => Promise<void>;
@@ -57,6 +58,7 @@ export function CharacterGroupBrowser({
     addingGroupId,
     deletingGroupId,
     assetInventoryReady,
+    deletionAllowed = true,
     groupLabel,
     sourceLabel,
     onAdd,
@@ -106,15 +108,17 @@ export function CharacterGroupBrowser({
                                     </span>
                                 </span>
                             </button>
-                            <button
-                                type='button'
-                                className={styles.deleteButton}
-                                aria-label={`${t('Delete character group')}: ${label}`}
-                                title={deleteReason}
-                                disabled={isDeleting || deleteBlocked}
-                                onClick={() => onDelete(group)}>
-                                {isDeleting ? <Loader2 className={styles.spinner} /> : <Trash2 />}
-                            </button>
+                            {deletionAllowed && (
+                                <button
+                                    type='button'
+                                    className={styles.deleteButton}
+                                    aria-label={`${t('Delete character group')}: ${label}`}
+                                    title={deleteReason}
+                                    disabled={isDeleting || deleteBlocked}
+                                    onClick={() => onDelete(group)}>
+                                    {isDeleting ? <Loader2 className={styles.spinner} /> : <Trash2 />}
+                                </button>
+                            )}
                         </article>
                     );
                 })}

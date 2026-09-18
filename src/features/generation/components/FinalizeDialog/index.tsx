@@ -161,7 +161,7 @@ export function FinalizeDialog({
                 <DialogHeader>
                     <DialogTitle className='px-6 pt-6 text-white'>Finalize Draft</DialogTitle>
                     <DialogDescription className='px-6 text-neutral-400'>
-                        Create a new Xcity Video 2.5 final version from this draft video. This starts a new paid
+                        Create a new Seedance 2.5 final version from this draft video. This starts a new paid
                         generation.
                     </DialogDescription>
                 </DialogHeader>
@@ -261,7 +261,7 @@ export function FinalizeDialog({
                     <div className='rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-white/70'>
                         <div className='flex justify-between gap-3'>
                             <span>Model</span>
-                            <span className='text-right text-white'>Xcity Video 2.5</span>
+                            <span className='text-right text-white'>Seedance 2.5</span>
                         </div>
                         <div className='mt-1 flex justify-between gap-3'>
                             <span>Output</span>

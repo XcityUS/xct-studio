@@ -14,6 +14,7 @@ import { useMediaPersistence } from '../../use-media-persistence';
 import styles from './index.module.scss';
 import { WorkspaceStartup } from '../WorkspaceStartup';
 import { RecoveryCopies } from '../RecoveryCopies';
+import { SignInGate } from '../SignInGate';
 import { ApiKeyDialog } from '@/features/settings/components/ApiKeyDialog';
 import { useLocalApiKeyOption } from '@/features/settings/hooks/use-local-api-key-option';
 import { useXcityKeyState } from '@/features/settings/hooks/use-xcity-key';
@@ -134,7 +135,14 @@ export function BusinessWorkspace({ children }: { children: ReactNode }) {
 
     return (
         <XcityKeyContext.Provider value={auth}>
-            {showStartup ? (
+            {!apiKey ? (
+                <SignInGate
+                    checkingAuth={checkingAuth}
+                    loginHref={loginHref}
+                    allowManualApiKey={allowManualApiKey}
+                    onConfigure={() => setDialog(true)}
+                />
+            ) : showStartup ? (
                 <WorkspaceStartup
                     stage={sync.stage}
                     stageLabel={stageLabel}
@@ -146,15 +154,7 @@ export function BusinessWorkspace({ children }: { children: ReactNode }) {
                 />
             ) : showStatus && <div className={styles.status} data-mode={ready ? 'floating' : 'gate'} data-state={statusState} data-sync-error={sync.error ?? undefined} data-pending-count={sync.pending} role={statusState === 'error' ? 'alert' : 'status'}>
                 <span className={styles.indicator} aria-hidden="true" />
-                {!auth.apiKey ? (
-                    <>
-                        <span>{t('Sign in to load your projects')}</span>
-                        <a href={loginHref}>{t('Sign in')}</a>
-                        {allowManualApiKey && (
-                            <button onClick={() => setDialog(true)}>{t('Configure Xcity API Key')}</button>
-                        )}
-                    </>
-                ) : autoRetry ? (
+                {autoRetry ? (
                     <span>{t('Sync is queued<dot> Retrying automatically<comma> local changes are safe')} ({sync.pending})</span>
                 ) : sync.error === 'LOCAL_BACKUP_FAILED' ? (
                     <span>{t('Keep this tab open<dot> Local backup could not be saved')}</span>
